@@ -8,9 +8,9 @@ UserService sử dụng thư viện **MassTransit 8.4.1** kết nối với Rabb
 
 | Tên Sự Kiện | Thời Điểm Kích Hoạt | Payload Dữ Liệu | Services Quan Tâm |
 |:---|:---|:---|:---|
-| `UserRegisteredEvent` | Người dùng hoàn tất đăng ký tài khoản mới thành công | `UserId`, `Username`, `Email`, `DisplayName`, `CreatedAt` | `NotificationService` (Gửi email chào mừng), `AuditService` (Ghi log). |
+| `UserRegisteredEvent` | Người dùng hoàn tất đăng ký tài khoản mới thành công | `UserId`, `Username`, `Email`, `DisplayName`, `CreatedAt` | `NotificationService` (Gửi email chào mừng), `LogService` (Ghi log). |
 | `SellerApprovedEvent` | Nhân viên vận hành phê duyệt đơn đăng ký bán hàng | `UserId`, `ShopName`, `ApprovedByStaffId`, `ApprovedAt` | `CatalogService` (Khởi tạo kho ảo cho Seller), `NotificationService` (Thông báo duyệt thành công). |
-| `UserRolesChangedEvent`| Quản trị viên thay đổi vai trò (roles) của một user | `UserId`, `OldRoles`, `NewRoles`, `ChangedByAdminId` | `AuditService` (Ghi nhận vết bảo mật). |
+| `UserRolesChangedEvent`| Quản trị viên thay đổi vai trò (roles) của một user | `UserId`, `OldRoles`, `NewRoles`, `ChangedByAdminId` | `LogService` (Ghi nhận vết bảo mật). |
 
 ---
 
