@@ -13,9 +13,13 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.HasIndex(x => x.TokenHash).IsUnique();
         builder.Property(x => x.DeviceInfo).HasMaxLength(255);
         builder.Property(x => x.IpAddress).HasMaxLength(100);
+        builder.Property(x => x.IsRevoked).HasDefaultValue(false);
 
         builder.HasOne(t => t.User)
             .WithMany(u => u.RefreshTokens)
-            .HasForeignKey(t => t.UserId);
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

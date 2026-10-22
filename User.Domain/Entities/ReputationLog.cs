@@ -10,7 +10,9 @@ public class ReputationLog : BaseEntity<Guid>
     public required ReputationChangeReason Reason { get; set; }
     public ReferenceType? ReferenceType { get; set; }
     public string? ReferenceId { get; set; }
+    public Guid? CreatedBy { get; set; }
 
     // Navigation
     public User? User { get; set; }
+    public User? CreatedByUser { get; set; }
 }

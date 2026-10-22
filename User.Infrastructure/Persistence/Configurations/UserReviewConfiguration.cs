@@ -13,13 +13,18 @@ public class UserReviewConfiguration : IEntityTypeConfiguration<UserReview>
         builder.Property(x => x.ReferenceId).HasMaxLength(100);
         builder.Property(x => x.ReviewerRole).HasConversion<string>();
         builder.Property(x => x.Comment).HasMaxLength(2000);
+        builder.Property(x => x.MediaUrls).HasColumnType("text[]");
 
         builder.HasOne(r => r.Reviewer)
             .WithMany(u => u.ReviewsGiven)
-            .HasForeignKey(r => r.ReviewerId);
+            .HasForeignKey(r => r.ReviewerId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(r => r.Reviewee)
             .WithMany(u => u.ReviewsReceived)
-            .HasForeignKey(r => r.RevieweeId);
+            .HasForeignKey(r => r.RevieweeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

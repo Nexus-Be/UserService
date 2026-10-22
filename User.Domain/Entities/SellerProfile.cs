@@ -7,6 +7,11 @@ public class SellerProfile : BaseEntity<Guid>
 {
     public required Guid UserId { get; set; }
     public required string ShopName { get; set; }
+    public string? AvatarUrl { get; set; }
+    public string? BusinessEmail { get; set; }
+    public string? IdCardFrontUrl { get; set; }
+    public string? IdCardBackUrl { get; set; }
+    public string? BusinessLicenseUrl { get; set; }
     public required string PickupAddress { get; set; }
     public required int ProvinceId { get; set; }
     public required int DistrictId { get; set; }
@@ -19,4 +24,5 @@ public class SellerProfile : BaseEntity<Guid>
 
     // Navigation
     public User? User { get; set; }
+    public User? ReviewedByUser { get; set; }
 }

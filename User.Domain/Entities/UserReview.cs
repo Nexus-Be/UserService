@@ -12,6 +12,7 @@ public class UserReview : BaseEntity<Guid>
     public required string ReferenceId { get; set; }
     public int Rating { get; set; }
     public string? Comment { get; set; }
+    public List<string> MediaUrls { get; set; } = new();
     public bool IsDisputed { get; set; }
     public bool IsDisabled { get; set; }
 

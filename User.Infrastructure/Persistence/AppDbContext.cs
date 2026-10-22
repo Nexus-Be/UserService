@@ -19,6 +19,8 @@ public class AppDbContext : DbContext
     public DbSet<ReputationScore> ReputationScores => Set<ReputationScore>();
     public DbSet<ReputationLog> ReputationLogs => Set<ReputationLog>();
     public DbSet<UserReview> UserReviews => Set<UserReview>();
+    public DbSet<UserReport> UserReports => Set<UserReport>();
+    public DbSet<UserPenalty> UserPenalties => Set<UserPenalty>();
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 

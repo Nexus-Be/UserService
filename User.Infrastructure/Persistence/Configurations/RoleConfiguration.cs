@@ -12,6 +12,7 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.Property(x => x.RoleCode).HasConversion<string>();
         builder.Property(x => x.RoleName).HasMaxLength(150).IsRequired();
         builder.Property(x => x.Description).HasMaxLength(500);
+        builder.Property(x => x.IsSystemRole).HasDefaultValue(false);
 
         builder.HasMany(r => r.UserRoles)
             .WithOne(ur => ur.Role)
@@ -20,5 +21,7 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.HasMany(r => r.RolePermissions)
             .WithOne(rp => rp.Role)
             .HasForeignKey(rp => rp.RoleId);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

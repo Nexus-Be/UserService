@@ -11,6 +11,7 @@ public class User : AuditableEntity<Guid>
     public required string LastName { get; set; }
     public string? PhoneNumber { get; set; }
     public string? IdentifyNumber { get; set; }
+    public string? AvatarUrl { get; set; }
     public Gender Gender { get; set; } = Gender.Unspecified;
     public DateTimeOffset? DateOfBirth { get; set; }
     public string? Address { get; set; }
@@ -29,4 +30,9 @@ public class User : AuditableEntity<Guid>
     public ICollection<ReputationLog> ReputationLogs { get; set; } = new List<ReputationLog>();
     public ICollection<UserReview> ReviewsGiven { get; set; } = new List<UserReview>();
     public ICollection<UserReview> ReviewsReceived { get; set; } = new List<UserReview>();
+    public ICollection<UserReport> ReportsSubmitted { get; set; } = new List<UserReport>();
+    public ICollection<UserReport> ReportsReceived { get; set; } = new List<UserReport>();
+    public ICollection<UserReport> ReportsResolved { get; set; } = new List<UserReport>();
+    public ICollection<UserPenalty> PenaltiesReceived { get; set; } = new List<UserPenalty>();
+    public ICollection<UserPenalty> PenaltiesIssued { get; set; } = new List<UserPenalty>();
 }

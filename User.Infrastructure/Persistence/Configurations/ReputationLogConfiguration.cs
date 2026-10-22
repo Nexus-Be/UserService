@@ -15,6 +15,14 @@ public class ReputationLogConfiguration : IEntityTypeConfiguration<ReputationLog
 
         builder.HasOne(l => l.User)
             .WithMany(u => u.ReputationLogs)
-            .HasForeignKey(l => l.UserId);
+            .HasForeignKey(l => l.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(l => l.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(l => l.CreatedBy)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

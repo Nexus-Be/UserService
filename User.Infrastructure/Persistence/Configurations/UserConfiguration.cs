@@ -16,6 +16,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.LastName).HasMaxLength(150).IsRequired();
         builder.Property(x => x.PhoneNumber).HasMaxLength(50);
         builder.Property(x => x.IdentifyNumber).HasMaxLength(50);
+        builder.Property(x => x.AvatarUrl).HasMaxLength(500);
         builder.Property(x => x.Address).HasMaxLength(1000);
         builder.Property(x => x.Status).HasConversion<string>();
         builder.Property(x => x.Gender).HasConversion<string>();
@@ -23,7 +24,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.HasOne(u => u.BannedByUser)
             .WithMany()
-            .HasForeignKey(u => u.BannedBy);
+            .HasForeignKey(u => u.BannedBy)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasMany(u => u.RefreshTokens)
             .WithOne(t => t.User)
@@ -48,5 +50,32 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasMany(u => u.ReviewsReceived)
             .WithOne(r => r.Reviewee)
             .HasForeignKey(r => r.RevieweeId);
+
+        builder.HasMany(u => u.ReportsSubmitted)
+            .WithOne(r => r.Reporter)
+            .HasForeignKey(r => r.ReporterId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(u => u.ReportsReceived)
+            .WithOne(r => r.ReportedUser)
+            .HasForeignKey(r => r.ReportedUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(u => u.ReportsResolved)
+            .WithOne(r => r.ResolvedByUser)
+            .HasForeignKey(r => r.ResolvedBy)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasMany(u => u.PenaltiesReceived)
+            .WithOne(p => p.User)
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(u => u.PenaltiesIssued)
+            .WithOne(p => p.CreatedByUser)
+            .HasForeignKey(p => p.CreatedBy)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }
