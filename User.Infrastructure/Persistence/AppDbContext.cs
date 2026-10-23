@@ -28,6 +28,7 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+        Seeds.UserSeedData.SeedRolesAndConfigs(modelBuilder);
     }
 }
 

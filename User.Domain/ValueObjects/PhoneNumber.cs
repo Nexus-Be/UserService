@@ -8,7 +8,7 @@ public sealed partial record PhoneNumber
     public string Value { get; }
     [GeneratedRegex(@"^(03|05|07|08|09)\d{8}$")]
     private static partial Regex VnPhoneRegex();
-    
+
     public PhoneNumber(string value)
     {
         // if (string.IsNullOrWhiteSpace(value))
@@ -23,7 +23,7 @@ public sealed partial record PhoneNumber
             throw new DomainException($"Số điện thoại '{value}' không đúng định dạng.");
         Value = normalized;
     }
-    
+
     public static implicit operator PhoneNumber(string value) => new PhoneNumber(value);
     public static implicit operator string(PhoneNumber phone) => phone.Value;
     public override string ToString() => Value;

@@ -23,9 +23,9 @@
 2. **TUYỆT ĐỐI KHÔNG LƯU MẬT KHẨU DẠNG PLAIN TEXT**:
    - Mật khẩu người dùng phải được băm (hash) bằng **Argon2id** (hoặc BCrypt) có salt ngẫu nhiên trước khi lưu vào DB.
 
-3. **TUYỆT ĐỐI KHÔNG THAY ĐỔI CỔNG 8001 VÀ DATABASE 5432**:
+3. **TUYỆT ĐỐI KHÔNG THAY ĐỔI CỔNG 8001 VÀ DATABASE 5433**:
    - Service gRPC chạy tại `http://localhost:8001`.
-   - Chuỗi kết nối DB trỏ tới `localhost:5432/usermanagement_db`.
+   - Chuỗi kết nối DB trỏ tới `localhost:5433/usermanagement_db` với mật khẩu mặc định `MatkhaucuaTui123@`.
 
 4. **TUYỆT ĐỐI KHÔNG TỰ Ý SỬA PROTOBUF MÀ KHÔNG ĐỒNG BỘ GATEWAY**:
    - Mọi RPC method và schema message phải khớp 100% với `Contracts/shop.proto` tại ApiGateway.

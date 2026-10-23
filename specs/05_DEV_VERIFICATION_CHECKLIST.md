@@ -23,5 +23,5 @@ dotnet run --project User.Api
 - [ ] **Biên dịch thành công 100%**: Không có lỗi cú pháp hoặc cảnh báo nghiêm trọng.
 - [ ] **Mật khẩu được băm an toàn**: Sử dụng Argon2 hoặc BCrypt.
 - [ ] **EF Core trực tiếp**: Không chứa class hoặc interface Repository pattern nào bọc ngoài `DbContext`.
-- [ ] **Port & Database đúng chuẩn**: Lắng nghe đúng port `8001`, database `usermanagement_db` trên port `5432`.
+- [ ] **Port & Database đúng chuẩn**: Lắng nghe đúng port `8001`, database `usermanagement_db` trên port `5433` (Password: `MatkhaucuaTui123@`).
 - [ ] **Git Status sạch sẽ**: Không có thư mục `bin/`, `obj/`, `.idea/`, file `.env` bị commit vào Git.

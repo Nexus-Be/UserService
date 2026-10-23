@@ -1,0 +1,13 @@
+namespace User.Application.Interfaces;
+
+using System.Threading;
+using System.Threading.Tasks;
+using User.Application.DTOs;
+using User.Domain.Entities;
+
+public interface IAuthService
+{
+    Task<User> RegisterAsync(RegisterDto dto, CancellationToken cancellationToken = default);
+    Task<User> VerifyOtpAsync(string email, string otp, CancellationToken cancellationToken = default);
+    Task<bool> ResendOtpAsync(string email, CancellationToken cancellationToken = default);
+}

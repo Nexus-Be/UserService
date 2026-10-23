@@ -8,7 +8,7 @@ Tài liệu này là **Bộ Chỉ Dẫn & Đặc Tả Kỹ Thuật (Spec Kit)** 
 
 | File Đặc Tả | Trọng Tâm Nội Dung |
 |:---|:---|
-| [00_AGENT_MISSION_GUARDRAILS.md](00_AGENT_MISSION_GUARDRAILS.md) | Bounded Context, Port `8001`, DB `usermanagement_db` (`5432`), các điều cấm kỵ cốt lõi. |
+| [00_AGENT_MISSION_GUARDRAILS.md](00_AGENT_MISSION_GUARDRAILS.md) | Bounded Context, Port `8001`, DB `usermanagement_db` (`5433`), các điều cấm kỵ cốt lõi. |
 | [01_CLEAN_ARCHITECTURE_LAYERS.md](01_CLEAN_ARCHITECTURE_LAYERS.md) | Cấu trúc 4 tầng Clean Architecture (`.Api`, `.Application`, `.Domain`, `.Infrastructure`), luồng phụ thuộc. |
 | [02_API_GRPC_CONTRACTS.md](02_API_GRPC_CONTRACTS.md) | Hợp đồng gRPC `UsersApi` trong `shop.proto`, Request/Response messages, mã lỗi RFC 9110. |
 | [03_EVENT_MESSAGING.md](03_EVENT_MESSAGING.md) | Sự kiện bất đồng bộ qua RabbitMQ + MassTransit 8.4.1 (`UserRegisteredEvent`, `SellerUpgradedEvent`), Outbox/Inbox. |
@@ -21,7 +21,7 @@ Tài liệu này là **Bộ Chỉ Dẫn & Đặc Tả Kỹ Thuật (Spec Kit)** 
 
 - **Ngôn ngữ & Runtime**: .NET 8 (C# 12).
 - **Cổng gRPC Server**: Port `8001` (Không có cổng HTTP REST riêng, mọi REST call đều qua ApiGateway Port `8000`).
-- **Cơ Sở Dữ Liệu**: PostgreSQL (Port `5432`, Database: `usermanagement_db`).
+- **Cơ Sở Dữ Liệu**: PostgreSQL (Port `5433`, Database: `usermanagement_db`, Mật khẩu: `MatkhaucuaTui123@`).
 - **Message Broker**: RabbitMQ (Port `5672`, Virtual Host: `/`).
 - **Thuật Toán Băm Mật Khẩu**: Argon2id hoặc BCrypt an toàn cao.
 - **Tiêu Chuẩn Token**: JWT Bearer (HMAC-SHA256, Audience: `shoppingcart-api`, Expiration: 60-120 phút).
