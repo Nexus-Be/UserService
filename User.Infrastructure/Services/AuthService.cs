@@ -108,12 +108,15 @@ public sealed class AuthService : IAuthService
 
             _dbContext.Users.Add(user);
 
-            // Gán role mặc định: Buyer
+            // Gán role mặc định: Buyer (ưu tiên tìm ID từ DB nếu có, fallback về BuyerRoleId)
+            var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
+            var roleId = buyerRole?.Id ?? BuyerRoleId;
+
             _dbContext.UserRoles.Add(new UserRole
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
-                RoleId = BuyerRoleId,
+                RoleId = roleId,
                 AssignedAt = DateTimeOffset.UtcNow
             });
 

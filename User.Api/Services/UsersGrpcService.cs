@@ -26,19 +26,33 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
     {
         try
         {
-            var firstName = !string.IsNullOrWhiteSpace(request.FirstName)
-                ? request.FirstName
-                : request.DisplayName ?? request.Username;
+            var firstName = request.FirstName;
+            var lastName = request.LastName;
 
-            var lastName = !string.IsNullOrWhiteSpace(request.LastName)
-                ? request.LastName
-                : "";
+            if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.DisplayName))
+            {
+                var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                firstName = parts[0];
+                lastName = parts.Length > 1 ? parts[1] : (string.IsNullOrWhiteSpace(lastName) ? "User" : lastName);
+            }
+            else if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.Username))
+            {
+                firstName = request.Username.Trim();
+                if (string.IsNullOrWhiteSpace(lastName))
+                {
+                    lastName = "User";
+                }
+            }
+            else if (string.IsNullOrWhiteSpace(lastName))
+            {
+                lastName = "User";
+            }
 
             var dto = new RegisterDto(
                 Email: request.Email,
                 Password: request.Password,
-                FirstName: firstName,
-                LastName: lastName,
+                FirstName: firstName ?? "User",
+                LastName: lastName ?? "User",
                 PhoneNumber: request.PhoneNumber
             );
 
@@ -47,8 +61,7 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
         catch (DomainException ex)
         {
-            var statusCode = ex.ErrorCode == "USER_NOT_FOUND" ? StatusCode.NotFound : StatusCode.InvalidArgument;
-            throw new RpcException(new Status(statusCode, ex.Message));
+            throw new RpcException(new Status(MapDomainErrorCodeToGrpcStatus(ex.ErrorCode), ex.Message));
         }
         catch (Exception ex)
         {
@@ -65,8 +78,7 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
         catch (DomainException ex)
         {
-            var statusCode = ex.ErrorCode == "USER_NOT_FOUND" ? StatusCode.NotFound : StatusCode.InvalidArgument;
-            throw new RpcException(new Status(statusCode, ex.Message));
+            throw new RpcException(new Status(MapDomainErrorCodeToGrpcStatus(ex.ErrorCode), ex.Message));
         }
         catch (Exception ex)
         {
@@ -88,14 +100,21 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
         catch (DomainException ex)
         {
-            var statusCode = ex.ErrorCode == "USER_NOT_FOUND" ? StatusCode.NotFound : StatusCode.InvalidArgument;
-            throw new RpcException(new Status(statusCode, ex.Message));
+            throw new RpcException(new Status(MapDomainErrorCodeToGrpcStatus(ex.ErrorCode), ex.Message));
         }
         catch (Exception ex)
         {
             throw new RpcException(new Status(StatusCode.Internal, ex.Message));
         }
     }
+
+    private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
+    {
+        "USER_NOT_FOUND" => StatusCode.NotFound,
+        "EMAIL_ALREADY_EXISTS" => StatusCode.AlreadyExists,
+        "OTP_ALREADY_USED" or "OTP_EXPIRED" or "USER_ALREADY_VERIFIED" => StatusCode.FailedPrecondition,
+        _ => StatusCode.InvalidArgument
+    };
 
     public override async Task<UserProfile> GetProfile(UserRequest request, ServerCallContext context)
     {

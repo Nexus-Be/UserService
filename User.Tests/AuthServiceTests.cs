@@ -185,6 +185,42 @@ public sealed class AuthServiceTests
         Assert.Equal(OtpStatus.Active, secondOtp.Status);
     }
 
+    [Fact]
+    public async Task VerifyOtpAsync_throws_when_otp_expired()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto("expired@nexus.local", "Password123!", "Pham", "Expired");
+        await authService.RegisterAsync(dto);
+
+        // Đổi trạng thái OTP sang Expired
+        await otpService.InvalidateExistingOtpsAsync("expired@nexus.local");
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.VerifyOtpAsync("expired@nexus.local", "123456"));
+        Assert.Equal("OTP_EXPIRED", ex.ErrorCode);
+        Assert.Equal("OTP code has expired. Please request a new code.", ex.Message);
+    }
+
+    [Fact]
+    public async Task ResendOtpAsync_throws_when_user_already_verified()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto("alreadyverified@nexus.local", "Password123!", "Le", "Verified");
+        var user = await authService.RegisterAsync(dto);
+
+        var otp = (await otpService.GetOtpAsync("alreadyverified@nexus.local"))!.Code;
+        await authService.VerifyOtpAsync("alreadyverified@nexus.local", otp);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.ResendOtpAsync("alreadyverified@nexus.local"));
+        Assert.Equal("USER_ALREADY_VERIFIED", ex.ErrorCode);
+        Assert.Equal("User account has already been verified.", ex.Message);
+    }
+
     private sealed class TestRedisOtpService : IRedisOtpService
     {
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);
