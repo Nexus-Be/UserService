@@ -10,6 +10,7 @@ COPY ["User.Api/User.Api.csproj", "User.Api/"]
 COPY ["User.Application/User.Application.csproj", "User.Application/"]
 COPY ["User.Domain/User.Domain.csproj", "User.Domain/"]
 COPY ["User.Infrastructure/User.Infrastructure.csproj", "User.Infrastructure/"]
+COPY ["User.Tests/User.Tests.csproj", "User.Tests/"]
 RUN dotnet restore "User.sln"
 COPY . .
 RUN dotnet build "User.Api/User.Api.csproj" -c Release -o /app/build
