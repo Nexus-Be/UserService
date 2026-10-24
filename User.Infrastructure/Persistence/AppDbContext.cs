@@ -1,9 +1,11 @@
 namespace User.Infrastructure.Persistence;
 
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using User.Application.Interfaces;
 using User.Domain.Entities;
 
-public class AppDbContext : DbContext
+public class AppDbContext : DbContext, IUserDbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -29,6 +31,11 @@ public class AppDbContext : DbContext
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
         Seeds.UserSeedData.SeedRolesAndConfigs(modelBuilder);
+
+        // MassTransit Transactional Outbox entities
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+        modelBuilder.AddOutboxStateEntity();
     }
 }
 

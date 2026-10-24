@@ -1,4 +1,4 @@
-namespace User.Infrastructure.Services;
+namespace User.Infrastructure.Services.Redis;
 
 using System;
 using System.Text.Json;
@@ -51,36 +51,58 @@ public sealed class RedisOtpService : IRedisOtpService
     public async Task<OtpEntry?> GetOtpAsync(string email)
     {
         var key = FormatKey(email);
+
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            var val = await db.StringGetAsync(key);
-            if (!val.HasValue) return null;
+            var value = await db.StringGetAsync(key);
+            if (value.IsNullOrEmpty)
+            {
+                return null;
+            }
 
-            return JsonSerializer.Deserialize<OtpEntry>(val.ToString()!);
+            try
+            {
+                return JsonSerializer.Deserialize<OtpEntry>(value.ToString()!);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize OTP entry from Redis for key '{Key}'.", key);
+                return null;
+            }
         }
 
+        _logger.LogWarning("[REDIS OFFLINE] Cannot fetch OTP for '{Email}'. Returning null.", email);
         return null;
     }
 
     public async Task MarkOtpConsumedAsync(string email)
     {
         var key = FormatKey(email);
+
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            var val = await db.StringGetAsync(key);
-            if (val.HasValue)
+            var value = await db.StringGetAsync(key);
+            if (!value.IsNullOrEmpty)
             {
-                var entry = JsonSerializer.Deserialize<OtpEntry>(val.ToString()!);
-                if (entry != null)
+                try
                 {
-                    entry.Status = OtpStatus.Consumed;
-                    entry.ConsumedAt = DateTimeOffset.UtcNow;
-                    var remainingTtl = await db.KeyTimeToLiveAsync(key);
-                    var ttl = remainingTtl ?? TimeSpan.FromMinutes(10);
-                    await db.StringSetAsync(key, JsonSerializer.Serialize(entry), ttl);
-                    _logger.LogInformation("Marked OTP as Consumed in Redis for '{Email}'.", email);
+                    var entry = JsonSerializer.Deserialize<OtpEntry>(value.ToString()!);
+                    if (entry != null)
+                    {
+                        entry.Status = OtpStatus.Consumed;
+                        var ttl = await db.KeyTimeToLiveAsync(key);
+                        var remainingTtl = ttl ?? TimeSpan.FromMinutes(10);
+                        if (remainingTtl <= TimeSpan.Zero) remainingTtl = TimeSpan.FromMinutes(1);
+
+                        await db.StringSetAsync(key, JsonSerializer.Serialize(entry), remainingTtl);
+                        _logger.LogInformation("Marked OTP as Consumed for '{Email}'.", email);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to mark OTP as consumed in Redis for '{Email}'.", email);
                 }
             }
         }
@@ -89,22 +111,12 @@ public sealed class RedisOtpService : IRedisOtpService
     public async Task InvalidateExistingOtpsAsync(string email)
     {
         var key = FormatKey(email);
+
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            var val = await db.StringGetAsync(key);
-            if (val.HasValue)
-            {
-                var entry = JsonSerializer.Deserialize<OtpEntry>(val.ToString()!);
-                if (entry != null && entry.Status == OtpStatus.Active)
-                {
-                    entry.Status = OtpStatus.Expired;
-                    var remainingTtl = await db.KeyTimeToLiveAsync(key);
-                    var ttl = remainingTtl ?? TimeSpan.FromMinutes(5);
-                    await db.StringSetAsync(key, JsonSerializer.Serialize(entry), ttl);
-                    _logger.LogInformation("Invalidated previous active OTP for '{Email}'.", email);
-                }
-            }
+            await db.KeyDeleteAsync(key);
+            _logger.LogInformation("Invalidated (deleted) existing OTPs in Redis for '{Email}'.", email);
         }
     }
 

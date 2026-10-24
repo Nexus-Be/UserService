@@ -1,8 +1,7 @@
-namespace User.Application.Interfaces;
+namespace User.Application.Services.Auth;
 
 using System.Threading;
 using System.Threading.Tasks;
-using User.Application.DTOs;
 using User.Domain.Entities;
 
 public interface IAuthService

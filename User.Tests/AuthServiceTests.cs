@@ -5,13 +5,13 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using User.Application.DTOs;
 using User.Application.Interfaces;
 using User.Application.Models;
+using User.Application.Services.Auth;
 using User.Domain.Enums;
 using User.Domain.Exceptions;
 using User.Infrastructure.Persistence;
-using User.Infrastructure.Services;
+using User.Infrastructure.Services.Redis;
 using Xunit;
 
 public sealed class AuthServiceTests
