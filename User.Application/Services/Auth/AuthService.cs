@@ -1,4 +1,4 @@
-namespace User.Infrastructure.Services;
+namespace User.Application.Services.Auth;
 
 using System;
 using System.Text.RegularExpressions;
@@ -8,17 +8,15 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Nexus.Contracts.Events;
-using User.Application.DTOs;
 using User.Application.Interfaces;
 using User.Application.Models;
 using User.Domain.Entities;
 using User.Domain.Enums;
 using User.Domain.Exceptions;
-using User.Infrastructure.Persistence;
 
-public sealed class AuthService : IAuthService
+public class AuthService : IAuthService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IUserDbContext _dbContext;
     private readonly IRedisOtpService _otpService;
     private readonly IPublishEndpoint? _publishEndpoint;
     private readonly ILogger<AuthService> _logger;
@@ -26,7 +24,7 @@ public sealed class AuthService : IAuthService
     private static readonly Guid BuyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     public AuthService(
-        AppDbContext dbContext,
+        IUserDbContext dbContext,
         IRedisOtpService otpService,
         ILogger<AuthService> logger,
         IPublishEndpoint? publishEndpoint = null)
@@ -74,7 +72,6 @@ public sealed class AuthService : IAuthService
             }
 
             // Trường hợp đăng ký lại khi tài khoản chưa xác nhận (PendingVerification):
-            // Cập nhật lại mật khẩu và thông tin mới, vô hiệu hóa các mã OTP cũ
             existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
             existingUser.FirstName = dto.FirstName.Trim();
             existingUser.LastName = dto.LastName.Trim();
@@ -108,7 +105,7 @@ public sealed class AuthService : IAuthService
 
             _dbContext.Users.Add(user);
 
-            // Gán role mặc định: Buyer (ưu tiên tìm ID từ DB nếu có, fallback về BuyerRoleId)
+            // Gán role mặc định: Buyer
             var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
             var roleId = buyerRole?.Id ?? BuyerRoleId;
 
@@ -141,7 +138,7 @@ public sealed class AuthService : IAuthService
         // Lưu CSDL
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        // Bắn sự kiện lên RabbitMQ cho Worker gửi mail bất đồng bộ (không làm treo luồng chính)
+        // Bắn sự kiện lên RabbitMQ cho Worker gửi mail bất đồng bộ
         if (_publishEndpoint != null)
         {
             try
@@ -212,10 +209,8 @@ public sealed class AuthService : IAuthService
             throw new DomainException("OTP_INVALID", "OTP code is invalid.");
         }
 
-        // Xác nhận thành công: Chuyển trạng thái OTP sang Consumed (không xóa ngay để chống Replay)
         await _otpService.MarkOtpConsumedAsync(normalizedEmail);
 
-        // Kích hoạt tài khoản người dùng
         user.Status = UserStatus.Active;
         user.EmailVerifiedAt = DateTimeOffset.UtcNow;
         user.UpdatedAt = DateTimeOffset.UtcNow;
@@ -245,14 +240,11 @@ public sealed class AuthService : IAuthService
             throw new DomainException("USER_ALREADY_VERIFIED", "User account has already been verified.");
         }
 
-        // Vô hiệu hóa các mã OTP cũ trước đó
         await _otpService.InvalidateExistingOtpsAsync(normalizedEmail);
 
-        // Sinh mã OTP mới
         var newOtpCode = Random.Shared.Next(100000, 999999).ToString();
         await _otpService.SaveOtpAsync(normalizedEmail, newOtpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
 
-        // Bắn sự kiện gửi mail
         if (_publishEndpoint != null)
         {
             try

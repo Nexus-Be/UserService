@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.EntityFrameworkCore;
 using ShoppingCart.Contracts.V1;
-using User.Application.DTOs;
 using User.Application.Interfaces;
+using User.Application.Services.Auth;
 using User.Domain.Exceptions;
 using User.Infrastructure.Persistence;
 

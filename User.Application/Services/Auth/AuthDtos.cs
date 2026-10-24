@@ -1,15 +1,15 @@
-namespace User.Application.DTOs;
+namespace User.Application.Services.Auth;
 
-public sealed record RegisterDto(
+public record RegisterDto(
     string Email,
     string Password,
     string FirstName,
     string LastName,
     string? PhoneNumber = null);
 
-public sealed record VerifyOtpDto(
+public record VerifyOtpDto(
     string Email,
     string Otp);
 
-public sealed record ResendOtpDto(
+public record ResendOtpDto(
     string Email);

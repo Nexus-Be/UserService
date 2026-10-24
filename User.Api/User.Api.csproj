@@ -16,6 +16,7 @@
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.29" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
         <PackageReference Include="Grpc.AspNetCore" Version="2.66.0" />
+        <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.66.0" />
         <PackageReference Include="Google.Protobuf" Version="3.28.2" />
         <PackageReference Include="Grpc.Tools" Version="2.66.0" PrivateAssets="All" />
         <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />

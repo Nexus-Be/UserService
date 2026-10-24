@@ -16,7 +16,7 @@
 ## 2. NHỮNG ĐIỀU CẤM KỴ ĐỐI VỚI AI AGENTS (ANTI-HALLUCINATION GUARDRAILS)
 
 1. **TUYỆT ĐỐI KHÔNG DÙNG REPOSITORY PATTERN BỌC NGOÀI EF CORE**:
-   - Tuân thủ quyết định kiến trúc [ADR.md](../../ApiGateway/ADR.md).
+   - Tuân thủ nguyên tắc kiến trúc hệ thống: Không sử dụng Repository Pattern bọc ngoài EF Core.
    - Sử dụng trực tiếp `UserDbContext` và `DbSet<T>` trong tầng Application (thông qua interface `IUserDbContext` để trừu tượng hóa cho Unit Testing).
    - Tuyệt đối **KHÔNG** tạo `IUserRepository`, `GenericRepository`, `UnitOfWork`.
 
