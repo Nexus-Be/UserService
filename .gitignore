@@ -76,3 +76,7 @@ coverage*.xml
 ## Published / Output Deploy
 publish/
 [Pp]ublish/
+
+## AI Agents & Local Customizations
+.agents/
+

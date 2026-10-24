@@ -4,3 +4,7 @@
 **/.vscode
 **/bin
 **/obj
+**/.agents
+**/.claude
+**/.gitnexus
+
