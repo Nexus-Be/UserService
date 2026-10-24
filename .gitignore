@@ -52,3 +52,27 @@ appsettings*.json
 !appsettings*.example.json
 !appsettings.example.json
 !appsettings.*.example.json
+
+## Visual Studio Code 
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+## NuGet packages
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+
+## Test Results & Code Coverage
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+coverage*.json
+coverage*.xml
+
+## Published / Output Deploy
+publish/
+[Pp]ublish/
