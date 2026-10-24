@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
+
+#pragma warning disable CA1814 // Prefer jagged arrays over multidimensional
 
 namespace User.Infrastructure.Migrations
 {
@@ -35,6 +38,45 @@ namespace User.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_AuditLogs", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "InboxState",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    MessageId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ConsumerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    LockId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RowVersion = table.Column<byte[]>(type: "bytea", rowVersion: true, nullable: true),
+                    Received = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    ReceiveCount = table.Column<int>(type: "integer", nullable: false),
+                    ExpirationTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Consumed = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Delivered = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastSequenceNumber = table.Column<long>(type: "bigint", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_InboxState", x => x.Id);
+                    table.UniqueConstraint("AK_InboxState_MessageId_ConsumerId", x => new { x.MessageId, x.ConsumerId });
+                });
+
+            migrationBuilder.CreateTable(
+                name: "OutboxState",
+                columns: table => new
+                {
+                    OutboxId = table.Column<Guid>(type: "uuid", nullable: false),
+                    LockId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RowVersion = table.Column<byte[]>(type: "bytea", rowVersion: true, nullable: true),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Delivered = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastSequenceNumber = table.Column<long>(type: "bigint", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OutboxState", x => x.OutboxId);
                 });
 
             migrationBuilder.CreateTable(
@@ -136,6 +178,48 @@ namespace User.Infrastructure.Migrations
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "OutboxMessage",
+                columns: table => new
+                {
+                    SequenceNumber = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    EnqueueTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SentTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Headers = table.Column<string>(type: "text", nullable: true),
+                    Properties = table.Column<string>(type: "text", nullable: true),
+                    InboxMessageId = table.Column<Guid>(type: "uuid", nullable: true),
+                    InboxConsumerId = table.Column<Guid>(type: "uuid", nullable: true),
+                    OutboxId = table.Column<Guid>(type: "uuid", nullable: true),
+                    MessageId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ContentType = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    MessageType = table.Column<string>(type: "text", nullable: false),
+                    Body = table.Column<string>(type: "text", nullable: false),
+                    ConversationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CorrelationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    InitiatorId = table.Column<Guid>(type: "uuid", nullable: true),
+                    RequestId = table.Column<Guid>(type: "uuid", nullable: true),
+                    SourceAddress = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    DestinationAddress = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    ResponseAddress = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    FaultAddress = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    ExpirationTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OutboxMessage", x => x.SequenceNumber);
+                    table.ForeignKey(
+                        name: "FK_OutboxMessage_InboxState_InboxMessageId_InboxConsumerId",
+                        columns: x => new { x.InboxMessageId, x.InboxConsumerId },
+                        principalTable: "InboxState",
+                        principalColumns: new[] { "MessageId", "ConsumerId" });
+                    table.ForeignKey(
+                        name: "FK_OutboxMessage_OutboxState_OutboxId",
+                        column: x => x.OutboxId,
+                        principalTable: "OutboxState",
+                        principalColumn: "OutboxId");
                 });
 
             migrationBuilder.CreateTable(
@@ -445,6 +529,96 @@ namespace User.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.InsertData(
+                table: "Roles",
+                columns: new[] { "Id", "CreatedAt", "CreatedBy", "DeletedAt", "Description", "IsActive", "IsDeleted", "RoleCode", "RoleName", "UpdatedAt", "UpdatedBy" },
+                values: new object[,]
+                {
+                    { new Guid("11111111-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Khách mua hàng và tham gia đấu giá", true, false, "Buyer", "Buyer", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("22222222-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Người bán hàng và mở phiên đấu giá", true, false, "Seller", "Seller", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("33333333-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Nhân viên hỗ trợ thẩm định và chăm sóc khách hàng", true, false, "SupportStaff", "Support Staff", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("44444444-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Quản trị viên tối cao sàn", true, false, "Admin", "Administrator", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") }
+                });
+
+            migrationBuilder.InsertData(
+                table: "SystemConfigs",
+                columns: new[] { "Id", "ConfigKey", "ConfigValue", "CreatedAt", "DataType", "DeletedAt", "Description", "IsDeleted", "UpdatedAt", "UpdatedBy" },
+                values: new object[,]
+                {
+                    { new Guid("11111111-2222-3333-4444-555555555551"), "DEFAULT_REPUTATION_SCORE", "50", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Int", null, "Điểm uy tín mặc định khi đăng ký mới", false, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null },
+                    { new Guid("11111111-2222-3333-4444-555555555552"), "AUTO_APPROVE_BUYER", "true", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Boolean", null, "Tự động kích hoạt tài khoản buyer sau xác thực email", false, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null }
+                });
+
+            migrationBuilder.InsertData(
+                table: "Users",
+                columns: new[] { "Id", "Address", "AvatarUrl", "BanReason", "BannedAt", "BannedBy", "CreatedAt", "CreatedBy", "DateOfBirth", "DeletedAt", "Email", "EmailVerifiedAt", "FirstName", "Gender", "IdentifyNumber", "IsDeleted", "LastName", "PasswordHash", "PhoneNumber", "Status", "UpdatedAt", "UpdatedBy" },
+                values: new object[,]
+                {
+                    { new Guid("aaaaaaaa-1111-1111-1111-111111111111"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "admin@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Admin", "Unspecified", null, false, "System", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000001", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("bbbbbbbb-2222-2222-2222-222222222222"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "staff@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Staff", "Unspecified", null, false, "Support", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000002", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("cccccccc-3333-3333-3333-333333333333"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "seller@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Official", "Unspecified", null, false, "Seller", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000003", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("dddddddd-4444-4444-4444-444444444444"), "123 Nguyen Trai, Thanh Xuan, Ha Noi", null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "buyer@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "John", "Unspecified", null, false, "Buyer", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000004", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") }
+                });
+
+            migrationBuilder.InsertData(
+                table: "ReputationScores",
+                columns: new[] { "Id", "CreatedAt", "CurrentScore", "DeletedAt", "IsDeleted", "PenaltyCount", "TotalNegativeReviews", "TotalPositiveReviews", "TrustLevel", "UpdatedAt", "UserId" },
+                values: new object[,]
+                {
+                    { new Guid("eaaaaaaa-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 0, "Excellent", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111") },
+                    { new Guid("ebbbbbbb-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 0, "Excellent", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("bbbbbbbb-2222-2222-2222-222222222222") },
+                    { new Guid("eccccccc-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 50, "Good", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333") },
+                    { new Guid("eddddddd-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 80, null, false, 0, 0, 10, "Standard", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("dddddddd-4444-4444-4444-444444444444") }
+                });
+
+            migrationBuilder.InsertData(
+                table: "SellerProfiles",
+                columns: new[] { "Id", "AvatarUrl", "BusinessEmail", "BusinessLicenseUrl", "CreatedAt", "DeletedAt", "DistrictId", "Hotline", "IdCardBackUrl", "IdCardFrontUrl", "IsDeleted", "PickupAddress", "ProvinceId", "RejectionReason", "ReviewedAt", "ReviewedBy", "ShopName", "Status", "UpdatedAt", "UserId", "WardCode" },
+                values: new object[] { new Guid("cccccccc-3333-3333-3333-333333333334"), null, "seller@nexus.com", null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, 1, "19001234", null, null, false, "Toa nha Nexus, Duy Tan, Cau Giay, Ha Noi", 1, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111"), "Nexus Official Store", "Approved", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333"), "00001" });
+
+            migrationBuilder.InsertData(
+                table: "UserRoles",
+                columns: new[] { "Id", "AssignedAt", "AssignedBy", "CreatedAt", "DeletedAt", "IsDeleted", "RoleId", "UpdatedAt", "UserId" },
+                values: new object[,]
+                {
+                    { new Guid("faaaaaaa-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, false, new Guid("44444444-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111") },
+                    { new Guid("fbbbbbbb-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, false, new Guid("33333333-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("bbbbbbbb-2222-2222-2222-222222222222") },
+                    { new Guid("fccccccc-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, false, new Guid("22222222-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333") },
+                    { new Guid("fddddddd-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, false, new Guid("11111111-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("dddddddd-4444-4444-4444-444444444444") }
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_InboxState_Delivered",
+                table: "InboxState",
+                column: "Delivered");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxMessage_EnqueueTime",
+                table: "OutboxMessage",
+                column: "EnqueueTime");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxMessage_ExpirationTime",
+                table: "OutboxMessage",
+                column: "ExpirationTime");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxMessage_InboxMessageId_InboxConsumerId_SequenceNumber",
+                table: "OutboxMessage",
+                columns: new[] { "InboxMessageId", "InboxConsumerId", "SequenceNumber" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxMessage_OutboxId_SequenceNumber",
+                table: "OutboxMessage",
+                columns: new[] { "OutboxId", "SequenceNumber" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxState_Created",
+                table: "OutboxState",
+                column: "Created");
+
             migrationBuilder.CreateIndex(
                 name: "IX_RefreshTokens_TokenHash",
                 table: "RefreshTokens",
@@ -571,6 +745,9 @@ namespace User.Infrastructure.Migrations
                 name: "AuditLogs");
 
             migrationBuilder.DropTable(
+                name: "OutboxMessage");
+
+            migrationBuilder.DropTable(
                 name: "RefreshTokens");
 
             migrationBuilder.DropTable(
@@ -599,6 +776,12 @@ namespace User.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "UserRoles");
+
+            migrationBuilder.DropTable(
+                name: "InboxState");
+
+            migrationBuilder.DropTable(
+                name: "OutboxState");
 
             migrationBuilder.DropTable(
                 name: "Permissions");
