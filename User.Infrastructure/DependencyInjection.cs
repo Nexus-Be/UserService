@@ -32,6 +32,7 @@ public static class DependencyInjection
         });
 
         services.AddSingleton<IRedisOtpService, RedisOtpService>();
+        services.AddSingleton<IJwtTokenGenerator, Services.Jwt.JwtTokenGenerator>();
 
         // MassTransit RabbitMQ
         services.AddMassTransit(x =>
