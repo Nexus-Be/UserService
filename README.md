@@ -1,128 +1,185 @@
 # USER SERVICE — ARCHITECTURE & FOLDER STRUCTURE GUIDE
 ## (CẨM NANG CẤU TRÚC THƯ MỤC & PHÁT TRIỂN DÀNH CHO DEVELOPER VÀ AI AGENT)
-
-> **Thông tin dịch vụ**:
-> - **Service Port**: `8001` (HTTP/1.1 REST & HTTP/2 gRPC)
-> - **Database**: PostgreSQL (`usermanagement_db`), Port máy host: `5433`
-> - **Nhiệm vụ chính**: Đăng ký, đăng nhập, phát hành JWT, User Profile, RBAC 5 vai trò, Quản lý Seller Profile.
-
+> **Trạng thái triển khai (2026-10-24):** ⚠️ Một phần — **4/13 rpc** của `UsersApi` đã implement (`Register`, `VerifyOtp`, `ResendOtp`, `GetProfile`); **9/13 rpc** còn là đặc tả mục tiêu, trong đó `Login` ❌ **chưa có code** và repo **không có bất kỳ code phát hành JWT nào**. Messaging: **1 event publish** (`SendOtpEmailIntegrationEvent`), **0 consumer**.
+> **Nguồn sự thật:** code trong repo này (`file:line` ghi kèm trong từng bảng).
+> **Cập nhật lần cuối:** 2026-10-24.
+> **Thông tin dịch vụ** (số liệu kiểm chứng trực tiếp):
+> - **Service Port**: `8001` ✅ — khớp cả 3 nơi: `Dockerfile:3` (`EXPOSE 8001`), `Dockerfile:4` (`ENV ASPNETCORE_URLS=http://+:8001`), `User.Api/Properties/launchSettings.json` (`"applicationUrl": "http://localhost:8001"`). Không có profile HTTPS.
+> - **Database**: PostgreSQL `usermanagement_db`, port host `5433` ✅ — `User.Api/appsettings.json` (`ConnectionStrings:DefaultConnection`) và `docker-compose.yml` (`POSTGRES_DB: usermanagement_db`, `${USER_DB_PORT:-5433}`). Tên `usermanagement_db` **khác** với tên `user_db` mà một số tài liệu đặc tả cũ dùng.
+> - **Nhiệm vụ ĐÃ CÓ trong code**: đăng ký tài khoản + gửi OTP email, xác thực OTP, gửi lại OTP, đọc hồ sơ người dùng, gán role `Buyer` mặc định, seed 4 role + 4 user mẫu.
+> - **Nhiệm vụ CHƯA CÓ trong code** (đặc tả mục tiêu): đăng nhập (`rpc Login`), phát hành JWT/refresh token, cập nhật hồ sơ, nâng cấp/duyệt seller, quản trị user–role–permission. Xem chi tiết ở §6.
 ---
-
 ## 1. SƠ ĐỒ PHÂN TẦNG VÀ CẤU TRÚC THƯ MỤC CHUẨN
-
 `UserService` được xây dựng theo chuẩn **Clean Architecture 4 tầng** khử ghép nối hoàn toàn:
-
 ```
 src/Services/User/
 │
-├── User.Domain/                                       # 1. TẦNG DOMAIN (POCO 100%, ZERO DEPENDENCY)
-│   ├── Base/                                          # BaseEntity, IAuditable, ISoftDelete
-│   ├── Entities/                                      # User, Role, UserRole, SellerProfile, RefreshToken...
-│   ├── Enums/                                         # UserStatus, RoleType, TrustLevel...
-│   └── Exceptions/                                    # DomainException, BusinessRuleValidationException
+├── User.sln                                            # Solution thật (KHÔNG phải "UserService.sln")
 │
-├── User.Application/                                  # 2. TẦNG APPLICATION (USE CASES & BUSINESS LOGIC)
-│   ├── Interfaces/                                    # Interfaces của CSDL và các dịch vụ hạ tầng ngoài
-│   │   ├── IUserDbContext.cs                          # Abstraction của DbContext
-│   │   └── IRedisOtpService.cs                        # Abstraction dịch vụ Redis OTP
-│   │
-│   ├── Common/                                        # Các tiện ích và model dùng chung trong Application
-│   │   └── Models/                                    # OtpEntry, Result...
-│   │
-│   ├── Services/                                      # CÁC DỊCH VỤ XỬ LÝ USE CASE (THEO TÍNH NĂNG)
-│   │   └── Auth/                                      # Module Xác thực & Đăng ký
-│   │       ├── IAuthService.cs                        # Interface ca sử dụng Auth
-│   │       ├── AuthService.cs                         # Class xử lý nghiệp vụ (Register, VerifyOtp, ResendOtp)
-│   │       └── AuthDtos.cs                            # DTOs riêng của Auth (RegisterDto, VerifyOtpDto...)
-│   │
-│   └── DependencyInjection.cs                         # Đăng ký AddApplicationServices()
+├── User.Domain/                                        # 1. TẦNG DOMAIN (POCO 100%, ZERO DEPENDENCY)
+│   ├── Base/                                           # BaseEntity<TKey>, AuditableEntity<TKey>, IAuditable, ISoftDelete
+│   ├── Entities/                                       # 14 entity: User, Role, UserRole, SellerProfile, RefreshToken...
+│   ├── Enums/                                          # 16 enum: UserStatus, RoleType, TrustLevel...
+│   └── Exceptions/                                     # DomainException (+ BusinessRuleValidationException định nghĩa cùng file)
 │
-├── User.Infrastructure/                               # 3. TẦNG INFRASTRUCTURE (CÔNG NGHỆ & HẠ TẦNG CỤ THỂ)
-│   ├── Persistence/                                   # Quản lý CSDL PostgreSQL & EF Core 8
-│   │   ├── AppDbContext.cs                            # Triển khai IUserDbContext
-│   │   ├── Configurations/                            # 14 Fluent API Configurations (*Configuration.cs)
-│   │   ├── Migrations/                                # Code-first Database Migrations
-│   │   └── Seeds/                                     # Dữ liệu mẫu vai trò (Roles, SystemConfigs)
+├── User.Application/                                   # 2. TẦNG APPLICATION (USE CASES & BUSINESS LOGIC)
+│   ├── Interfaces/                                     # 2 interface hạ tầng (KHÔNG có IPasswordHasher / IJwtTokenGenerator)
+│   │   ├── IUserDbContext.cs                           # 14 DbSet + SaveChangesAsync
+│   │   └── IRedisOtpService.cs                         # Lưu/đọc/thu hồi OTP trên Redis
 │   │
-│   ├── Services/                                      # CÁC DỊCH VỤ HẠ TẦNG KỸ THUẬT (MODULE HÓA)
-│   │   └── Redis/                                     # Module tích hợp Redis
-│   │       ├── RedisOptions.cs                        # Cấu hình Options đọc từ appsettings
-│   │       └── RedisOtpService.cs                     # Triển khai IRedisOtpService
+│   ├── Models/                                         # OtpEntry, OtpStatus (KHÔNG có thư mục Common/)
 │   │
-│   └── DependencyInjection.cs                         # Đăng ký AddInfrastructureServices(configuration)
+│   ├── Contracts/                                      # SendOtpEmailIntegrationEvent (namespace Nexus.Contracts.Events)
+│   │
+│   ├── Services/                                       # CÁC DỊCH VỤ XỬ LÝ USE CASE (THEO TÍNH NĂNG)
+│   │   └── Auth/                                       # Module Xác thực & Đăng ký
+│   │       ├── IAuthService.cs                         # 3 method: RegisterAsync, VerifyOtpAsync, ResendOtpAsync
+│   │       ├── AuthService.cs                          # Nghiệp vụ Register / VerifyOtp / ResendOtp
+│   │       └── AuthDtos.cs                             # RegisterDto (KHÔNG có LoginDto)
+│   │
+│   └── DependencyInjection.cs                          # AddApplicationServices() → AddScoped<IAuthService, AuthService>
 │
-├── User.Api/                                          # 4. TẦNG API / HOST (ENTRY POINT & MIDDLEWARE)
-│   ├── Middleware/                                    # MIDDLEWARE TOÀN CỤC CỦA SERVICE
-│   │   └── GlobalExceptionHandlerMiddleware.cs        # Bắt mọi lỗi ngoại lệ, format RFC 9110 ProblemDetails
-│   ├── Services/                                      # gRPC Server Service
-│   │   └── UsersGrpcService.cs                        # Triển khai UsersApi.UsersApiBase từ Protobuf
-│   ├── Contracts/                                     # shop.proto (Hợp đồng gRPC)
-│   └── Program.cs                                     # Khởi động Kestrel HTTP/1 & HTTP/2, gọi DI App & Infra
+├── User.Infrastructure/                                # 3. TẦNG INFRASTRUCTURE (CÔNG NGHỆ & HẠ TẦNG CỤ THỂ)
+│   ├── Persistence/                                    # Quản lý CSDL PostgreSQL & EF Core 8
+│   │   ├── AppDbContext.cs                             # AppDbContext : DbContext, IUserDbContext (+ lớp con UserDbContext KHÔNG được đăng ký DI)
+│   │   ├── Configurations/                             # 14 Fluent API Configuration (*Configuration.cs)
+│   │   └── Seeds/                                      # UserSeedData.cs — seed role/user/user-role/seller/reputation/system-config
+│   │
+│   ├── Migrations/                                     # ⚠️ Nằm ở gốc User.Infrastructure/, KHÔNG nằm trong Persistence/
+│   │   └── 20261024103058_InitialUserSchema.cs         # 1 migration duy nhất (gộp toàn bộ schema + seed + bảng Outbox)
+│   │
+│   ├── Services/                                       # CÁC DỊCH VỤ HẠ TẦNG KỸ THUẬT (MODULE HÓA)
+│   │   └── Redis/                                      # Module tích hợp Redis
+│   │       ├── RedisOptions.cs                         # Lớp options (hiện KHÔNG được dùng ở đâu — cấu hình đọc trực tiếp qua IConfiguration)
+│   │       └── RedisOtpService.cs                      # Triển khai IRedisOtpService
+│   │
+│   └── DependencyInjection.cs                          # AddInfrastructureServices(configuration)
 │
-└── User.Tests/                                        # 5. TẦNG KIỂM THỬ (UNIT & INTEGRATION TESTS)
-    └── AuthServiceTests.cs                            # Kiểm thử luồng đăng ký, mã hóa mật khẩu, OTP
+├── User.Api/                                           # 4. TẦNG API / HOST (ENTRY POINT & MIDDLEWARE)
+│   ├── Middleware/                                     # MIDDLEWARE TOÀN CỤC CỦA SERVICE
+│   │   └── GlobalExceptionHandlerMiddleware.cs         # Format lỗi ProblemDetails (RFC 9110), ghi log kèm traceId
+│   ├── Services/                                       # gRPC Server Service
+│   │   └── UsersGrpcService.cs                         # : UsersApi.UsersApiBase — 4/13 rpc override
+│   ├── Contracts/                                      # shop.proto (hợp đồng gRPC, GrpcServices="Server")
+│   ├── Properties/launchSettings.json                  # Port chạy local thật: 8001
+│   ├── appsettings.json                                # ConnectionStrings + RabbitMq + Redis + Otel + Jwt (Otel và Jwt chưa được code nào đọc)
+│   └── Program.cs                                      # Kestrel HTTP/1+HTTP/2 (h2c), DI, gRPC, Swagger, /health, auto-migrate
+│
+└── User.Tests/                                         # 5. TẦNG KIỂM THỬ (UNIT TESTS)
+    └── AuthServiceTests.cs                             # 9 [Fact] — chỉ phủ AuthService (Register/VerifyOtp/ResendOtp)
 ```
-
+**Ghi chú cấu trúc so với bản cũ:** các mục sau trong tài liệu cũ là **sai thực tế** và đã được sửa ở trên:
+- `User.Application/Common/Models/` ❌ không tồn tại → thật là `User.Application/Models/`.
+- `User.Infrastructure/Persistence/Migrations/` ❌ → thật là `User.Infrastructure/Migrations/`.
+- `UserService.sln` ❌ → thật là `User.sln`.
+- `.tools/dotnet-ef` ❌ → không tồn tại trong repo (xem §5).
 ---
-
 ## 2. NGUYÊN TẮC PHÂN CHIA TRÁCH NHIỆM: PHẦN NÀO LÀM CÁI NÀO?
-
-1. **`User.Domain`**:
+1. **`User.Domain`** ✅:
    - Chứa Entity nghiệp vụ thuần túy C#.
-   - **Tuyệt đối cấm** import EntityFrameworkCore hay các thư viện hạ tầng vào đây.
-2. **`User.Application`**:
+   - Không import EntityFrameworkCore — `User.Domain.csproj` chỉ có `ProjectReference` tới chính nó (0 PackageReference).
+2. **`User.Application`** ✅:
    - Chứa ca sử dụng (Use Case). Mọi Use Case nằm trong `Services/{Feature}/`.
    - Mỗi feature có 1 thư mục riêng gồm: `I{Feature}Service.cs`, `{Feature}Service.cs`, và `{Feature}Dtos.cs`.
-   - Các interface của hạ tầng (DbContext, Cache, Email) được đặt trong thư mục `Interfaces/`.
-   - Không phụ thuộc cứng vào công nghệ cụ thể (sau này đổi từ Redis sang Memcached chỉ cần sửa tầng Infra).
-3. **`User.Infrastructure`**:
-   - Triển khai No-Repository Pattern (ADR 05): dùng trực tiếp `AppDbContext` thông qua interface `IUserDbContext`.
+   - Các interface của hạ tầng (DbContext, OTP cache) được đặt trong thư mục `Interfaces/`.
+   - Không phụ thuộc cứng vào công nghệ cụ thể (ví dụ: `IRedisOtpService` cho phép thay Redis bằng backend khác chỉ ở tầng Infra).
+   - ❌ **Không có CQRS/MediatR**: 0 tham chiếu `MediatR` trong toàn repo; toàn bộ use case là service class gọi trực tiếp.
+3. **`User.Infrastructure`** ✅:
+   - Triển khai No-Repository Pattern: dùng trực tiếp `AppDbContext` thông qua interface `IUserDbContext` (`User.Infrastructure/DependencyInjection.cs:19-24` đăng ký `AddDbContext<AppDbContext>` rồi bind `IUserDbContext` vào chính instance đó).
    - Các dịch vụ hạ tầng được đóng gói theo thư mục riêng trong `Services/{Module}/` (ví dụ `Services/Redis/`).
-4. **`User.Api`**:
-   - Tầng đón nhận request cực kỳ mỏng.
-   - `GlobalExceptionHandlerMiddleware` là middleware toàn cục tự động bắt lỗi và chuẩn hóa JSON lỗi.
-   - `UsersGrpcService` chỉ làm nhiệm vụ nhận Protobuf request $\rightarrow$ gọi Application Service $\rightarrow$ trả về Protobuf response.
-
+4. **`User.Api`** ⚠️:
+   - Tầng đón nhận request mỏng: 3 file `.cs` (324 LOC).
+   - `GlobalExceptionHandlerMiddleware` bắt lỗi và chuẩn hóa JSON lỗi — nhưng đây là middleware **HTTP**, không phải gRPC interceptor: lỗi phát sinh trong gRPC được `UsersGrpcService` tự bọc `RpcException` tại từng method, không đi qua middleware này.
+   - `UsersGrpcService` **không hoàn toàn mỏng**: ngoài việc gọi Application Service, nó inject thẳng `AppDbContext` và tự truy vấn DB cho `GetProfile` (`User.Api/Services/UsersGrpcService.cs:19`, `:127-137`) → tạo phụ thuộc `User.Api → User.Infrastructure` (vi phạm sơ đồ phân tầng lý thuyết, xem `specs/01_CLEAN_ARCHITECTURE_LAYERS.md` §3).
 ---
-
 ## 3. QUY TRÌNH 5 BƯỚC THÊM TÍNH NĂNG MỚI (DÀNH CHO DEV & AI AGENT)
-
 Khi cần thêm tính năng mới (ví dụ: Quản lý Hồ sơ Người bán - `SellerProfile`):
-
 1. **Bước 1: Domain**: Tạo Entity `SellerProfile.cs` trong `User.Domain/Entities/` và Enum liên quan.
-2. **Bước 2: Infrastructure Persistence**: Tạo `SellerProfileConfiguration.cs` trong `User.Infrastructure/Persistence/Configurations/` và thêm `DbSet<SellerProfile>` vào `IUserDbContext` & `AppDbContext`.
+2. **Bước 2: Infrastructure Persistence**: Tạo `SellerProfileConfiguration.cs` trong `User.Infrastructure/Persistence/Configurations/`, thêm `DbSet<SellerProfile>` vào `AppDbContext` **và** khai báo property tương ứng trong `IUserDbContext` (hai file phải luôn đồng bộ — hiện cả hai đều có đủ 14 DbSet), rồi tạo migration mới.
 3. **Bước 3: Application Use Case**:
    - Tạo thư mục: `User.Application/Services/SellerProfile/`.
    - Tạo `SellerProfileDtos.cs`: Định nghĩa DTO request/response.
    - Tạo `ISellerProfileService.cs`: Định nghĩa ca sử dụng (ví dụ: `RegisterSellerAsync`, `ApproveSellerAsync`).
    - Tạo `SellerProfileService.cs`: Viết code nghiệp vụ thao tác với `IUserDbContext`.
 4. **Bước 4: Dependency Injection**: Đăng ký `services.AddScoped<ISellerProfileService, SellerProfileService>();` trong `User.Application/DependencyInjection.cs`.
-5. **Bước 5: API Presentation**: Gọi service trong `User.Api/Services/UsersGrpcService.cs` và viết test trong `User.Tests/`.
-
+5. **Bước 5: API Presentation**: `override` method tương ứng trong `User.Api/Services/UsersGrpcService.cs` (rpc phải có sẵn trong `User.Api/Contracts/shop.proto`) và viết test trong `User.Tests/`.
+   - ⚠️ Lưu ý: `User.Tests.csproj` **không** reference `User.Api`, nên muốn test tầng gRPC phải bổ sung reference (hiện không test được `UsersGrpcService`).
 ---
-
 ## 4. QUY CHUẨN THÔNG BÁO LỖI (MANDATORY ERROR RULES)
-
 Mọi thông báo lỗi bắt buộc tuân theo 3 nguyên tắc:
-1. **100% English**: Tuyệt đối không dùng tiếng Việt.
-2. **Sentence case**: Viết hoa duy nhất chữ cái đầu (`"Email is already registered in the system."`).
-3. **Error Code SCREAMING_SNAKE_CASE**: Ví dụ `EMAIL_ALREADY_EXISTS`, `USER_NOT_FOUND`, `VAL_INVALID_INPUT`.
-
+1. **100% English**: Tuyệt đối không dùng tiếng Việt — ✅ hiện trạng đạt (`AuthService.cs`, `GlobalExceptionHandlerMiddleware.cs`).
+2. **Sentence case**: Viết hoa duy nhất chữ cái đầu (`"Email is already registered in the system."`) — ✅ hiện trạng đạt.
+3. **Error Code SCREAMING_SNAKE_CASE** — ✅ hiện trạng đạt. Danh sách mã đang tồn tại trong code:
+| Mã lỗi | Nơi phát sinh | gRPC status map |
+|:---|:---|:---|
+| `VAL_INVALID_EMAIL` | `User.Application/Services/Auth/AuthService.cs:44,164,225` | `InvalidArgument` (mặc định) |
+| `VAL_INVALID_PASSWORD` | `AuthService.cs:49` | `InvalidArgument` |
+| `VAL_INVALID_FIRST_NAME` / `VAL_INVALID_LAST_NAME` | `AuthService.cs:54,59` | `InvalidArgument` |
+| `VAL_INVALID_OTP` | `AuthService.cs:170` | `InvalidArgument` |
+| `EMAIL_ALREADY_EXISTS` | `AuthService.cs:70` | `AlreadyExists` |
+| `USER_NOT_FOUND` | `AuthService.cs:182,233` | `NotFound` |
+| `OTP_EXPIRED` / `OTP_ALREADY_USED` / `OTP_INVALID` | `AuthService.cs:194,199,204,209` | `FailedPrecondition` / `FailedPrecondition` / `InvalidArgument` |
+| `USER_ALREADY_VERIFIED` | `AuthService.cs:239` | `FailedPrecondition` |
+| `VAL_INVALID_ARGUMENT` / `INTERNAL_SERVER_ERROR` | `User.Api/Middleware/GlobalExceptionHandlerMiddleware.cs:48,55` | (chỉ HTTP ProblemDetails) |
+Bảng map tập trung tại `User.Api/Services/UsersGrpcService.cs:111-117`. **Không** có mã `UNAUTHORIZED`/`FORBIDDEN` nào được phát ra trong code hiện tại (vì chưa có login).
 ---
-
 ## 5. CÁCH CHẠY VÀ KIỂM THỬ ĐỘC LẬP SERVICE
-
 ```bash
 # 1. Bật database của User Service:
 cd src/Services/User
 docker compose up -d user-db
-
 # 2. Cập nhật migration CSDL:
-./.tools/dotnet-ef database update --project User.Infrastructure --startup-project User.Api
-
+#    ❌ "./.tools/dotnet-ef" KHÔNG tồn tại trong repo và repo không có tool manifest
+#       (.config/dotnet-tools.json cũng không có). Dùng EF tool toàn cục:
+dotnet tool install --global dotnet-ef      # nếu chưa cài
+dotnet ef database update --project User.Infrastructure --startup-project User.Api
 # 3. Chạy service:
 dotnet run --project User.Api
-
+#    → gRPC + HTTP lắng nghe tại http://localhost:8001
+#    → Swagger UI: http://localhost:8001/swagger (chỉ ở môi trường Development)
+#    → Health check: http://localhost:8001/health  → {"status":"Healthy","service":"User.Api"}
 # 4. Chạy toàn bộ bài test:
-dotnet test User.Tests/User.Tests.csproj
+dotnet test User.sln -c Release
 ```
+**Lưu ý vận hành:**
+- `Program.cs:49-62` tự động gọi `db.Database.Migrate()` lúc khởi động và **nuốt lỗi** (chỉ log warning) nếu không kết nối được DB → service vẫn lên nhưng mọi truy vấn DB sẽ fail. Log sẽ có dòng `Database migration deferred on startup: ...`.
+- Ở chế độ Development, `AddGrpcReflection()` được bật (`Program.cs:25,44`) → có thể gọi thử bằng `grpcurl` mà không cần file proto.
+- Redis là **tùy chọn về mặt kỹ thuật nhưng bắt buộc về mặt nghiệp vụ**: `RedisOtpService` chấp nhận `IConnectionMultiplexer?` null và khi Redis offline thì OTP **không được lưu ở đâu cả** (chỉ log warning, `RedisOtpService.cs:46-49`), nên `VerifyOtp` sẽ luôn trả `OTP_EXPIRED`. Muốn test luồng đăng ký phải có Redis sống.
+---
+## 6. TRẠNG THÁI TRIỂN KHAI THỰC TẾ (ĐỐI CHIẾU ĐẶC TẢ)
+### 6.1 gRPC — `UsersApi` (13 rpc khai báo trong `User.Api/Contracts/shop.proto:47-64`)
+| # | rpc | Trạng thái | Bằng chứng |
+|--:|:---|:---|:---|
+| 1 | `Register` | ✅ | `UsersGrpcService.cs:25` |
+| 2 | `VerifyOtp` | ✅ | `UsersGrpcService.cs:72` |
+| 3 | `ResendOtp` | ✅ | `UsersGrpcService.cs:89` |
+| 4 | `GetProfile` | ✅ | `UsersGrpcService.cs:119` |
+| 5 | `Login` | ❌ | Khai báo `shop.proto:52`; **không override** → gọi vào trả `UNIMPLEMENTED` |
+| 6 | `UpdateProfile` | ❌ | `shop.proto:53` — không override |
+| 7 | `ListUsers` | ❌ | `shop.proto:54` — không override |
+| 8 | `AssignRoles` | ❌ | `shop.proto:55` — không override |
+| 9 | `ListRoles` | ❌ | `shop.proto:56` — không override |
+| 10 | `ListPermissions` | ❌ | `shop.proto:57` — không override |
+| 11 | `RequestSellerUpgrade` | ❌ | `shop.proto:58` — không override |
+| 12 | `ApproveSeller` | ❌ | `shop.proto:59` — không override |
+| 13 | `CreateUser` | ❌ | `shop.proto:61` — không override |
+**Đếm: 4/13 ✅ · 9/13 ❌.**
+### 6.2 Xác thực & JWT
+- ✅ `BCrypt.Net-Next 4.0.3` hash mật khẩu: `AuthService.cs:75,95`.
+- ❌ **Không có code phát hành token**: grep `Jwt|JWT|GenerateToken|SecurityToken` trên toàn bộ `.cs` = **0 kết quả**; `IAuthService.cs:9-11` chỉ có 3 method; entity `RefreshToken` có trong DB nhưng **chưa từng được ghi**.
+- ⚠️ `User.Api/appsettings.json` **có** section `Jwt` (`Issuer`, `Audience`, `Signature`, `ExpirationInMinutes: 60`) nhưng **không code nào đọc** section này. Đây là cấu hình chờ, chưa phải tính năng.
+### 6.3 Messaging
+- ✅ Publish `SendOtpEmailIntegrationEvent` (định nghĩa `User.Application/Contracts/SendOtpEmailIntegrationEvent.cs:3`, namespace `Nexus.Contracts.Events`) tại 2 chỗ: `AuthService.cs:147` và `AuthService.cs:253`.
+- ✅ MassTransit **8.3.0** + EF Outbox `UsePostgres()`/`UseBusOutbox()`: `User.Infrastructure/DependencyInjection.cs:37-41`.
+- ❌ **0 consumer** — grep `IConsumer|AddConsumer|ConfigureConsumer` = 0.
+- ❌ `UserRegisteredEvent`, `SellerApprovedEvent`, `UserRolesChangedEvent` (đặc tả cũ) **không tồn tại trong code**.
+### 6.4 Dữ liệu
+- ✅ 14 DbSet ↔ 14 entity ↔ 14 bảng trong `dbml/service/user.dbml`; migration tạo **17 bảng** (14 nghiệp vụ + `InboxState`, `OutboxState`, `OutboxMessage`).
+- ⚠️ Chỉ **4/14 DbSet** được code nghiệp vụ đọc/ghi: `Users`, `UserRoles`, `Roles`, `ReputationScores`. **10 DbSet còn lại** chỉ khai báo + cấu hình EF, chưa có truy vấn nào: `RefreshTokens`, `Permissions`, `RolePermissions`, `SellerProfiles`, `ReputationLogs`, `UserReviews`, `UserReports`, `UserPenalties`, `SystemConfigs`, `AuditLogs`.
+### 6.5 Kiểm thử
+- ⚠️ 1 file test / 9 `[Fact]`, **100% phủ `AuthService`**; 0 test cho gRPC, 0 test cho publish event, 0 test cho `RedisOtpService`.
+- `User.Tests.csproj` reference `User.Application`, `User.Infrastructure`, `User.Domain` — **không** reference `User.Api`.
+### 6.6 Khả năng quan sát (Observability)
+- ❌ Không có OpenTelemetry: không có `AddOpenTelemetry` trong bất kỳ `.cs` nào (chỉ có section `Otel:Endpoint` trong appsettings, không ai đọc).
+- ⚠️ `AuditLog.TraceId` (`User.Domain/Entities/AuditLog.cs:9`) tồn tại trong schema nhưng **không chỗ nào gán giá trị**; bảng `AuditLogs` cũng chưa từng được ghi.
+- ⚠️ Trace id của lỗi lấy từ `Activity.Current?.Id ?? HttpContext.TraceIdentifier` (`GlobalExceptionHandlerMiddleware.cs:34`) → chỉ đúng khi có OTel; nếu không, là id cục bộ của Kestrel và không nối được với `x-trace-id` từ Gateway.
