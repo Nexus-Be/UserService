@@ -221,6 +221,188 @@ public sealed class AuthServiceTests
         Assert.Equal("User account has already been verified.", ex.Message);
     }
 
+    [Fact]
+    public async Task LoginAsync_succeeds_with_valid_credentials_and_active_account()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("login.success@nexus.local", "Password123!", "Nguyen", "Van Success");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("login.success@nexus.local", "Password123!");
+        var result = await authService.LoginAsync(loginDto);
+
+        Assert.NotNull(result);
+        Assert.Equal("mock-jwt-access-token-xyz", result.AccessToken);
+        Assert.Equal(user.Id.ToString(), result.UserId);
+        Assert.Contains("buyer", result.Roles);
+        Assert.NotNull(result.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task LoginAsync_throws_when_password_is_invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("wrongpass@nexus.local", "CorrectPassword123!", "Tran", "Van Test");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("wrongpass@nexus.local", "WrongPassword999!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal("Invalid username or password.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_throws_when_user_not_found()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var loginDto = new LoginDto("nonexistent@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal("Invalid username or password.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_throws_when_user_is_pending_verification()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("pending@nexus.local", "Password123!", "Le", "Pending");
+        await authService.RegisterAsync(registerDto);
+
+        var loginDto = new LoginDto("pending@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("USER_NOT_VERIFIED", ex.ErrorCode);
+        Assert.Equal("User account is pending verification. Please verify your OTP code.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_throws_when_user_is_suspended()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("banned@nexus.local", "Password123!", "Pham", "Banned");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Banned;
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("banned@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("USER_BANNED", ex.ErrorCode);
+        Assert.Equal("User account has been banned.", ex.Message);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_with_valid_username_saves_username()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto(
+            Email: "user_with_name@nexus.local",
+            Password: "Password123!",
+            FirstName: "Nguyen",
+            LastName: "Van B",
+            PhoneNumber: "0909999999",
+            Username: "nexususer01"
+        );
+
+        var user = await authService.RegisterAsync(dto);
+
+        Assert.NotNull(user);
+        Assert.Equal("nexususer01", user.Username);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_throws_when_username_already_exists()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto1 = new RegisterDto(
+            Email: "user1@nexus.local",
+            Password: "Password123!",
+            FirstName: "User",
+            LastName: "One",
+            Username: "sameusername"
+        );
+        await authService.RegisterAsync(dto1);
+
+        var dto2 = new RegisterDto(
+            Email: "user2@nexus.local",
+            Password: "Password123!",
+            FirstName: "User",
+            LastName: "Two",
+            Username: "SAMEUSERNAME" // Case-insensitive check
+        );
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.RegisterAsync(dto2));
+        Assert.Equal("USERNAME_ALREADY_EXISTS", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task LoginAsync_succeeds_with_username()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto(
+            Email: "login_test@nexus.local",
+            Password: "Password123!",
+            FirstName: "Test",
+            LastName: "Login",
+            Username: "testloginuser"
+        );
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active; // Activate user
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("testloginuser", "Password123!");
+        var result = await authService.LoginAsync(loginDto);
+
+        Assert.NotNull(result);
+        Assert.Equal(user.Id.ToString(), result.UserId);
+        Assert.Equal("mock-jwt-access-token-xyz", result.AccessToken);
+    }
+
+    private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
+    {
+        public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)
+        {
+            expiresAt = DateTime.UtcNow.AddMinutes(120);
+            return "mock-jwt-access-token-xyz";
+        }
+    }
+
     private sealed class TestRedisOtpService : IRedisOtpService
     {
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);

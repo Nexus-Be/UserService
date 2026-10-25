@@ -18,6 +18,7 @@ public class AuthService : IAuthService
 {
     private readonly IUserDbContext _dbContext;
     private readonly IRedisOtpService _otpService;
+    private readonly IJwtTokenGenerator? _jwtTokenGenerator;
     private readonly IPublishEndpoint? _publishEndpoint;
     private readonly ILogger<AuthService> _logger;
 
@@ -27,11 +28,13 @@ public class AuthService : IAuthService
         IUserDbContext dbContext,
         IRedisOtpService otpService,
         ILogger<AuthService> logger,
+        IJwtTokenGenerator? jwtTokenGenerator = null,
         IPublishEndpoint? publishEndpoint = null)
     {
         _dbContext = dbContext;
         _otpService = otpService;
         _logger = logger;
+        _jwtTokenGenerator = jwtTokenGenerator;
         _publishEndpoint = publishEndpoint;
     }
 
@@ -58,6 +61,26 @@ public class AuthService : IAuthService
             throw new BusinessRuleValidationException("VAL_INVALID_LAST_NAME", "Last name is required.");
         }
 
+        string? username = null;
+        if (!string.IsNullOrWhiteSpace(dto.Username))
+        {
+            username = dto.Username.Trim();
+            if (username.Length < 3 || username.Length > 50)
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_USERNAME", "Username must be between 3 and 50 characters.");
+            }
+
+            var usernameLower = username.ToLowerInvariant();
+            var usernameTaken = await _dbContext.Users.AnyAsync(
+                u => u.Username != null && u.Username.ToLower() == usernameLower && u.Email != email,
+                cancellationToken);
+
+            if (usernameTaken)
+            {
+                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.");
+            }
+        }
+
         var existingUser = await _dbContext.Users
             .Include(u => u.UserRoles)
             .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
@@ -79,6 +102,10 @@ public class AuthService : IAuthService
             {
                 existingUser.PhoneNumber = dto.PhoneNumber.Trim();
             }
+            if (!string.IsNullOrWhiteSpace(username))
+            {
+                existingUser.Username = username;
+            }
 
             await _otpService.InvalidateExistingOtpsAsync(email);
             user = existingUser;
@@ -91,6 +118,7 @@ public class AuthService : IAuthService
             user = new User
             {
                 Id = userId,
+                Username = username,
                 Email = email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 FirstName = dto.FirstName.Trim(),
@@ -131,6 +159,7 @@ public class AuthService : IAuthService
 
         // Sinh mã OTP 6 số ngẫu nhiên
         var otpCode = Random.Shared.Next(100000, 999999).ToString();
+        _logger.LogInformation("[OTP DISPATCH] Email: '{Email}' | CODE: >>> {OtpCode} <<< | Valid: 5 mins", email, otpCode);
 
         // Lưu vào Redis: Hiệu lực 5 phút, lưu trữ tối đa 15 phút
         await _otpService.SaveOtpAsync(email, otpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
@@ -191,21 +220,25 @@ public class AuthService : IAuthService
         var otpEntry = await _otpService.GetOtpAsync(normalizedEmail);
         if (otpEntry == null)
         {
+            _logger.LogWarning("[AUTH] OTP verification failed for '{Email}': OTP code has expired or does not exist.", normalizedEmail);
             throw new DomainException("OTP_EXPIRED", "OTP code has expired or does not exist.");
         }
 
         if (otpEntry.Status == OtpStatus.Consumed)
         {
+            _logger.LogWarning("[AUTH] OTP verification failed for '{Email}': OTP code has already been used.", normalizedEmail);
             throw new DomainException("OTP_ALREADY_USED", "This OTP code has already been used.");
         }
 
         if (otpEntry.Status == OtpStatus.Expired || DateTimeOffset.UtcNow > otpEntry.ExpiresAt)
         {
+            _logger.LogWarning("[AUTH] OTP verification failed for '{Email}': OTP code has expired (ExpiresAt: {ExpiresAt}).", normalizedEmail, otpEntry.ExpiresAt);
             throw new DomainException("OTP_EXPIRED", "OTP code has expired. Please request a new code.");
         }
 
         if (!string.Equals(otpEntry.Code, otp.Trim(), StringComparison.Ordinal))
         {
+            _logger.LogWarning("[AUTH] OTP verification failed for '{Email}': Provided '{Provided}' does not match expected OTP.", normalizedEmail, otp.Trim());
             throw new DomainException("OTP_INVALID", "OTP code is invalid.");
         }
 
@@ -216,7 +249,7 @@ public class AuthService : IAuthService
         user.UpdatedAt = DateTimeOffset.UtcNow;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("User '{Email}' successfully verified account and status changed to Active.", normalizedEmail);
+        _logger.LogInformation("[AUTH] User '{Email}' successfully verified OTP. Status changed to Active.", normalizedEmail);
 
         return user;
     }
@@ -232,17 +265,20 @@ public class AuthService : IAuthService
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
         if (user == null)
         {
+            _logger.LogWarning("[AUTH] Resend OTP rejected: User '{Email}' not found.", normalizedEmail);
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
         }
 
         if (user.Status == UserStatus.Active)
         {
+            _logger.LogWarning("[AUTH] Resend OTP rejected: User '{Email}' is already verified.", normalizedEmail);
             throw new DomainException("USER_ALREADY_VERIFIED", "User account has already been verified.");
         }
 
         await _otpService.InvalidateExistingOtpsAsync(normalizedEmail);
 
         var newOtpCode = Random.Shared.Next(100000, 999999).ToString();
+        _logger.LogInformation("[OTP RESEND] Email: '{Email}' | NEW CODE: >>> {OtpCode} <<< | Valid: 5 mins", normalizedEmail, newOtpCode);
         await _otpService.SaveOtpAsync(normalizedEmail, newOtpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
 
         if (_publishEndpoint != null)
@@ -264,5 +300,89 @@ public class AuthService : IAuthService
         }
 
         return true;
+    }
+
+    public async Task<LoginResultDto> LoginAsync(LoginDto dto, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(dto.UsernameOrEmail) || string.IsNullOrWhiteSpace(dto.Password))
+        {
+            throw new DomainException("INVALID_CREDENTIALS", "Invalid username or password.");
+        }
+
+        var identifier = dto.UsernameOrEmail.Trim();
+        var normalizedIdentifier = identifier.ToLowerInvariant();
+
+        var user = await _dbContext.Users
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Email == normalizedIdentifier || u.Email == identifier || (u.Username != null && u.Username.ToLower() == normalizedIdentifier), cancellationToken);
+
+        if (user == null || user.IsDeleted)
+        {
+            _logger.LogWarning("[AUTH] Login failed: User '{Identifier}' does not exist or was deleted.", identifier);
+            throw new DomainException("INVALID_CREDENTIALS", "Invalid username or password.");
+        }
+
+        if (user.Status == UserStatus.PendingVerification)
+        {
+            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' is PendingVerification. OTP verification required.", user.Email);
+            throw new DomainException("USER_NOT_VERIFIED", "User account is pending verification. Please verify your OTP code.");
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned.", user.Email);
+            throw new DomainException("USER_BANNED", "User account has been banned.");
+        }
+
+        bool isPasswordValid = false;
+        try
+        {
+            isPasswordValid = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while verifying password hash for '{Email}'.", user.Email);
+            isPasswordValid = false;
+        }
+
+        if (!isPasswordValid)
+        {
+            _logger.LogWarning("[AUTH] Login failed: Invalid password provided for '{Email}'.", user.Email);
+            throw new DomainException("INVALID_CREDENTIALS", "Invalid username or password.");
+        }
+
+        var roles = new List<string>();
+        if (user.UserRoles != null && user.UserRoles.Count > 0)
+        {
+            foreach (var ur in user.UserRoles)
+            {
+                var roleName = ur.Role?.RoleName?.ToLowerInvariant() ?? ur.Role?.RoleCode.ToString().ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
+                {
+                    roles.Add(roleName);
+                }
+            }
+        }
+
+        if (roles.Count == 0)
+        {
+            roles.Add("buyer");
+        }
+
+        if (_jwtTokenGenerator == null)
+        {
+            throw new InvalidOperationException("JwtTokenGenerator is not configured.");
+        }
+
+        var token = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
+
+        _logger.LogInformation("[AUTH] User '{Email}' logged in successfully. UserId: {UserId} | Roles: [{Roles}]. JWT issued.", user.Email, user.Id, string.Join(", ", roles));
+
+        return new LoginResultDto(
+            AccessToken: token,
+            ExpiresAt: expiresAt.ToString("o"),
+            UserId: user.Id.ToString(),
+            Roles: roles);
     }
 }

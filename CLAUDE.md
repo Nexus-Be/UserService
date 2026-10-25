@@ -16,7 +16,7 @@ This project is indexed by GitNexus as **UserService** (618 symbols, 971 relatio
 - NEVER commit changes without running `detect_changes()` to check affected scope.
 ## Resources
 | Resource | Use for |
-|----------|---------|
+| --- | --- |
 | `gitnexus://repo/UserService/context` | Codebase overview, check index freshness |
 | `gitnexus://repo/UserService/clusters` | All functional areas |
 | `gitnexus://repo/UserService/processes` | All execution flows |

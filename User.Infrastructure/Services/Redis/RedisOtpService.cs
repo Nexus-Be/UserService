@@ -40,11 +40,11 @@ public sealed class RedisOtpService : IRedisOtpService
         {
             var db = _redis.GetDatabase();
             await db.StringSetAsync(key, json, retentionDuration);
-            _logger.LogInformation("Stored OTP in Redis for '{Email}' with TTL {TtlSeconds}s.", email, retentionDuration.TotalSeconds);
+            _logger.LogInformation("[REDIS] Stored OTP in Redis for '{Email}' | CODE: >>> {Code} <<< | Key: '{Key}' | TTL: {TtlSeconds}s.", email, code, key, retentionDuration.TotalSeconds);
         }
         else
         {
-            _logger.LogWarning("[REDIS OFFLINE] Simulated storing OTP for '{Email}'. Code: {Code}", email, code);
+            _logger.LogWarning("[REDIS OFFLINE] Simulated storing OTP for '{Email}'. CODE: >>> {Code} <<<", email, code);
         }
     }
 

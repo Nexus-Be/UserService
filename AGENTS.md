@@ -16,7 +16,7 @@ This project is indexed by GitNexus as **UserService** (618 symbols, 971 relatio
 - NEVER commit changes without running `detect_changes()` to check affected scope.
 ## Resources
 | Resource | Use for |
-|----------|---------|
+| --- | --- |
 | `gitnexus://repo/UserService/context` | Codebase overview, check index freshness |
 | `gitnexus://repo/UserService/clusters` | All functional areas |
 | `gitnexus://repo/UserService/processes` | All execution flows |
@@ -92,10 +92,28 @@ Một task tại UserService chỉ hoàn tất khi:
 - [ ] Đã lập Plan chi tiết trước khi thực hiện.
 - [ ] Không chứa bất kỳ liên kết trỏ ngược ra ngoài UserService.
 - [ ] `dotnet build User.sln -c Release` thành công 100% (0 error) — file solution là **`User.sln`**, không phải `UserService.sln`.
-- [ ] `dotnet test User.sln -c Release` vượt qua 100% các bài test (**9** test hiện có).
+- [ ] `dotnet test User.sln -c Release` vượt qua 100% các bài test (**17** test hiện có).
 - [ ] Trạng thái Git sạch, không commit file rác (`bin/`, `obj/`, `.vs/`, `.idea/`, `.env`).
+
 ---
-## 🧪 NGUYÊN TẮC 7: HIỆN TRẠNG ĐÃ KIỂM CHỨNG (BẮT BUỘC ĐỌC TRƯỚC KHI CODE)
+
+## 📝 NGUYÊN TẮC 7: QUY CHUẨN DEV-JOURNAL & MENTOR WORKFLOW (OBSIDIAN VAULT)
+
+Để phục vụ việc học tập, quản lý tiến độ và review code cùng Mentor, AI Agent bắt buộc phải tuân theo kỹ năng `.agents/skills/dev-mentor-workflow`:
+1. **Tuyệt đối không lưu file `.md` ghi chú bừa bãi vào source code dự án**:
+   - Toàn bộ nhật ký thực chiến lưu tại: `D:/obsidian/vinhth/UserService/Tasks/`
+   - Toàn bộ sổ tay lý thuyết & khái niệm lưu tại: `D:/obsidian/vinhth/UserService/Concepts/`
+2. **Quy trình 2 Pha bắt buộc khi thực hiện Task**:
+   - **Pha 1 (Bắt đầu):** Xác định rõ **User Story** và **Câu hỏi làm rõ** trước khi đụng vào code.
+   - **Pha 2 (Kết thúc):** 
+     - Tóm tắt thay đổi code trọng tâm (File tạo mới, đoạn code cốt lõi trước/sau).
+     - Hướng dẫn lệnh Git (Branch, add, commit message chuẩn).
+     - Trích xuất mã **Commit Hash** (`git log -1 --oneline`) điền vào file Task Log để Mentor dễ dàng review bằng lệnh `git show <commit_hash>`.
+   - **Lý thuyết phát sinh:** Tự động tách riêng thành file tài liệu độc lập trong `Concepts/` kèm mốc thời gian (ngày, tháng, năm, giờ, phút) để hiển thị trong Obsidian Vault.
+
+---
+
+## 🧪 NGUYÊN TẮC 8: HIỆN TRẠNG ĐÃ KIỂM CHỨNG (BẮT BUỘC ĐỌC TRƯỚC KHI CODE)
 > Số liệu đo bằng cách đọc toàn bộ **65 file `.cs` / 2.433 dòng** (không tính `Migrations/`) trong repo này, ngày **2026-10-24**. Đây là sự thật đã kiểm chứng, không phải mô tả kiến trúc mong muốn.
 | Hạng mục | Hiện trạng thật |
 |:---|:---|
@@ -106,7 +124,7 @@ Một task tại UserService chỉ hoàn tất khi:
 | Event bus | **1 publisher** (`SendOtpEmailIntegrationEvent`), **0 consumer**, MassTransit **8.3.0** + EF Outbox; publish đang gọi **sau** `SaveChangesAsync` (rủi ro mất message) |
 | Dữ liệu | 14 entity/DbSet, migration **1 file** tạo **17 bảng**; chỉ **4/14 DbSet** có truy vấn nghiệp vụ; `HasQueryFilter` phủ **8/14** entity |
 | Phân tầng | ⚠️ Vi phạm: `User.Api` → `User.Infrastructure` và `UsersGrpcService` inject thẳng `AppDbContext` |
-| Test | **9** `[Fact]` trong `User.Tests/AuthServiceTests.cs`; `User.Tests` **không** reference `User.Api` ⇒ 0 test gRPC |
+| Test | **17** `[Fact]` trong `User.Tests/AuthServiceTests.cs`; `User.Tests` **không** reference `User.Api` ⇒ 0 test gRPC |
 | Bảo mật | Không có authentication/authorization trong pipeline; tin header `x-user-id` do client tự khai |
 **Quy tắc rút ra:**
 - Không được coi `/health` là bằng chứng "service hoạt động" — nó **không** kiểm tra DB.
