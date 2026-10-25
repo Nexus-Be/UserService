@@ -1,13 +1,13 @@
 # 04 — MÔ HÌNH THỰC THỂ & CƠ SỞ DỮ LIỆU (USER SERVICE DATA PERSISTENCE - V2)
-> **Trạng thái triển khai (2026-10-24):** ⚠️ Một phần — **14/14** entity + **14/14** DbSet + **14/14** bảng `dbml/service/user.dbml` ✅; migration tạo **17 bảng** (14 nghiệp vụ + 3 bảng MassTransit Outbox/Inbox). Nhưng chỉ **4/14 DbSet** được code nghiệp vụ đọc/ghi; **10/14 DbSet** chưa có truy vấn nào. **Mọi khóa chính là `Guid`** (không phải `int identity` như đặc tả V2 cũ).
+> **Trạng thái triển khai (2026-10-25):** ⚠️ Một phần — **14/14** entity + **14/14** DbSet + **14/14** bảng `dbml/service/user.dbml` ✅; **2 migration** (`InitialUserSchema` và `AddUsernameToUser`) tạo **17 bảng** (14 nghiệp vụ + 3 bảng MassTransit Outbox/Inbox). Bổ sung cột `Username` (`character varying(100)`) kèm Filtered Unique Index `IX_Users_Username`. **Mọi khóa chính là `Guid`** (không phải `int identity` như đặc tả V2 cũ).
 > **Nguồn sự thật:** code trong repo này (`file:line` ghi kèm trong từng bảng).
-> **Cập nhật lần cuối:** 2026-10-24.
+> **Cập nhật lần cuối:** 2026-10-25.
 ---
 ## 1. MÔ HÌNH THỰC THỂ CHÍNH (DOMAIN ENTITIES)
 ### 1.0 Bảng tổng hợp trạng thái 14 thực thể
 | # | Entity | DbSet | Bảng DB | Configuration | Có code đọc/ghi? | Trạng thái |
 |--:|:---|:---|:---|:---|:---|:---|
-| 1 | `User` | `Users` | `Users` | `UserConfiguration` | ✅ 7 điểm truy vấn | ✅ |
+| 1 | `User` | `Users` | `Users` | `UserConfiguration` | ✅ 8 điểm truy vấn | ✅ |
 | 2 | `RefreshToken` | `RefreshTokens` | `RefreshTokens` | `RefreshTokenConfiguration` | ❌ (chỉ có trong navigation) | ⚠️ schema có, không dùng |
 | 3 | `Role` | `Roles` | `Roles` | `RoleConfiguration` | ✅ 3 điểm | ✅ |
 | 4 | `UserRole` | `UserRoles` | `UserRoles` | `UserRoleConfiguration` | ✅ 6 điểm | ✅ |
@@ -30,7 +30,8 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
 ---
 1. **`User` (Định danh người dùng toàn sàn)**:
    - `Id`: `Guid` (Primary Key).
-   - `Email`: `string` (Unique Index, Max 255 chars) — `UserConfiguration.cs:15-16`.
+   - `Username`: `string?` (Max 100 chars; Filtered Unique Index `IX_Users_Username` với điều kiện `WHERE "Username" IS NOT NULL`) — `UserConfiguration.cs:12-13`.
+   - `Email`: `string` (Unique Index, Max 255 chars) — `UserConfiguration.cs:14-15`.
    - `PasswordHash`: `string` (Max 500 chars; BCrypt — `BCrypt.Net-Next 4.0.3`).
    - `FirstName`, `LastName`: `string` (Max 150 chars mỗi trường).
    - `PhoneNumber`: `string?` (**Max 50** chars — đặc tả cũ ghi 20 là sai).
@@ -173,7 +174,7 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
 ## 3. MIGRATION & KHỞI TẠO SCHEMA
 | Hạng mục | Hiện trạng | Bằng chứng |
 |:---|:---|:---|
-| Số migration | **1** (gộp toàn bộ lịch sử; 3 migration cũ `InitialUserSchema`, `SeedDefaultRoles`, `AddMassTransitOutboxInboxTables` đã bị xóa) | `User.Infrastructure/Migrations/` chỉ có `20261024103058_InitialUserSchema.cs` + `.Designer.cs` + `AppDbContextModelSnapshot.cs` |
+| Số migration | **2** (`InitialUserSchema` khởi tạo schema và `AddUsernameToUser` thêm cột `Username`) | `User.Infrastructure/Migrations/` gồm `20261024103058_InitialUserSchema.cs` và `20261025003659_AddUsernameToUser.cs` |
 | Số bảng tạo ra | **17** = 14 nghiệp vụ + `InboxState` + `OutboxMessage` + `OutboxState` | `20261024103058_InitialUserSchema.cs` |
 | Seed trong migration | 4 role, 4 user (`admin@nexus.com`, `staff@nexus.com`, `seller@nexus.com`, `buyer@nexus.com` — mật khẩu hash của `Password123!`), 4 user-role, 1 seller profile (`Nexus Official Store`), 4 reputation score, 2 system config | `User.Infrastructure/Persistence/Seeds/UserSeedData.cs`, gọi từ `AppDbContext.cs:33` |
 | Tự động migrate lúc khởi động | ✅ có, nhưng **nuốt lỗi** (chỉ `LogWarning`) | `User.Api/Program.cs:49-62` |

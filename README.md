@@ -1,13 +1,13 @@
 # USER SERVICE — ARCHITECTURE & FOLDER STRUCTURE GUIDE
 ## (CẨM NANG CẤU TRÚC THƯ MỤC & PHÁT TRIỂN DÀNH CHO DEVELOPER VÀ AI AGENT)
-> **Trạng thái triển khai (2026-10-24):** ⚠️ Một phần — **4/13 rpc** của `UsersApi` đã implement (`Register`, `VerifyOtp`, `ResendOtp`, `GetProfile`); **9/13 rpc** còn là đặc tả mục tiêu, trong đó `Login` ❌ **chưa có code** và repo **không có bất kỳ code phát hành JWT nào**. Messaging: **1 event publish** (`SendOtpEmailIntegrationEvent`), **0 consumer**.
+> **Trạng thái triển khai (2026-10-25):** ⚠️ Một phần — **5/13 rpc** của `UsersApi` đã implement (`Register`, `VerifyOtp`, `ResendOtp`, `Login`, `GetProfile`); **8/13 rpc** còn là đặc tả mục tiêu. `Login` ✅ **đã có code kèm phát hành JWT** (`JwtTokenGenerator`). Cột `Username` ✅ **đã có trong entity và CSDL Neon**. Messaging: **1 event publish** (`SendOtpEmailIntegrationEvent`), **0 consumer**.
 > **Nguồn sự thật:** code trong repo này (`file:line` ghi kèm trong từng bảng).
-> **Cập nhật lần cuối:** 2026-10-24.
+> **Cập nhật lần cuối:** 2026-10-25.
 > **Thông tin dịch vụ** (số liệu kiểm chứng trực tiếp):
-> - **Service Port**: `8001` ✅ — khớp cả 3 nơi: `Dockerfile:3` (`EXPOSE 8001`), `Dockerfile:4` (`ENV ASPNETCORE_URLS=http://+:8001`), `User.Api/Properties/launchSettings.json` (`"applicationUrl": "http://localhost:8001"`). Không có profile HTTPS.
-> - **Database**: PostgreSQL `usermanagement_db`, port host `5433` ✅ — `User.Api/appsettings.json` (`ConnectionStrings:DefaultConnection`) và `docker-compose.yml` (`POSTGRES_DB: usermanagement_db`, `${USER_DB_PORT:-5433}`). Tên `usermanagement_db` **khác** với tên `user_db` mà một số tài liệu đặc tả cũ dùng.
-> - **Nhiệm vụ ĐÃ CÓ trong code**: đăng ký tài khoản + gửi OTP email, xác thực OTP, gửi lại OTP, đọc hồ sơ người dùng, gán role `Buyer` mặc định, seed 4 role + 4 user mẫu.
-> - **Nhiệm vụ CHƯA CÓ trong code** (đặc tả mục tiêu): đăng nhập (`rpc Login`), phát hành JWT/refresh token, cập nhật hồ sơ, nâng cấp/duyệt seller, quản trị user–role–permission. Xem chi tiết ở §6.
+> - **Service Port**: `8001` ✅ — khớp cả 3 nơi: `Dockerfile:3` (`EXPOSE 8001`), `Dockerfile:4` (`ENV ASPNETCORE_URLS=http://+:8001`), `User.Api/Properties/launchSettings.json` (`"applicationUrl": "http://localhost:8001"`). Kestrel chạy HTTP/2 h2c cho gRPC.
+> - **Database**: PostgreSQL `usermanagement_db`, port host `5433` ✅ — `User.Api/appsettings.json` (`ConnectionStrings:DefaultConnection`) và `docker-compose.yml` (`POSTGRES_DB: usermanagement_db`, `${USER_DB_PORT:-5433}`). Cột `Username` có Filtered Unique Index `IX_Users_Username`.
+> - **Nhiệm vụ ĐÃ CÓ trong code**: đăng ký tài khoản (kèm username) + gửi OTP email, xác thực OTP, gửi lại OTP, đăng nhập (`rpc Login` qua email/username + sinh JWT), đọc hồ sơ người dùng, gán role `Buyer` mặc định, seed 4 role + 4 user mẫu.
+> - **Nhiệm vụ CHƯA CÓ trong code** (đặc tả mục tiêu): cập nhật hồ sơ, refresh token, nâng cấp/duyệt seller, quản trị user–role–permission. Xem chi tiết ở §6.
 ---
 ## 1. SƠ ĐỒ PHÂN TẦNG VÀ CẤU TRÚC THƯ MỤC CHUẨN
 `UserService` được xây dựng theo chuẩn **Clean Architecture 4 tầng** khử ghép nối hoàn toàn:
@@ -18,14 +18,15 @@ src/Services/User/
 │
 ├── User.Domain/                                        # 1. TẦNG DOMAIN (POCO 100%, ZERO DEPENDENCY)
 │   ├── Base/                                           # BaseEntity<TKey>, AuditableEntity<TKey>, IAuditable, ISoftDelete
-│   ├── Entities/                                       # 14 entity: User, Role, UserRole, SellerProfile, RefreshToken...
+│   ├── Entities/                                       # 14 entity: User (có Username), Role, UserRole, SellerProfile, RefreshToken...
 │   ├── Enums/                                          # 16 enum: UserStatus, RoleType, TrustLevel...
 │   └── Exceptions/                                     # DomainException (+ BusinessRuleValidationException định nghĩa cùng file)
 │
 ├── User.Application/                                   # 2. TẦNG APPLICATION (USE CASES & BUSINESS LOGIC)
-│   ├── Interfaces/                                     # 2 interface hạ tầng (KHÔNG có IPasswordHasher / IJwtTokenGenerator)
+│   ├── Interfaces/                                     # Interface hạ tầng
 │   │   ├── IUserDbContext.cs                           # 14 DbSet + SaveChangesAsync
-│   │   └── IRedisOtpService.cs                         # Lưu/đọc/thu hồi OTP trên Redis
+│   │   ├── IRedisOtpService.cs                         # Lưu/đọc/thu hồi OTP trên Redis
+│   │   └── IJwtTokenGenerator.cs                       # Hợp đồng sinh mã JWT Token
 │   │
 │   ├── Models/                                         # OtpEntry, OtpStatus (KHÔNG có thư mục Common/)
 │   │
@@ -33,9 +34,9 @@ src/Services/User/
 │   │
 │   ├── Services/                                       # CÁC DỊCH VỤ XỬ LÝ USE CASE (THEO TÍNH NĂNG)
 │   │   └── Auth/                                       # Module Xác thực & Đăng ký
-│   │       ├── IAuthService.cs                         # 3 method: RegisterAsync, VerifyOtpAsync, ResendOtpAsync
-│   │       ├── AuthService.cs                          # Nghiệp vụ Register / VerifyOtp / ResendOtp
-│   │       └── AuthDtos.cs                             # RegisterDto (KHÔNG có LoginDto)
+│   │       ├── IAuthService.cs                         # 4 method: RegisterAsync, VerifyOtpAsync, ResendOtpAsync, LoginAsync
+│   │       ├── AuthService.cs                          # Nghiệp vụ Register / VerifyOtp / ResendOtp / Login
+│   │       └── AuthDtos.cs                             # RegisterDto (có Username), LoginDto, LoginResultDto
 │   │
 │   └── DependencyInjection.cs                          # AddApplicationServices() → AddScoped<IAuthService, AuthService>
 │
@@ -45,13 +46,13 @@ src/Services/User/
 │   │   ├── Configurations/                             # 14 Fluent API Configuration (*Configuration.cs)
 │   │   └── Seeds/                                      # UserSeedData.cs — seed role/user/user-role/seller/reputation/system-config
 │   │
-│   ├── Migrations/                                     # ⚠️ Nằm ở gốc User.Infrastructure/, KHÔNG nằm trong Persistence/
-│   │   └── 20261024103058_InitialUserSchema.cs         # 1 migration duy nhất (gộp toàn bộ schema + seed + bảng Outbox)
+│   ├── Migrations/                                     # Nằm ở gốc User.Infrastructure/
+│   │   ├── 20261024103058_InitialUserSchema.cs         # Migration khởi tạo schema
+│   │   └── 20261025003659_AddUsernameToUser.cs         # Migration thêm cột Username + Filtered Unique Index
 │   │
 │   ├── Services/                                       # CÁC DỊCH VỤ HẠ TẦNG KỸ THUẬT (MODULE HÓA)
-│   │   └── Redis/                                      # Module tích hợp Redis
-│   │       ├── RedisOptions.cs                         # Lớp options (hiện KHÔNG được dùng ở đâu — cấu hình đọc trực tiếp qua IConfiguration)
-│   │       └── RedisOtpService.cs                      # Triển khai IRedisOtpService
+│   │   ├── Redis/                                      # Module tích hợp Redis (RedisOtpService)
+│   │   └── Jwt/                                        # Module phát hành JWT (JwtTokenGenerator)
 │   │
 │   └── DependencyInjection.cs                          # AddInfrastructureServices(configuration)
 │
@@ -59,10 +60,10 @@ src/Services/User/
 │   ├── Middleware/                                     # MIDDLEWARE TOÀN CỤC CỦA SERVICE
 │   │   └── GlobalExceptionHandlerMiddleware.cs         # Format lỗi ProblemDetails (RFC 9110), ghi log kèm traceId
 │   ├── Services/                                       # gRPC Server Service
-│   │   └── UsersGrpcService.cs                         # : UsersApi.UsersApiBase — 4/13 rpc override
+│   │   └── UsersGrpcService.cs                         # : UsersApi.UsersApiBase — 5/13 rpc override (Register, VerifyOtp, ResendOtp, Login, GetProfile)
 │   ├── Contracts/                                      # shop.proto (hợp đồng gRPC, GrpcServices="Server")
 │   ├── Properties/launchSettings.json                  # Port chạy local thật: 8001
-│   ├── appsettings.json                                # ConnectionStrings + RabbitMq + Redis + Otel + Jwt (Otel và Jwt chưa được code nào đọc)
+│   ├── appsettings.json                                # ConnectionStrings + RabbitMq + Redis + Otel + Jwt (được đọc bởi JwtTokenGenerator)
 │   └── Program.cs                                      # Kestrel HTTP/1+HTTP/2 (h2c), DI, gRPC, Swagger, /health, auto-migrate
 │
 └── User.Tests/                                         # 5. TẦNG KIỂM THỬ (UNIT TESTS)

@@ -5,7 +5,8 @@ public record RegisterDto(
     string Password,
     string FirstName,
     string LastName,
-    string? PhoneNumber = null);
+    string? PhoneNumber = null,
+    string? Username = null);
 
 public record VerifyOtpDto(
     string Email,
@@ -13,3 +14,13 @@ public record VerifyOtpDto(
 
 public record ResendOtpDto(
     string Email);
+
+public record LoginDto(
+    string UsernameOrEmail,
+    string Password);
+
+public record LoginResultDto(
+    string AccessToken,
+    string ExpiresAt,
+    string UserId,
+    System.Collections.Generic.IReadOnlyList<string> Roles);
