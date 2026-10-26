@@ -42,3 +42,12 @@ public record LogoutDto(
 
 public record LogoutAllDto(
     System.Guid UserId);
+
+public record ForgotPasswordDto(
+    string Email);
+
+public record ForgotPasswordResultDto(
+    string Email,
+    string Message,
+    int OtpExpiresIn);
+
