@@ -252,7 +252,18 @@ message LogoutAllResponse {
   int32 count_revoked = 1;
   string message = 2;
 }
-message UpdateProfileRequest { string user_id = 1; string display_name = 2; string email = 3; }
+message UpdateProfileRequest {
+  string user_id = 1;
+  string display_name = 2;
+  string email = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string phone_number = 6;
+  string address = 7;
+  string avatar_url = 8;
+  string gender = 9;
+  string date_of_birth = 10;
+}
 message ListUsersRequest { int32 page = 1; int32 page_size = 2; string q = 3; string role = 4; }
 message UserPage { repeated UserProfile items = 1; int32 total = 2; }
 message AssignRolesRequest { string user_id = 1; repeated string roles = 2; }

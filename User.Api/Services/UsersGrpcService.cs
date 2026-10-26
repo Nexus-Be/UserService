@@ -233,7 +233,7 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
     private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
     {
         "USER_NOT_FOUND" => StatusCode.NotFound,
-        "EMAIL_ALREADY_EXISTS" or "USERNAME_ALREADY_EXISTS" => StatusCode.AlreadyExists,
+        "EMAIL_ALREADY_EXISTS" or "USERNAME_ALREADY_EXISTS" or "PHONE_ALREADY_EXISTS" => StatusCode.AlreadyExists,
         "INVALID_CREDENTIALS" or "INVALID_REFRESH_TOKEN" => StatusCode.Unauthenticated,
         "USER_NOT_VERIFIED" => StatusCode.FailedPrecondition,
         "USER_BANNED" or "USER_SUSPENDED" => StatusCode.PermissionDenied,
@@ -281,6 +281,68 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[gRPC GetProfile] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<UserProfile> UpdateProfile(UpdateProfileRequest request, ServerCallContext context)
+    {
+        var userId = context.RequestHeaders.Get("x-user-id")?.Value ?? request.UserId;
+        _logger?.LogInformation("[gRPC UpdateProfile] Incoming request for UserId: '{UserId}'", userId);
+        if (!Guid.TryParse(userId, out var guid))
+        {
+            _logger?.LogWarning("[gRPC UpdateProfile] Invalid user identifier: '{UserId}'", userId);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
+        }
+
+        try
+        {
+            string? firstName = string.IsNullOrWhiteSpace(request.FirstName) ? null : request.FirstName;
+            string? lastName = string.IsNullOrWhiteSpace(request.LastName) ? null : request.LastName;
+
+            if (firstName == null && lastName == null && !string.IsNullOrWhiteSpace(request.DisplayName))
+            {
+                var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0) firstName = parts[0];
+                if (parts.Length > 1) lastName = parts[1];
+            }
+
+            var updateDto = new UpdateProfileDto(
+                FirstName: firstName,
+                LastName: lastName,
+                PhoneNumber: string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber,
+                Address: string.IsNullOrWhiteSpace(request.Address) ? null : request.Address,
+                AvatarUrl: string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl
+            );
+
+            var dto = await _profileService.UpdateProfileAsync(guid, updateDto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UpdateProfile] Succeeded for '{Email}' (UserId: {UserId})", dto.Email, dto.Id);
+
+            var profile = new UserProfile
+            {
+                Id = dto.Id,
+                DisplayName = dto.DisplayName,
+                Email = dto.Email,
+                Status = dto.Status,
+                ShopName = dto.ShopName ?? string.Empty
+            };
+
+            foreach (var role in dto.Roles)
+            {
+                profile.Roles.Add(role);
+            }
+
+            return profile;
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UpdateProfile] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UpdateProfile] Unhandled Exception: {Message}", ex.Message);
             throw new RpcException(new Status(StatusCode.Internal, ex.Message));
         }
     }

@@ -2,6 +2,7 @@ namespace User.Application.Services.Profile;
 
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,113 @@ public class ProfileService : IProfileService
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
         }
 
+        _logger.LogInformation("[PROFILE] Profile retrieved for '{Email}' (UserId: {UserId})", user.Email, user.Id);
+        return MapToDto(user);
+    }
+
+    public async Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var user = await _dbContext.Users
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+            .Include(u => u.SellerProfile)
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user == null || user.IsDeleted)
+        {
+            _logger.LogWarning("[PROFILE UPDATE] User not found or deleted for UserId: {UserId}", userId);
+            throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        // 1. Validate FirstName if provided
+        if (dto.FirstName != null)
+        {
+            var trimmedFirst = dto.FirstName.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedFirst) || trimmedFirst.Length > 100)
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_FIRST_NAME", "First name must be between 1 and 100 characters.");
+            }
+            user.FirstName = trimmedFirst;
+        }
+
+        // 2. Validate LastName if provided
+        if (dto.LastName != null)
+        {
+            var trimmedLast = dto.LastName.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedLast) || trimmedLast.Length > 100)
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_LAST_NAME", "Last name must be between 1 and 100 characters.");
+            }
+            user.LastName = trimmedLast;
+        }
+
+        // 3. Validate PhoneNumber if provided
+        if (dto.PhoneNumber != null)
+        {
+            var trimmedPhone = dto.PhoneNumber.Trim();
+            if (!string.IsNullOrWhiteSpace(trimmedPhone))
+            {
+                if (trimmedPhone.Length > 20 || !Regex.IsMatch(trimmedPhone, @"^[0-9+() -]+$"))
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_PHONE", "Phone number is invalid.");
+                }
+
+                // Check uniqueness across other users
+                var phoneExists = await _dbContext.Users
+                    .AnyAsync(u => u.Id != userId && u.PhoneNumber == trimmedPhone, cancellationToken);
+
+                if (phoneExists)
+                {
+                    throw new DomainException("PHONE_ALREADY_EXISTS", "Phone number is already in use by another account.");
+                }
+            }
+            user.PhoneNumber = string.IsNullOrWhiteSpace(trimmedPhone) ? null : trimmedPhone;
+        }
+
+        // 4. Validate Address if provided
+        if (dto.Address != null)
+        {
+            var trimmedAddress = dto.Address.Trim();
+            if (trimmedAddress.Length > 255)
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_ADDRESS", "Address cannot exceed 255 characters.");
+            }
+            user.Address = string.IsNullOrWhiteSpace(trimmedAddress) ? null : trimmedAddress;
+        }
+
+        // 5. AvatarUrl if provided
+        if (dto.AvatarUrl != null)
+        {
+            user.AvatarUrl = string.IsNullOrWhiteSpace(dto.AvatarUrl.Trim()) ? null : dto.AvatarUrl.Trim();
+        }
+
+        // 6. Gender if provided
+        if (dto.Gender.HasValue)
+        {
+            user.Gender = dto.Gender.Value;
+        }
+
+        // 7. DateOfBirth if provided
+        if (dto.DateOfBirth.HasValue)
+        {
+            user.DateOfBirth = dto.DateOfBirth.Value;
+        }
+
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[PROFILE UPDATE] Profile updated successfully for '{Email}' (UserId: {UserId})", user.Email, user.Id);
+        return MapToDto(user);
+    }
+
+    private static UserProfileDto MapToDto(Domain.Entities.User user)
+    {
         var roles = new List<string>();
         if (user.UserRoles != null && user.UserRoles.Count > 0)
         {
@@ -65,8 +173,6 @@ public class ProfileService : IProfileService
 
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
         var trustLevel = user.ReputationScore?.TrustLevel.ToString() ?? "Standard";
-
-        _logger.LogInformation("[PROFILE] Profile retrieved for '{Email}' (UserId: {UserId})", user.Email, user.Id);
 
         return new UserProfileDto(
             Id: user.Id.ToString(),
