@@ -24,12 +24,16 @@ builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddGrpc();
 builder.Services.AddGrpcReflection();
 
-// 3. Swagger / OpenAPI
+// 3. Swagger / OpenAPI & JSON Serialization
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    options.SerializerOptions.Converters.Add(new User.Api.Common.Converters.PascalCaseJsonStringEnumConverter(allowIntegerValues: false));
+});
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new User.Api.Common.Converters.PascalCaseJsonStringEnumConverter(allowIntegerValues: false));
 });
 
 var app = builder.Build();
