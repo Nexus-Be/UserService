@@ -23,4 +23,18 @@ public record LoginResultDto(
     string AccessToken,
     string ExpiresAt,
     string UserId,
+    System.Collections.Generic.IReadOnlyList<string> Roles,
+    string? RefreshToken = null);
+
+public record RefreshTokenDto(
+    string RefreshToken,
+    string? DeviceInfo = null,
+    string? IpAddress = null);
+
+public record RefreshTokenResultDto(
+    string AccessToken,
+    string RefreshToken,
+    string ExpiresAt,
+    string UserId,
     System.Collections.Generic.IReadOnlyList<string> Roles);
+

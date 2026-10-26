@@ -101,8 +101,8 @@ Một task tại UserService chỉ hoàn tất khi:
 
 Để phục vụ việc học tập, quản lý tiến độ và review code cùng Mentor, AI Agent bắt buộc phải tuân theo kỹ năng `.agents/skills/dev-mentor-workflow`:
 1. **Tuyệt đối không lưu file `.md` ghi chú bừa bãi vào source code dự án**:
-   - Toàn bộ nhật ký thực chiến lưu tại: `D:/obsidian/vinhth/UserService/Tasks/`
-   - Toàn bộ sổ tay lý thuyết & khái niệm lưu tại: `D:/obsidian/vinhth/UserService/Concepts/`
+   - Toàn bộ nhật ký thực chiến lưu tại: `D:/obsidian/vinhth/UserService - học/Tasks/`
+   - Toàn bộ sổ tay lý thuyết & khái niệm lưu tại: `D:/obsidian/vinhth/UserService - học/Concepts/`
 2. **Quy trình 2 Pha bắt buộc khi thực hiện Task**:
    - **Pha 1 (Bắt đầu):** Xác định rõ **User Story** và **Câu hỏi làm rõ** trước khi đụng vào code.
    - **Pha 2 (Kết thúc):** 
