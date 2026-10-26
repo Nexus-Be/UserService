@@ -11,4 +11,6 @@ public interface IAuthService
     Task<bool> ResendOtpAsync(string email, CancellationToken cancellationToken = default);
     Task<LoginResultDto> LoginAsync(LoginDto dto, CancellationToken cancellationToken = default);
     Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default);
+    Task<bool> LogoutAsync(string refreshToken, CancellationToken cancellationToken = default);
+    Task<int> LogoutAllAsync(System.Guid userId, CancellationToken cancellationToken = default);
 }
