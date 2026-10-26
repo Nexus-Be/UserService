@@ -230,6 +230,33 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
     }
 
+    public override async Task<ForgotPasswordResponse> ForgotPassword(ForgotPasswordRequest request, ServerCallContext context)
+    {
+        _logger?.LogInformation("[gRPC ForgotPassword] Incoming request for Email: '{Email}'", request.Email);
+        try
+        {
+            var result = await _authService.ForgotPasswordAsync(new ForgotPasswordDto(request.Email), context.CancellationToken);
+            _logger?.LogInformation("[gRPC ForgotPassword] Completed for Email: '{Email}'", request.Email);
+            return new ForgotPasswordResponse
+            {
+                Email = result.Email,
+                Message = result.Message,
+                OtpExpiresIn = result.OtpExpiresIn
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC ForgotPassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC ForgotPassword] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
     private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
     {
         "USER_NOT_FOUND" => StatusCode.NotFound,

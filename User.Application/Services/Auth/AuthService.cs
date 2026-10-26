@@ -584,6 +584,54 @@ public class AuthService : IAuthService
         return activeTokens.Count;
     }
 
+    public async Task<ForgotPasswordResultDto> ForgotPasswordAsync(ForgotPasswordDto dto, CancellationToken cancellationToken = default)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Email))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_EMAIL", "Email address is required.");
+        }
+
+        var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(normalizedEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_EMAIL", "Email address format is invalid.");
+        }
+
+        const string genericMessage = "If the email exists in our system, password reset instructions have been sent.";
+        const int otpExpiresInSeconds = 600;
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail && !u.IsDeleted, cancellationToken);
+
+        if (user == null || user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            _logger.LogInformation("[FORGOT PASSWORD] Requested for '{Email}', but user not eligible or not found (Anti-Enumeration).", normalizedEmail);
+            return new ForgotPasswordResultDto(normalizedEmail, genericMessage, otpExpiresInSeconds);
+        }
+
+        var otpCode = Random.Shared.Next(100000, 999999).ToString();
+        _logger.LogInformation("[PASSWORD RESET OTP] Email: '{Email}' | CODE: >>> {OtpCode} <<< | Valid: 10 mins", normalizedEmail, otpCode);
+
+        await _otpService.InvalidateExistingOtpsAsync(normalizedEmail, purpose: "password_reset");
+        await _otpService.SaveOtpAsync(normalizedEmail, otpCode, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
+
+        if (_publishEndpoint != null)
+        {
+            try
+            {
+                var fullName = $"{user.FirstName} {user.LastName}".Trim();
+                await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(user.Email, fullName, otpCode, 10), cancellationToken);
+                _logger.LogInformation("[FORGOT PASSWORD] Password reset OTP event dispatched to RabbitMQ for '{Email}'", normalizedEmail);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[FORGOT PASSWORD BUS OFFLINE] Could not publish SendOtpEmailIntegrationEvent for '{Email}'. Fallback to log. CODE: >>> {OtpCode} <<<", normalizedEmail, otpCode);
+            }
+        }
+
+        return new ForgotPasswordResultDto(normalizedEmail, genericMessage, otpExpiresInSeconds);
+    }
+
     private static string GenerateSecureToken()
     {
         var bytes = new byte[64];

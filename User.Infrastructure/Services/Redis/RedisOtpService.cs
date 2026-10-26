@@ -22,9 +22,9 @@ public sealed class RedisOtpService : IRedisOtpService
         _redis = redis;
     }
 
-    public async Task SaveOtpAsync(string email, string code, TimeSpan validityDuration, TimeSpan retentionDuration)
+    public async Task SaveOtpAsync(string email, string code, TimeSpan validityDuration, TimeSpan retentionDuration, string purpose = "registration")
     {
-        var key = FormatKey(email);
+        var key = FormatKey(email, purpose);
         var entry = new OtpEntry
         {
             Code = code,
@@ -48,9 +48,9 @@ public sealed class RedisOtpService : IRedisOtpService
         }
     }
 
-    public async Task<OtpEntry?> GetOtpAsync(string email)
+    public async Task<OtpEntry?> GetOtpAsync(string email, string purpose = "registration")
     {
-        var key = FormatKey(email);
+        var key = FormatKey(email, purpose);
 
         if (_redis != null && _redis.IsConnected)
         {
@@ -76,9 +76,9 @@ public sealed class RedisOtpService : IRedisOtpService
         return null;
     }
 
-    public async Task MarkOtpConsumedAsync(string email)
+    public async Task MarkOtpConsumedAsync(string email, string purpose = "registration")
     {
-        var key = FormatKey(email);
+        var key = FormatKey(email, purpose);
 
         if (_redis != null && _redis.IsConnected)
         {
@@ -108,9 +108,9 @@ public sealed class RedisOtpService : IRedisOtpService
         }
     }
 
-    public async Task InvalidateExistingOtpsAsync(string email)
+    public async Task InvalidateExistingOtpsAsync(string email, string purpose = "registration")
     {
-        var key = FormatKey(email);
+        var key = FormatKey(email, purpose);
 
         if (_redis != null && _redis.IsConnected)
         {
@@ -120,5 +120,5 @@ public sealed class RedisOtpService : IRedisOtpService
         }
     }
 
-    private static string FormatKey(string email) => $"{KeyPrefix}{email.Trim().ToLowerInvariant()}";
+    private static string FormatKey(string email, string purpose = "registration") => $"otp:{purpose}:{email.Trim().ToLowerInvariant()}";
 }

@@ -65,6 +65,8 @@ service UsersApi {
   // v5 (2026-10-26) — Logout and session revocation
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc LogoutAll(LogoutAllRequest) returns (LogoutAllResponse);
+  // v6 (2026-10-26) — ForgotPassword
+  rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
 }
 
 service AuditApi {
@@ -252,6 +254,17 @@ message LogoutAllResponse {
   int32 count_revoked = 1;
   string message = 2;
 }
+
+message ForgotPasswordRequest {
+  string email = 1;
+}
+
+message ForgotPasswordResponse {
+  string email = 1;
+  string message = 2;
+  int32 otp_expires_in = 3;
+}
+
 message UpdateProfileRequest {
   string user_id = 1;
   string display_name = 2;

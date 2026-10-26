@@ -682,6 +682,122 @@ public sealed class AuthServiceTests
         Assert.Equal("User identifier is required.", ex.Message);
     }
 
+    [Fact]
+    public async Task ForgotPasswordAsync_when_user_exists_generates_otp_and_returns_success()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var email = "forgot_user@nexus.local";
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            PasswordHash = "hashed_pw",
+            FirstName = "Forgot",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsDeleted = false
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var result = await authService.ForgotPasswordAsync(new ForgotPasswordDto(email));
+
+        Assert.NotNull(result);
+        Assert.Equal(email, result.Email);
+        Assert.Equal(600, result.OtpExpiresIn);
+        Assert.Equal("If the email exists in our system, password reset instructions have been sent.", result.Message);
+
+        var storedOtp = await otpService.GetOtpAsync(email, purpose: "password_reset");
+        Assert.NotNull(storedOtp);
+        Assert.Equal(6, storedOtp.Code.Length);
+        Assert.Equal(OtpStatus.Active, storedOtp.Status);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_when_user_not_found_returns_generic_success_without_throwing()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var nonExistentEmail = "ghost@nexus.local";
+        var result = await authService.ForgotPasswordAsync(new ForgotPasswordDto(nonExistentEmail));
+
+        Assert.NotNull(result);
+        Assert.Equal(nonExistentEmail, result.Email);
+        Assert.Equal("If the email exists in our system, password reset instructions have been sent.", result.Message);
+
+        // Đảm bảo không sinh OTP trong Redis cho email không tồn tại
+        var storedOtp = await otpService.GetOtpAsync(nonExistentEmail, purpose: "password_reset");
+        Assert.Null(storedOtp);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_when_user_banned_returns_generic_success_without_otp()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var bannedEmail = "banned@nexus.local";
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = bannedEmail,
+            PasswordHash = "hashed_pw",
+            FirstName = "Banned",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Banned,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsDeleted = false
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var result = await authService.ForgotPasswordAsync(new ForgotPasswordDto(bannedEmail));
+
+        Assert.NotNull(result);
+        Assert.Equal(bannedEmail, result.Email);
+        Assert.Equal("If the email exists in our system, password reset instructions have been sent.", result.Message);
+
+        var storedOtp = await otpService.GetOtpAsync(bannedEmail, purpose: "password_reset");
+        Assert.Null(storedOtp);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_when_email_empty_throws_business_rule_exception()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ForgotPasswordAsync(new ForgotPasswordDto("   ")));
+
+        Assert.Equal("VAL_INVALID_EMAIL", ex.ErrorCode);
+        Assert.Equal("Email address is required.", ex.Message);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_when_email_format_invalid_throws_business_rule_exception()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ForgotPasswordAsync(new ForgotPasswordDto("invalid-email-format")));
+
+        Assert.Equal("VAL_INVALID_EMAIL", ex.ErrorCode);
+        Assert.Equal("Email address format is invalid.", ex.Message);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)
@@ -695,9 +811,11 @@ public sealed class AuthServiceTests
     {
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);
 
-        public Task SaveOtpAsync(string email, string code, TimeSpan validityDuration, TimeSpan retentionDuration)
+        private static string Key(string email, string purpose) => $"{purpose}:{email}";
+
+        public Task SaveOtpAsync(string email, string code, TimeSpan validityDuration, TimeSpan retentionDuration, string purpose = "registration")
         {
-            _storage[email] = new OtpEntry
+            _storage[Key(email, purpose)] = new OtpEntry
             {
                 Code = code,
                 Email = email,
@@ -708,15 +826,15 @@ public sealed class AuthServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<OtpEntry?> GetOtpAsync(string email)
+        public Task<OtpEntry?> GetOtpAsync(string email, string purpose = "registration")
         {
-            _storage.TryGetValue(email, out var entry);
+            _storage.TryGetValue(Key(email, purpose), out var entry);
             return Task.FromResult(entry);
         }
 
-        public Task MarkOtpConsumedAsync(string email)
+        public Task MarkOtpConsumedAsync(string email, string purpose = "registration")
         {
-            if (_storage.TryGetValue(email, out var entry))
+            if (_storage.TryGetValue(Key(email, purpose), out var entry))
             {
                 entry.Status = OtpStatus.Consumed;
                 entry.ConsumedAt = DateTimeOffset.UtcNow;
@@ -724,9 +842,9 @@ public sealed class AuthServiceTests
             return Task.CompletedTask;
         }
 
-        public Task InvalidateExistingOtpsAsync(string email)
+        public Task InvalidateExistingOtpsAsync(string email, string purpose = "registration")
         {
-            if (_storage.TryGetValue(email, out var entry) && entry.Status == OtpStatus.Active)
+            if (_storage.TryGetValue(Key(email, purpose), out var entry) && entry.Status == OtpStatus.Active)
             {
                 entry.Status = OtpStatus.Expired;
             }
