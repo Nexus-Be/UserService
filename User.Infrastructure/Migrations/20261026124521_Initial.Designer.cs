@@ -10,11 +10,11 @@ using User.Infrastructure.Persistence;
 
 #nullable disable
 
-namespace User.Infrastructure.Persistence.Migrations
+namespace User.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261026105432_InitialUserSchema")]
-    partial class InitialUserSchema
+    [Migration("20261026124521_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
