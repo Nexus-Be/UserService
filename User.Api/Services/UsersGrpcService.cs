@@ -168,14 +168,74 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
     }
 
+    public override async Task<LogoutResponse> Logout(LogoutRequest request, ServerCallContext context)
+    {
+        _logger?.LogInformation("[gRPC Logout] Incoming logout request");
+        try
+        {
+            var success = await _authService.LogoutAsync(request.RefreshToken, context.CancellationToken);
+            _logger?.LogInformation("[gRPC Logout] Succeeded");
+            return new LogoutResponse
+            {
+                Success = success,
+                Message = "Logged out successfully."
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC Logout] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC Logout] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<LogoutAllResponse> LogoutAll(LogoutAllRequest request, ServerCallContext context)
+    {
+        var userIdStr = request.Caller?.UserId ?? context.RequestHeaders.Get("x-user-id")?.Value;
+        _logger?.LogInformation("[gRPC LogoutAll] Incoming request for UserId: '{UserId}'", userIdStr);
+
+        if (!Guid.TryParse(userIdStr, out var userId))
+        {
+            _logger?.LogWarning("[gRPC LogoutAll] Invalid or missing user identifier: '{UserId}'", userIdStr);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
+        }
+
+        try
+        {
+            var countRevoked = await _authService.LogoutAllAsync(userId, context.CancellationToken);
+            _logger?.LogInformation("[gRPC LogoutAll] Succeeded for UserId: {UserId} -> Revoked: {Count}", userId, countRevoked);
+            return new LogoutAllResponse
+            {
+                CountRevoked = countRevoked,
+                Message = "All sessions have been revoked."
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC LogoutAll] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC LogoutAll] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
     private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
     {
         "USER_NOT_FOUND" => StatusCode.NotFound,
         "EMAIL_ALREADY_EXISTS" or "USERNAME_ALREADY_EXISTS" => StatusCode.AlreadyExists,
-        "INVALID_CREDENTIALS" => StatusCode.Unauthenticated,
+        "INVALID_CREDENTIALS" or "INVALID_REFRESH_TOKEN" => StatusCode.Unauthenticated,
         "USER_NOT_VERIFIED" => StatusCode.FailedPrecondition,
         "USER_BANNED" or "USER_SUSPENDED" => StatusCode.PermissionDenied,
-        "OTP_ALREADY_USED" or "OTP_EXPIRED" or "USER_ALREADY_VERIFIED" => StatusCode.FailedPrecondition,
+        "OTP_ALREADY_USED" or "OTP_EXPIRED" or "USER_ALREADY_VERIFIED" or "REFRESH_TOKEN_EXPIRED" or "REFRESH_TOKEN_REVOKED" => StatusCode.FailedPrecondition,
         _ => StatusCode.InvalidArgument
     };
 
