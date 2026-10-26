@@ -37,4 +37,8 @@ public record RefreshTokenResultDto(
     string ExpiresAt,
     string UserId,
     System.Collections.Generic.IReadOnlyList<string> Roles);
+public record LogoutDto(
+    string RefreshToken);
 
+public record LogoutAllDto(
+    System.Guid UserId);

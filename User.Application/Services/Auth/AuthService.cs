@@ -520,6 +520,70 @@ public class AuthService : IAuthService
             Roles: roles);
     }
 
+    public async Task<bool> LogoutAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Refresh token is required.");
+        }
+
+        var rawToken = refreshToken.Trim();
+        var tokenHash = ComputeSha256Hash(rawToken);
+
+        var tokenEntity = await _dbContext.RefreshTokens
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
+
+        if (tokenEntity == null)
+        {
+            _logger.LogWarning("[AUTH] Logout failed: Refresh token hash not found in system.");
+            throw new DomainException("INVALID_REFRESH_TOKEN", "Invalid refresh token.");
+        }
+
+        // Idempotency: If token was already revoked, consider logout already successful
+        if (tokenEntity.IsRevoked)
+        {
+            _logger.LogInformation("[AUTH] Logout idempotent: Token '{TokenId}' for UserId: {UserId} was already revoked.", tokenEntity.Id, tokenEntity.UserId);
+            return true;
+        }
+
+        tokenEntity.IsRevoked = true;
+        tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
+        tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[AUTH] User '{UserId}' logged out successfully. Refresh token '{TokenId}' revoked.", tokenEntity.UserId, tokenEntity.Id);
+        return true;
+    }
+
+    public async Task<int> LogoutAllAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == userId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("[AUTH] User '{UserId}' logged out of all sessions. {Count} token(s) revoked.", userId, activeTokens.Count);
+        return activeTokens.Count;
+    }
+
     private static string GenerateSecureToken()
     {
         var bytes = new byte[64];

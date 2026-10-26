@@ -531,6 +531,157 @@ public sealed class AuthServiceTests
         Assert.NotNull(tokenEntity.RevokedAt);
     }
 
+    [Fact]
+    public async Task LogoutAsync_succeeds_and_revokes_token()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("logout_test@nexus.local", "Password123!", "Le", "Van E");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginResult = await authService.LoginAsync(new LoginDto("logout_test@nexus.local", "Password123!"));
+        Assert.NotNull(loginResult.RefreshToken);
+
+        var result = await authService.LogoutAsync(loginResult.RefreshToken);
+        Assert.True(result);
+
+        var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
+        Assert.True(tokenEntity.IsRevoked);
+        Assert.NotNull(tokenEntity.RevokedAt);
+    }
+
+    [Fact]
+    public async Task LogoutAsync_is_idempotent_when_token_already_revoked()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("idempotent@nexus.local", "Password123!", "Pham", "Van F");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginResult = await authService.LoginAsync(new LoginDto("idempotent@nexus.local", "Password123!"));
+        
+        // Đăng xuất lần 1
+        var firstResult = await authService.LogoutAsync(loginResult.RefreshToken!);
+        Assert.True(firstResult);
+
+        // Đăng xuất lần 2 (idempotent)
+        var secondResult = await authService.LogoutAsync(loginResult.RefreshToken!);
+        Assert.True(secondResult);
+    }
+
+    [Fact]
+    public async Task LogoutAsync_throws_when_token_is_invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LogoutAsync("non-existent-refresh-token-xyz"));
+
+        Assert.Equal("INVALID_REFRESH_TOKEN", ex.ErrorCode);
+        Assert.Equal("Invalid refresh token.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LogoutAsync_throws_when_token_is_empty()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.LogoutAsync("   "));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+        Assert.Equal("Refresh token is required.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LogoutAllAsync_revokes_all_active_tokens_for_user()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId1 = Guid.NewGuid();
+        var userId2 = Guid.NewGuid();
+
+        // 2 token active + 1 token đã revoke cho user 1
+        dbContext.RefreshTokens.AddRange(
+            new Domain.Entities.RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId1,
+                TokenHash = "hash1",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                IsRevoked = false
+            },
+            new Domain.Entities.RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId1,
+                TokenHash = "hash2",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                IsRevoked = false
+            },
+            new Domain.Entities.RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId1,
+                TokenHash = "hash3",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                IsRevoked = true,
+                RevokedAt = DateTimeOffset.UtcNow.AddHours(-1)
+            },
+            // Token active cho user 2 (không bị ảnh hưởng)
+            new Domain.Entities.RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId2,
+                TokenHash = "hash4",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                IsRevoked = false
+            }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var countRevoked = await authService.LogoutAllAsync(userId1);
+        Assert.Equal(2, countRevoked);
+
+        // Kiểm tra tất cả token của user 1 đều đã bị thu hồi
+        var user1Tokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId1).ToListAsync();
+        Assert.All(user1Tokens, t => Assert.True(t.IsRevoked));
+
+        // Token của user 2 vẫn active
+        var user2Token = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == userId2);
+        Assert.False(user2Token.IsRevoked);
+    }
+
+    [Fact]
+    public async Task LogoutAllAsync_throws_when_user_id_is_empty()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.LogoutAllAsync(Guid.Empty));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+        Assert.Equal("User identifier is required.", ex.Message);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)

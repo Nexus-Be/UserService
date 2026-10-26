@@ -62,6 +62,9 @@ service UsersApi {
   // v4 (2026-10-23) — OTP verification and resend
   rpc VerifyOtp(VerifyOtpRequest) returns (UserProfile);
   rpc ResendOtp(ResendOtpRequest) returns (OtpResponse);
+  // v5 (2026-10-26) — Logout and session revocation
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc LogoutAll(LogoutAllRequest) returns (LogoutAllResponse);
 }
 
 service AuditApi {
@@ -224,6 +227,31 @@ message CreateUserRequest {
 }
 message LoginRequest { string username = 1; string password = 2; }
 message LoginResponse { string access_token = 1; string expires_at = 2; string user_id = 3; repeated string roles = 4; string refresh_token = 5; }
+
+// v5 (2026-10-26) — Logout and session revocation messages
+message UserCallerContext {
+  string user_id = 1;
+  repeated string roles = 2;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+  UserCallerContext caller = 2;
+}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message LogoutAllRequest {
+  UserCallerContext caller = 1;
+}
+
+message LogoutAllResponse {
+  int32 count_revoked = 1;
+  string message = 2;
+}
 message UpdateProfileRequest { string user_id = 1; string display_name = 2; string email = 3; }
 message ListUsersRequest { int32 page = 1; int32 page_size = 2; string q = 3; string role = 4; }
 message UserPage { repeated UserProfile items = 1; int32 total = 2; }
