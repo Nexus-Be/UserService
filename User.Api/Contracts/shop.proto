@@ -67,6 +67,8 @@ service UsersApi {
   rpc LogoutAll(LogoutAllRequest) returns (LogoutAllResponse);
   // v6 (2026-10-26) — ForgotPassword
   rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
+  // v7 (2026-10-26) — ResetPassword
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
 }
 
 service AuditApi {
@@ -264,6 +266,19 @@ message ForgotPasswordResponse {
   string message = 2;
   int32 otp_expires_in = 3;
 }
+
+message ResetPasswordRequest {
+  string email = 1;
+  string otp_code = 2;
+  string new_password = 3;
+  string confirm_password = 4;
+}
+
+message ResetPasswordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
 
 message UpdateProfileRequest {
   string user_id = 1;
