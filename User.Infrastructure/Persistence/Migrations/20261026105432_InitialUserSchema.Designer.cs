@@ -13,7 +13,7 @@ using User.Infrastructure.Persistence;
 namespace User.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261024145243_InitialUserSchema")]
+    [Migration("20261026105432_InitialUserSchema")]
     partial class InitialUserSchema
     {
         /// <inheritdoc />
@@ -925,12 +925,20 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("UpdatedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Username")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BannedBy");
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("Username")
+                        .IsUnique()
+                        .HasFilter("\"Username\" IS NOT NULL");
 
                     b.ToTable("Users");
 
@@ -950,7 +958,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000001",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "admin"
                         },
                         new
                         {
@@ -967,7 +976,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000002",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "staff"
                         },
                         new
                         {
@@ -984,7 +994,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000003",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "seller"
                         },
                         new
                         {
@@ -1002,7 +1013,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000004",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "buyer"
                         });
                 });
 

@@ -14,5 +14,7 @@ public class ReputationScoreConfiguration : IEntityTypeConfiguration<ReputationS
         builder.HasOne(r => r.User)
             .WithOne(u => u.ReputationScore)
             .HasForeignKey<ReputationScore>(r => r.UserId);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

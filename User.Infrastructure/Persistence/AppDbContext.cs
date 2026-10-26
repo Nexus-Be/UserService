@@ -38,10 +38,3 @@ public class AppDbContext : DbContext, IUserDbContext
         modelBuilder.AddOutboxStateEntity();
     }
 }
-
-public class UserDbContext : AppDbContext
-{
-    public UserDbContext(DbContextOptions<AppDbContext> options) : base(options)
-    {
-    }
-}

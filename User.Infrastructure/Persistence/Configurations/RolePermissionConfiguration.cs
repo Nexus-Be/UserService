@@ -18,5 +18,7 @@ public class RolePermissionConfiguration : IEntityTypeConfiguration<RolePermissi
         builder.HasOne(rp => rp.Permission)
             .WithMany(p => p.RolePermissions)
             .HasForeignKey(rp => rp.PermissionId);
+
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

@@ -955,7 +955,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000001",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "admin"
                         },
                         new
                         {
@@ -972,7 +973,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000002",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "staff"
                         },
                         new
                         {
@@ -989,7 +991,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000003",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "seller"
                         },
                         new
                         {
@@ -1007,7 +1010,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             PhoneNumber = "0900000004",
                             Status = "Active",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Username = "buyer"
                         });
                 });
 

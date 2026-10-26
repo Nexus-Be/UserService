@@ -74,6 +74,7 @@ public static class UserSeedData
             new User
             {
                 Id = adminUserId,
+                Username = "admin",
                 Email = "admin@nexus.com",
                 PasswordHash = defaultPasswordHash,
                 FirstName = "Admin",
@@ -89,6 +90,7 @@ public static class UserSeedData
             new User
             {
                 Id = staffUserId,
+                Username = "staff",
                 Email = "staff@nexus.com",
                 PasswordHash = defaultPasswordHash,
                 FirstName = "Staff",
@@ -104,6 +106,7 @@ public static class UserSeedData
             new User
             {
                 Id = sellerUserId,
+                Username = "seller",
                 Email = "seller@nexus.com",
                 PasswordHash = defaultPasswordHash,
                 FirstName = "Official",
@@ -119,6 +122,7 @@ public static class UserSeedData
             new User
             {
                 Id = buyerUserId,
+                Username = "buyer",
                 Email = "buyer@nexus.com",
                 PasswordHash = defaultPasswordHash,
                 FirstName = "John",
