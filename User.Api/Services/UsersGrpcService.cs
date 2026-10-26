@@ -4,24 +4,26 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ShoppingCart.Contracts.V1;
 using User.Application.Interfaces;
 using User.Application.Services.Auth;
+using User.Application.Services.Profile;
 using User.Domain.Exceptions;
-using User.Infrastructure.Persistence;
 
 public sealed class UsersGrpcService : UsersApi.UsersApiBase
 {
     private readonly IAuthService _authService;
-    private readonly AppDbContext _dbContext;
+    private readonly IProfileService _profileService;
     private readonly ILogger<UsersGrpcService>? _logger;
 
-    public UsersGrpcService(IAuthService authService, AppDbContext dbContext, ILogger<UsersGrpcService>? logger = null)
+    public UsersGrpcService(
+        IAuthService authService,
+        IProfileService profileService,
+        ILogger<UsersGrpcService>? logger = null)
     {
         _authService = authService;
-        _dbContext = dbContext;
+        _profileService = profileService;
         _logger = logger;
     }
 
@@ -249,20 +251,38 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
         }
 
-        var user = await _dbContext.Users
-            .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
-            .Include(u => u.SellerProfile)
-            .FirstOrDefaultAsync(u => u.Id == guid, context.CancellationToken);
-
-        if (user == null)
+        try
         {
-            _logger?.LogWarning("[gRPC GetProfile] User not found: '{UserId}'", userId);
-            throw new RpcException(new Status(StatusCode.NotFound, "User account not found."));
-        }
+            var dto = await _profileService.GetProfileAsync(guid, context.CancellationToken);
+            _logger?.LogInformation("[gRPC GetProfile] Succeeded for '{Email}' (UserId: {UserId})", dto.Email, dto.Id);
 
-        _logger?.LogInformation("[gRPC GetProfile] Succeeded for '{Email}' (UserId: {UserId})", user.Email, user.Id);
-        return MapToUserProfile(user);
+            var profile = new UserProfile
+            {
+                Id = dto.Id,
+                DisplayName = dto.DisplayName,
+                Email = dto.Email,
+                Status = dto.Status,
+                ShopName = dto.ShopName ?? string.Empty
+            };
+
+            foreach (var role in dto.Roles)
+            {
+                profile.Roles.Add(role);
+            }
+
+            return profile;
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC GetProfile] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC GetProfile] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
     }
 
     private static UserProfile MapToUserProfile(Domain.Entities.User user)
