@@ -51,3 +51,14 @@ public record ForgotPasswordResultDto(
     string Message,
     int OtpExpiresIn);
 
+public record ResetPasswordDto(
+    string Email,
+    string OtpCode,
+    string NewPassword,
+    string ConfirmPassword);
+
+public record ResetPasswordResultDto(
+    bool Success,
+    string Message);
+
+

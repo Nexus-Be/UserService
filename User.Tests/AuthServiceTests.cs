@@ -798,6 +798,231 @@ public sealed class AuthServiceTests
         Assert.Equal("Email address format is invalid.", ex.Message);
     }
 
+    [Fact]
+    public async Task ResetPasswordAsync_succeeds_when_valid_otp_and_passwords()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var email = "reset_user@nexus.local";
+        var userId = Guid.NewGuid();
+        var oldHash = BCrypt.Net.BCrypt.HashPassword("OldPassword123");
+
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = email,
+            PasswordHash = oldHash,
+            FirstName = "Reset",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsDeleted = false
+        };
+        dbContext.Users.Add(user);
+
+        // Tạo 2 refresh token đang hoạt động
+        dbContext.RefreshTokens.Add(new Domain.Entities.RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = "token_hash_1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        dbContext.RefreshTokens.Add(new Domain.Entities.RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = "token_hash_2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        // Lưu OTP vào Redis
+        var otpCode = "654321";
+        await otpService.SaveOtpAsync(email, otpCode, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
+
+        var dto = new ResetPasswordDto(email, otpCode, "NewPassword123!", "NewPassword123!");
+        var result = await authService.ResetPasswordAsync(dto);
+
+        Assert.NotNull(result);
+        Assert.True(result.Success);
+        Assert.Equal("Password has been reset successfully.", result.Message);
+
+        // Kiểm tra mật khẩu trong DB đã đổi và khớp với hash BCrypt mới
+        var dbUser = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(dbUser);
+        Assert.NotEqual(oldHash, dbUser.PasswordHash);
+        Assert.True(BCrypt.Net.BCrypt.Verify("NewPassword123!", dbUser.PasswordHash));
+
+        // Kiểm tra OTP đã chuyển thành Consumed
+        var storedOtp = await otpService.GetOtpAsync(email, purpose: "password_reset");
+        Assert.NotNull(storedOtp);
+        Assert.Equal(OtpStatus.Consumed, storedOtp.Status);
+
+        // Kiểm tra toàn bộ refresh token cũ đều bị thu hồi
+        var tokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
+        Assert.Equal(2, tokens.Count);
+        Assert.All(tokens, t => Assert.True(t.IsRevoked));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_otp_expired_or_not_found()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var email = "no_otp@nexus.local";
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            PasswordHash = "hashed",
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new ResetPasswordDto(email, "123456", "NewPassword123!", "NewPassword123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("OTP_EXPIRED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_otp_code_invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var email = "wrong_otp@nexus.local";
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            PasswordHash = "hashed",
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        await otpService.SaveOtpAsync(email, "111222", TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
+
+        var dto = new ResetPasswordDto(email, "999888", "NewPassword123!", "NewPassword123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("OTP_INVALID", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_otp_already_consumed()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var email = "consumed_otp@nexus.local";
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            PasswordHash = "hashed",
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        await otpService.SaveOtpAsync(email, "123456", TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
+        await otpService.MarkOtpConsumedAsync(email, purpose: "password_reset");
+
+        var dto = new ResetPasswordDto(email, "123456", "NewPassword123!", "NewPassword123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("OTP_ALREADY_USED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_password_mismatch()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new ResetPasswordDto("mismatch@nexus.local", "123456", "PasswordA123", "PasswordB123");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("VAL_PASSWORD_MISMATCH", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_password_too_short()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new ResetPasswordDto("short@nexus.local", "123456", "short", "short");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("VAL_INVALID_PASSWORD", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_user_not_found()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new ResetPasswordDto("nonexistent@nexus.local", "123456", "ValidPass123", "ValidPass123");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_throws_when_otp_format_invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new ResetPasswordDto("test@nexus.local", "12ab", "ValidPass123", "ValidPass123");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ResetPasswordAsync(dto));
+
+        Assert.Equal("VAL_INVALID_OTP", ex.ErrorCode);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)

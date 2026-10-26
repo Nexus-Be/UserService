@@ -257,6 +257,33 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
     }
 
+    public override async Task<ResetPasswordResponse> ResetPassword(ResetPasswordRequest request, ServerCallContext context)
+    {
+        _logger?.LogInformation("[gRPC ResetPassword] Incoming request for Email: '{Email}'", request.Email);
+        try
+        {
+            var dto = new ResetPasswordDto(request.Email, request.OtpCode, request.NewPassword, request.ConfirmPassword);
+            var result = await _authService.ResetPasswordAsync(dto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC ResetPassword] Succeeded for Email: '{Email}'", request.Email);
+            return new ResetPasswordResponse
+            {
+                Success = result.Success,
+                Message = result.Message
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC ResetPassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC ResetPassword] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
     private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
     {
         "USER_NOT_FOUND" => StatusCode.NotFound,

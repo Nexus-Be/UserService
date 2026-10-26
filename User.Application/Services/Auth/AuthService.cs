@@ -632,6 +632,110 @@ public class AuthService : IAuthService
         return new ForgotPasswordResultDto(normalizedEmail, genericMessage, otpExpiresInSeconds);
     }
 
+    public async Task<ResetPasswordResultDto> ResetPasswordAsync(ResetPasswordDto dto, CancellationToken cancellationToken = default)
+    {
+        if (dto == null)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reset password payload is required.");
+        }
+
+        // 1. Validate Email
+        if (string.IsNullOrWhiteSpace(dto.Email))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_EMAIL", "Email address is required.");
+        }
+        var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(normalizedEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_EMAIL", "Email address format is invalid.");
+        }
+
+        // 2. Validate OTP code
+        if (string.IsNullOrWhiteSpace(dto.OtpCode) || dto.OtpCode.Trim().Length != 6 || !dto.OtpCode.Trim().All(char.IsDigit))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_OTP", "OTP code must be a 6-digit number.");
+        }
+        var trimmedOtp = dto.OtpCode.Trim();
+
+        // 3. Validate NewPassword
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 8)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_PASSWORD", "Password must be at least 8 characters long.");
+        }
+
+        // 4. Validate ConfirmPassword
+        if (dto.NewPassword != dto.ConfirmPassword)
+        {
+            throw new BusinessRuleValidationException("VAL_PASSWORD_MISMATCH", "New password and confirmation password do not match.");
+        }
+
+        // 5. Check User in database
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail && !u.IsDeleted, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[RESET PASSWORD] User not found for '{Email}'.", normalizedEmail);
+            throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        if (user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            _logger.LogWarning("[RESET PASSWORD] User '{Email}' is banned.", normalizedEmail);
+            throw new DomainException("USER_BANNED", "User account is banned.");
+        }
+
+        // 6. Verify OTP from Redis
+        var otpEntry = await _otpService.GetOtpAsync(normalizedEmail, purpose: "password_reset");
+        if (otpEntry == null || otpEntry.Status == OtpStatus.Expired || DateTimeOffset.UtcNow > otpEntry.ExpiresAt)
+        {
+            _logger.LogWarning("[RESET PASSWORD] OTP expired or not found for '{Email}'.", normalizedEmail);
+            throw new DomainException("OTP_EXPIRED", "OTP code has expired or does not exist.");
+        }
+
+        if (otpEntry.Status == OtpStatus.Consumed)
+        {
+            _logger.LogWarning("[RESET PASSWORD] OTP already consumed for '{Email}'.", normalizedEmail);
+            throw new DomainException("OTP_ALREADY_USED", "This OTP code has already been used.");
+        }
+
+        if (otpEntry.Code != trimmedOtp)
+        {
+            _logger.LogWarning("[RESET PASSWORD] Invalid OTP provided for '{Email}'.", normalizedEmail);
+            throw new DomainException("OTP_INVALID", "OTP code is invalid.");
+        }
+
+        // 7. Mark OTP as consumed
+        await _otpService.MarkOtpConsumedAsync(normalizedEmail, purpose: "password_reset");
+
+        // 8. Hash new password with BCrypt
+        var newHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+        user.PasswordHash = newHash;
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // 9. Revoke all active refresh tokens for security
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == user.Id && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+            _logger.LogInformation("[RESET PASSWORD] Revoked {Count} active session(s) for '{Email}'.", activeTokens.Count, normalizedEmail);
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[RESET PASSWORD] Password reset successfully for '{Email}' (UserId: {UserId}).", normalizedEmail, user.Id);
+        return new ResetPasswordResultDto(true, "Password has been reset successfully.");
+    }
+
     private static string GenerateSecureToken()
     {
         var bytes = new byte[64];
