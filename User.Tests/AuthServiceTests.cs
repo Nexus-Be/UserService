@@ -1023,6 +1023,230 @@ public sealed class AuthServiceTests
         Assert.Equal("VAL_INVALID_OTP", ex.ErrorCode);
     }
 
+    [Fact]
+    public async Task ChangePasswordAsync_succeeds_when_valid_credentials()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "change_pass@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("OldPassword123!"),
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        // Thêm 2 refresh token đang hoạt động
+        var token1 = new Domain.Entities.RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = "hash1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var token2 = new Domain.Entities.RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = "hash2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.RefreshTokens.AddRange(token1, token2);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new ChangePasswordDto("OldPassword123!", "NewSecretPass456!", "NewSecretPass456!");
+        var result = await authService.ChangePasswordAsync(userId, dto);
+
+        Assert.NotNull(result);
+        Assert.True(result.Success);
+        Assert.Equal("Password changed successfully.", result.Message);
+
+        // Kiểm tra mật khẩu mới đã được băm bằng BCrypt
+        var updatedUser = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(updatedUser);
+        Assert.True(BCrypt.Net.BCrypt.Verify("NewSecretPass456!", updatedUser.PasswordHash));
+        Assert.False(BCrypt.Net.BCrypt.Verify("OldPassword123!", updatedUser.PasswordHash));
+
+        // Kiểm tra tất cả refresh token cũ đã bị thu hồi
+        var activeTokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId && !t.IsRevoked).ToListAsync();
+        Assert.Empty(activeTokens);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_old_password_incorrect()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "wrong_old_pass@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("ActualOldPassword123!"),
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new ChangePasswordDto("IncorrectOldPassword!", "NewSecretPass456!", "NewSecretPass456!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ChangePasswordAsync(userId, dto));
+
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_new_password_same_as_old()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "same_pass@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("SamePassword123!"),
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new ChangePasswordDto("SamePassword123!", "SamePassword123!", "SamePassword123!");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ChangePasswordAsync(userId, dto));
+
+        Assert.Equal("VAL_SAME_PASSWORD", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_confirm_password_mismatch()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var dto = new ChangePasswordDto("OldPassword123!", "NewSecretPass456!", "DifferentPass789!");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ChangePasswordAsync(userId, dto));
+
+        Assert.Equal("VAL_PASSWORD_MISMATCH", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_new_password_too_short()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var dto = new ChangePasswordDto("OldPassword123!", "short", "short");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ChangePasswordAsync(userId, dto));
+
+        Assert.Equal("VAL_INVALID_PASSWORD", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_old_password_empty()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var dto = new ChangePasswordDto("", "NewSecretPass456!", "NewSecretPass456!");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ChangePasswordAsync(userId, dto));
+
+        Assert.Equal("VAL_INVALID_PASSWORD", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_user_id_is_empty()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new ChangePasswordDto("OldPassword123!", "NewSecretPass456!", "NewSecretPass456!");
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.ChangePasswordAsync(Guid.Empty, dto));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_user_not_found()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var nonExistentUserId = Guid.NewGuid();
+        var dto = new ChangePasswordDto("OldPassword123!", "NewSecretPass456!", "NewSecretPass456!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ChangePasswordAsync(nonExistentUserId, dto));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_when_user_is_banned()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "banned_user@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("OldPassword123!"),
+            FirstName = "Test",
+            LastName = "User",
+            Status = Domain.Enums.UserStatus.Banned,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new ChangePasswordDto("OldPassword123!", "NewSecretPass456!", "NewSecretPass456!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ChangePasswordAsync(userId, dto));
+
+        Assert.Equal("USER_BANNED", ex.ErrorCode);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)

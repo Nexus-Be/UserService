@@ -61,4 +61,14 @@ public record ResetPasswordResultDto(
     bool Success,
     string Message);
 
+public record ChangePasswordDto(
+    string OldPassword,
+    string NewPassword,
+    string ConfirmPassword);
+
+public record ChangePasswordResultDto(
+    bool Success,
+    string Message);
+
+
 
