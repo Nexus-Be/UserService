@@ -392,6 +392,143 @@ public sealed class AuthServiceTests
         Assert.NotNull(result);
         Assert.Equal(user.Id.ToString(), result.UserId);
         Assert.Equal("mock-jwt-access-token-xyz", result.AccessToken);
+        Assert.NotNull(result.RefreshToken);
+        Assert.True(await dbContext.RefreshTokens.AnyAsync(r => r.UserId == user.Id && !r.IsRevoked));
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_succeeds_and_rotates_token()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("rotate@nexus.local", "Password123!", "Tran", "Van B");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginResult = await authService.LoginAsync(new LoginDto("rotate@nexus.local", "Password123!"));
+        Assert.NotNull(loginResult.RefreshToken);
+
+        var refreshDto = new RefreshTokenDto(loginResult.RefreshToken!);
+        var refreshResult = await authService.RefreshTokenAsync(refreshDto);
+
+        Assert.NotNull(refreshResult);
+        Assert.Equal("mock-jwt-access-token-xyz", refreshResult.AccessToken);
+        Assert.NotEqual(loginResult.RefreshToken, refreshResult.RefreshToken);
+        Assert.Equal(user.Id.ToString(), refreshResult.UserId);
+
+        // Kiểm tra Refresh Token cũ đã bị thu hồi
+        var oldTokens = await dbContext.RefreshTokens.Where(t => t.UserId == user.Id && t.IsRevoked).ToListAsync();
+        Assert.Single(oldTokens);
+        Assert.NotNull(oldTokens[0].RevokedAt);
+
+        // Kiểm tra Refresh Token mới đang hoạt động
+        var activeTokens = await dbContext.RefreshTokens.Where(t => t.UserId == user.Id && !t.IsRevoked).ToListAsync();
+        Assert.Single(activeTokens);
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_throws_when_token_is_invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.RefreshTokenAsync(new RefreshTokenDto("non-existent-token-value")));
+
+        Assert.Equal("INVALID_REFRESH_TOKEN", ex.ErrorCode);
+        Assert.Equal("Invalid refresh token.", ex.Message);
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_throws_when_token_is_expired()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("expired@nexus.local", "Password123!", "Nguyen", "Van C");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginResult = await authService.LoginAsync(new LoginDto("expired@nexus.local", "Password123!"));
+        var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
+
+        // Làm hết hạn token
+        tokenEntity.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.RefreshTokenAsync(new RefreshTokenDto(loginResult.RefreshToken!)));
+
+        Assert.Equal("REFRESH_TOKEN_EXPIRED", ex.ErrorCode);
+        Assert.Equal("Refresh token has expired.", ex.Message);
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_throws_when_token_is_revoked()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("revoked@nexus.local", "Password123!", "Le", "Van D");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginResult = await authService.LoginAsync(new LoginDto("revoked@nexus.local", "Password123!"));
+        var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
+
+        // Thu hồi token thủ công
+        tokenEntity.IsRevoked = true;
+        tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.RefreshTokenAsync(new RefreshTokenDto(loginResult.RefreshToken!)));
+
+        Assert.Equal("REFRESH_TOKEN_REVOKED", ex.ErrorCode);
+        Assert.Equal("Refresh token has been revoked.", ex.Message);
+    }
+
+    [Fact]
+    public async Task RefreshTokenAsync_throws_and_revokes_when_user_is_banned()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("banned@nexus.local", "Password123!", "Banned", "User");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var loginResult = await authService.LoginAsync(new LoginDto("banned@nexus.local", "Password123!"));
+
+        // Khóa tài khoản user
+        user.Status = UserStatus.Banned;
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.RefreshTokenAsync(new RefreshTokenDto(loginResult.RefreshToken!)));
+
+        Assert.Equal("USER_BANNED", ex.ErrorCode);
+        Assert.Equal("User account has been banned.", ex.Message);
+
+        // Kiểm tra token đã bị thu hồi trong DB
+        var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
+        Assert.True(tokenEntity.IsRevoked);
+        Assert.NotNull(tokenEntity.RevokedAt);
     }
 
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator

@@ -143,7 +143,8 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
             {
                 AccessToken = result.AccessToken,
                 ExpiresAt = result.ExpiresAt,
-                UserId = result.UserId
+                UserId = result.UserId,
+                RefreshToken = result.RefreshToken ?? string.Empty
             };
 
             foreach (var role in result.Roles)

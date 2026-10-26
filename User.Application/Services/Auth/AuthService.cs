@@ -377,12 +377,164 @@ public class AuthService : IAuthService
 
         var token = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
 
-        _logger.LogInformation("[AUTH] User '{Email}' logged in successfully. UserId: {UserId} | Roles: [{Roles}]. JWT issued.", user.Email, user.Id, string.Join(", ", roles));
+        // Sinh Refresh Token an toàn và lưu bản băm SHA-256 vào Database (TTL: 7 ngày)
+        var rawRefreshToken = GenerateSecureToken();
+        var tokenHash = ComputeSha256Hash(rawRefreshToken);
+
+        var refreshTokenEntity = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        _dbContext.RefreshTokens.Add(refreshTokenEntity);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[AUTH] User '{Email}' logged in successfully. UserId: {UserId} | Roles: [{Roles}]. JWT & RefreshToken issued.", user.Email, user.Id, string.Join(", ", roles));
 
         return new LoginResultDto(
             AccessToken: token,
             ExpiresAt: expiresAt.ToString("o"),
             UserId: user.Id.ToString(),
+            Roles: roles,
+            RefreshToken: rawRefreshToken);
+    }
+
+    public async Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(dto.RefreshToken))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Refresh token is required.");
+        }
+
+        var rawToken = dto.RefreshToken.Trim();
+        var tokenHash = ComputeSha256Hash(rawToken);
+
+        var tokenEntity = await _dbContext.RefreshTokens
+            .Include(t => t.User)
+                .ThenInclude(u => u!.UserRoles)
+                    .ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
+
+        if (tokenEntity == null)
+        {
+            _logger.LogWarning("[AUTH] Refresh token failed: Token hash not found in system.");
+            throw new DomainException("INVALID_REFRESH_TOKEN", "Invalid refresh token.");
+        }
+
+        if (tokenEntity.IsRevoked)
+        {
+            _logger.LogWarning("[AUTH] Refresh token rejected: Token '{TokenId}' has already been revoked.", tokenEntity.Id);
+            throw new DomainException("REFRESH_TOKEN_REVOKED", "Refresh token has been revoked.");
+        }
+
+        if (tokenEntity.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            _logger.LogWarning("[AUTH] Refresh token rejected: Token '{TokenId}' expired at {ExpiresAt}.", tokenEntity.Id, tokenEntity.ExpiresAt);
+            throw new DomainException("REFRESH_TOKEN_EXPIRED", "Refresh token has expired.");
+        }
+
+        var user = tokenEntity.User;
+        if (user == null || user.IsDeleted)
+        {
+            _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' not found or deleted.", tokenEntity.UserId);
+            throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' is banned. Revoking token.", tokenEntity.UserId);
+            tokenEntity.IsRevoked = true;
+            tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
+            tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            throw new DomainException("USER_BANNED", "User account has been banned.");
+        }
+
+        // --- Refresh Token Rotation (RTR) ---
+        // 1. Thu hồi refresh token hiện tại
+        tokenEntity.IsRevoked = true;
+        tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
+        tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // 2. Sinh refresh token mới và lưu vào Database
+        var newRawRefreshToken = GenerateSecureToken();
+        var newTokenHash = ComputeSha256Hash(newRawRefreshToken);
+
+        var newRefreshTokenEntity = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TokenHash = newTokenHash,
+            DeviceInfo = dto.DeviceInfo ?? tokenEntity.DeviceInfo,
+            IpAddress = dto.IpAddress ?? tokenEntity.IpAddress,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        _dbContext.RefreshTokens.Add(newRefreshTokenEntity);
+
+        // 3. Trích xuất vai trò hiện tại (Roles) mới nhất từ DB
+        var roles = new List<string>();
+        if (user.UserRoles != null && user.UserRoles.Count > 0)
+        {
+            foreach (var ur in user.UserRoles)
+            {
+                var roleName = ur.Role?.RoleName?.ToLowerInvariant() ?? ur.Role?.RoleCode.ToString().ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
+                {
+                    roles.Add(roleName);
+                }
+            }
+        }
+
+        if (roles.Count == 0)
+        {
+            roles.Add("buyer");
+        }
+
+        if (_jwtTokenGenerator == null)
+        {
+            throw new InvalidOperationException("JwtTokenGenerator is not configured.");
+        }
+
+        // 4. Phát hành Access Token mới mang quyền hạn cập nhật
+        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[AUTH] Rotated refresh token for UserId: {UserId}. New JWT issued.", user.Id);
+
+        return new RefreshTokenResultDto(
+            AccessToken: newAccessToken,
+            RefreshToken: newRawRefreshToken,
+            ExpiresAt: expiresAt.ToString("o"),
+            UserId: user.Id.ToString(),
             Roles: roles);
+    }
+
+    private static string GenerateSecureToken()
+    {
+        var bytes = new byte[64];
+        using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        rng.GetBytes(bytes);
+        return Convert.ToBase64String(bytes)
+            .Replace("+", "-")
+            .Replace("/", "_")
+            .TrimEnd('=');
+    }
+
+    private static string ComputeSha256Hash(string input)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(input);
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(bytes);
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 }
