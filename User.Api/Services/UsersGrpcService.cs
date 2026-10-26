@@ -284,6 +284,41 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
     }
 
+    public override async Task<ChangePasswordResponse> ChangePassword(ChangePasswordRequest request, ServerCallContext context)
+    {
+        var userIdStr = context.RequestHeaders.Get("x-user-id")?.Value ?? request.UserId;
+        _logger?.LogInformation("[gRPC ChangePassword] Incoming request for UserId: '{UserId}'", userIdStr);
+
+        if (!Guid.TryParse(userIdStr, out var userId))
+        {
+            _logger?.LogWarning("[gRPC ChangePassword] Invalid or missing user identifier: '{UserId}'", userIdStr);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
+        }
+
+        try
+        {
+            var dto = new ChangePasswordDto(request.OldPassword, request.NewPassword, request.ConfirmPassword);
+            var result = await _authService.ChangePasswordAsync(userId, dto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC ChangePassword] Succeeded for UserId: {UserId}", userId);
+            return new ChangePasswordResponse
+            {
+                Success = result.Success,
+                Message = result.Message
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC ChangePassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC ChangePassword] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
     private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
     {
         "USER_NOT_FOUND" => StatusCode.NotFound,
@@ -291,7 +326,7 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         "INVALID_CREDENTIALS" or "INVALID_REFRESH_TOKEN" => StatusCode.Unauthenticated,
         "USER_NOT_VERIFIED" => StatusCode.FailedPrecondition,
         "USER_BANNED" or "USER_SUSPENDED" => StatusCode.PermissionDenied,
-        "OTP_ALREADY_USED" or "OTP_EXPIRED" or "USER_ALREADY_VERIFIED" or "REFRESH_TOKEN_EXPIRED" or "REFRESH_TOKEN_REVOKED" => StatusCode.FailedPrecondition,
+        "OTP_ALREADY_USED" or "OTP_EXPIRED" or "USER_ALREADY_VERIFIED" or "REFRESH_TOKEN_EXPIRED" or "REFRESH_TOKEN_REVOKED" or "VAL_SAME_PASSWORD" => StatusCode.FailedPrecondition,
         _ => StatusCode.InvalidArgument
     };
 

@@ -736,6 +736,95 @@ public class AuthService : IAuthService
         return new ResetPasswordResultDto(true, "Password has been reset successfully.");
     }
 
+    public async Task<ChangePasswordResultDto> ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        if (dto == null)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Change password payload is required.");
+        }
+
+        // 1. Validate OldPassword
+        if (string.IsNullOrWhiteSpace(dto.OldPassword))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_PASSWORD", "Old password is required.");
+        }
+
+        // 2. Validate NewPassword
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 8)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_PASSWORD", "Password must be at least 8 characters long.");
+        }
+
+        // 3. Validate ConfirmPassword
+        if (dto.NewPassword != dto.ConfirmPassword)
+        {
+            throw new BusinessRuleValidationException("VAL_PASSWORD_MISMATCH", "New password and confirmation password do not match.");
+        }
+
+        // 4. Find user in database
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[CHANGE PASSWORD] User '{UserId}' not found.", userId);
+            throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        if (user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            _logger.LogWarning("[CHANGE PASSWORD] User '{UserId}' is banned.", userId);
+            throw new DomainException("USER_BANNED", "User account is banned.");
+        }
+
+        // 5. Verify OldPassword with BCrypt
+        if (!BCrypt.Net.BCrypt.Verify(dto.OldPassword, user.PasswordHash))
+        {
+            _logger.LogWarning("[CHANGE PASSWORD] Old password verification failed for user '{UserId}'.", userId);
+            throw new DomainException("INVALID_CREDENTIALS", "Old password is incorrect.");
+        }
+
+        // 6. Check that NewPassword is not the same as OldPassword
+        if (string.Equals(dto.OldPassword, dto.NewPassword, StringComparison.Ordinal) ||
+            BCrypt.Net.BCrypt.Verify(dto.NewPassword, user.PasswordHash))
+        {
+            _logger.LogWarning("[CHANGE PASSWORD] New password is the same as the old password for user '{UserId}'.", userId);
+            throw new BusinessRuleValidationException("VAL_SAME_PASSWORD", "New password cannot be the same as the old password.");
+        }
+
+        // 7. Hash new password with BCrypt
+        var newHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+        user.PasswordHash = newHash;
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // 8. Revoke all active refresh tokens for security
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == user.Id && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+            _logger.LogInformation("[CHANGE PASSWORD] Revoked {Count} active session(s) for user '{UserId}'.", activeTokens.Count, userId);
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[CHANGE PASSWORD] Password changed successfully for user '{UserId}'.", userId);
+        return new ChangePasswordResultDto(true, "Password changed successfully.");
+    }
+
     private static string GenerateSecureToken()
     {
         var bytes = new byte[64];

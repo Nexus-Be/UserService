@@ -69,6 +69,8 @@ service UsersApi {
   rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
   // v7 (2026-10-26) — ResetPassword
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  // v8 (2026-10-26) — ChangePassword
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
 }
 
 service AuditApi {
@@ -278,6 +280,19 @@ message ResetPasswordResponse {
   bool success = 1;
   string message = 2;
 }
+
+message ChangePasswordRequest {
+  string old_password = 1;
+  string new_password = 2;
+  string confirm_password = 3;
+  string user_id = 4;
+}
+
+message ChangePasswordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
 
 
 message UpdateProfileRequest {
