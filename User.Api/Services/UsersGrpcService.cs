@@ -170,155 +170,6 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
     }
 
-    public override async Task<LogoutResponse> Logout(LogoutRequest request, ServerCallContext context)
-    {
-        _logger?.LogInformation("[gRPC Logout] Incoming logout request");
-        try
-        {
-            var success = await _authService.LogoutAsync(request.RefreshToken, context.CancellationToken);
-            _logger?.LogInformation("[gRPC Logout] Succeeded");
-            return new LogoutResponse
-            {
-                Success = success,
-                Message = "Logged out successfully."
-            };
-        }
-        catch (DomainException ex)
-        {
-            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
-            _logger?.LogWarning("[gRPC Logout] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
-            throw new RpcException(new Status(grpcStatus, ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[gRPC Logout] Unhandled Exception: {Message}", ex.Message);
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
-
-    public override async Task<LogoutAllResponse> LogoutAll(LogoutAllRequest request, ServerCallContext context)
-    {
-        var userIdStr = request.Caller?.UserId ?? context.RequestHeaders.Get("x-user-id")?.Value;
-        _logger?.LogInformation("[gRPC LogoutAll] Incoming request for UserId: '{UserId}'", userIdStr);
-
-        if (!Guid.TryParse(userIdStr, out var userId))
-        {
-            _logger?.LogWarning("[gRPC LogoutAll] Invalid or missing user identifier: '{UserId}'", userIdStr);
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
-        }
-
-        try
-        {
-            var countRevoked = await _authService.LogoutAllAsync(userId, context.CancellationToken);
-            _logger?.LogInformation("[gRPC LogoutAll] Succeeded for UserId: {UserId} -> Revoked: {Count}", userId, countRevoked);
-            return new LogoutAllResponse
-            {
-                CountRevoked = countRevoked,
-                Message = "All sessions have been revoked."
-            };
-        }
-        catch (DomainException ex)
-        {
-            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
-            _logger?.LogWarning("[gRPC LogoutAll] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
-            throw new RpcException(new Status(grpcStatus, ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[gRPC LogoutAll] Unhandled Exception: {Message}", ex.Message);
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
-
-    public override async Task<ForgotPasswordResponse> ForgotPassword(ForgotPasswordRequest request, ServerCallContext context)
-    {
-        _logger?.LogInformation("[gRPC ForgotPassword] Incoming request for Email: '{Email}'", request.Email);
-        try
-        {
-            var result = await _authService.ForgotPasswordAsync(new ForgotPasswordDto(request.Email), context.CancellationToken);
-            _logger?.LogInformation("[gRPC ForgotPassword] Completed for Email: '{Email}'", request.Email);
-            return new ForgotPasswordResponse
-            {
-                Email = result.Email,
-                Message = result.Message,
-                OtpExpiresIn = result.OtpExpiresIn
-            };
-        }
-        catch (DomainException ex)
-        {
-            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
-            _logger?.LogWarning("[gRPC ForgotPassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
-            throw new RpcException(new Status(grpcStatus, ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[gRPC ForgotPassword] Unhandled Exception: {Message}", ex.Message);
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
-
-    public override async Task<ResetPasswordResponse> ResetPassword(ResetPasswordRequest request, ServerCallContext context)
-    {
-        _logger?.LogInformation("[gRPC ResetPassword] Incoming request for Email: '{Email}'", request.Email);
-        try
-        {
-            var dto = new ResetPasswordDto(request.Email, request.OtpCode, request.NewPassword, request.ConfirmPassword);
-            var result = await _authService.ResetPasswordAsync(dto, context.CancellationToken);
-            _logger?.LogInformation("[gRPC ResetPassword] Succeeded for Email: '{Email}'", request.Email);
-            return new ResetPasswordResponse
-            {
-                Success = result.Success,
-                Message = result.Message
-            };
-        }
-        catch (DomainException ex)
-        {
-            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
-            _logger?.LogWarning("[gRPC ResetPassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
-            throw new RpcException(new Status(grpcStatus, ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[gRPC ResetPassword] Unhandled Exception: {Message}", ex.Message);
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
-
-    public override async Task<ChangePasswordResponse> ChangePassword(ChangePasswordRequest request, ServerCallContext context)
-    {
-        var userIdStr = context.RequestHeaders.Get("x-user-id")?.Value ?? request.UserId;
-        _logger?.LogInformation("[gRPC ChangePassword] Incoming request for UserId: '{UserId}'", userIdStr);
-
-        if (!Guid.TryParse(userIdStr, out var userId))
-        {
-            _logger?.LogWarning("[gRPC ChangePassword] Invalid or missing user identifier: '{UserId}'", userIdStr);
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
-        }
-
-        try
-        {
-            var dto = new ChangePasswordDto(request.OldPassword, request.NewPassword, request.ConfirmPassword);
-            var result = await _authService.ChangePasswordAsync(userId, dto, context.CancellationToken);
-            _logger?.LogInformation("[gRPC ChangePassword] Succeeded for UserId: {UserId}", userId);
-            return new ChangePasswordResponse
-            {
-                Success = result.Success,
-                Message = result.Message
-            };
-        }
-        catch (DomainException ex)
-        {
-            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
-            _logger?.LogWarning("[gRPC ChangePassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
-            throw new RpcException(new Status(grpcStatus, ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[gRPC ChangePassword] Unhandled Exception: {Message}", ex.Message);
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
-
     private static StatusCode MapDomainErrorCodeToGrpcStatus(string errorCode) => errorCode switch
     {
         "USER_NOT_FOUND" => StatusCode.NotFound,
@@ -374,64 +225,242 @@ public sealed class UsersGrpcService : UsersApi.UsersApiBase
         }
     }
 
-    public override async Task<UserProfile> UpdateProfile(UpdateProfileRequest request, ServerCallContext context)
+    public override async Task<RefreshTokenResponse> RefreshToken(RefreshTokenRequest request, ServerCallContext context)
     {
-        var userId = context.RequestHeaders.Get("x-user-id")?.Value ?? request.UserId;
-        _logger?.LogInformation("[gRPC UpdateProfile] Incoming request for UserId: '{UserId}'", userId);
-        if (!Guid.TryParse(userId, out var guid))
+        _logger?.LogInformation("[gRPC UsersApi RefreshToken] Incoming refresh token request");
+        try
         {
-            _logger?.LogWarning("[gRPC UpdateProfile] Invalid user identifier: '{UserId}'", userId);
+            var dto = new RefreshTokenDto(request.RefreshToken, request.DeviceInfo);
+            var result = await _authService.RefreshTokenAsync(dto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi RefreshToken] Succeeded for UserId: {UserId}", result.UserId);
+
+            var expiresInSeconds = 900;
+            if (DateTimeOffset.TryParse(result.ExpiresAt, out var exp))
+            {
+                var diff = (int)(exp - DateTimeOffset.UtcNow).TotalSeconds;
+                if (diff > 0) expiresInSeconds = diff;
+            }
+
+            return new RefreshTokenResponse
+            {
+                AccessToken = result.AccessToken,
+                RefreshToken = result.RefreshToken,
+                ExpiresIn = expiresInSeconds
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UsersApi RefreshToken] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UsersApi RefreshToken] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<MyProfileUpdatedResponse> UpdateMyProfile(UpdateMyProfileRequest request, ServerCallContext context)
+    {
+        var userIdStr = context.RequestHeaders.Get("x-user-id")?.Value ?? request.Caller?.UserId;
+        _logger?.LogInformation("[gRPC UsersApi UpdateMyProfile] Incoming request for UserId: '{UserId}'", userIdStr);
+
+        if (!Guid.TryParse(userIdStr, out var userId))
+        {
+            _logger?.LogWarning("[gRPC UsersApi UpdateMyProfile] Invalid or missing user identifier: '{UserId}'", userIdStr);
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
         }
 
         try
         {
-            string? firstName = string.IsNullOrWhiteSpace(request.FirstName) ? null : request.FirstName;
-            string? lastName = string.IsNullOrWhiteSpace(request.LastName) ? null : request.LastName;
-
-            if (firstName == null && lastName == null && !string.IsNullOrWhiteSpace(request.DisplayName))
+            string? addressStr = null;
+            if (request.Address != null)
             {
-                var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length > 0) firstName = parts[0];
-                if (parts.Length > 1) lastName = parts[1];
+                addressStr = request.Address.StreetAddress;
             }
 
             var updateDto = new UpdateProfileDto(
-                FirstName: firstName,
-                LastName: lastName,
+                FirstName: string.IsNullOrWhiteSpace(request.FirstName) ? null : request.FirstName,
+                LastName: string.IsNullOrWhiteSpace(request.LastName) ? null : request.LastName,
                 PhoneNumber: string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber,
-                Address: string.IsNullOrWhiteSpace(request.Address) ? null : request.Address,
-                AvatarUrl: string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl
+                Address: addressStr,
+                AvatarUrl: null
             );
 
-            var dto = await _profileService.UpdateProfileAsync(guid, updateDto, context.CancellationToken);
-            _logger?.LogInformation("[gRPC UpdateProfile] Succeeded for '{Email}' (UserId: {UserId})", dto.Email, dto.Id);
+            var profile = await _profileService.UpdateProfileAsync(userId, updateDto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi UpdateMyProfile] Succeeded for UserId: {UserId}", userId);
 
-            var profile = new UserProfile
+            var response = new MyProfileUpdatedResponse
             {
-                Id = dto.Id,
-                DisplayName = dto.DisplayName,
-                Email = dto.Email,
-                Status = dto.Status,
-                ShopName = dto.ShopName ?? string.Empty
+                Id = profile.Id,
+                FirstName = request.FirstName,
+                LastName = request.LastName,
+                PhoneNumber = request.PhoneNumber ?? string.Empty,
+                AvatarUrl = string.Empty,
+                Address = addressStr ?? string.Empty,
+                UpdatedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
             };
 
-            foreach (var role in dto.Roles)
+            if (!string.IsNullOrWhiteSpace(request.Username))
             {
-                profile.Roles.Add(role);
+                response.Username = request.Username;
             }
 
-            return profile;
+            return response;
         }
         catch (DomainException ex)
         {
             var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
-            _logger?.LogWarning("[gRPC UpdateProfile] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            _logger?.LogWarning("[gRPC UsersApi UpdateMyProfile] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
             throw new RpcException(new Status(grpcStatus, ex.Message));
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "[gRPC UpdateProfile] Unhandled Exception: {Message}", ex.Message);
+            _logger?.LogError(ex, "[gRPC UsersApi UpdateMyProfile] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<ForgotPasswordResponse> ForgotPassword(ForgotPasswordRequest request, ServerCallContext context)
+    {
+        _logger?.LogInformation("[gRPC UsersApi ForgotPassword] Incoming request for Email: '{Email}'", request.Email);
+        try
+        {
+            var result = await _authService.ForgotPasswordAsync(new ForgotPasswordDto(request.Email), context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi ForgotPassword] Completed for Email: '{Email}'", request.Email);
+            return new ForgotPasswordResponse
+            {
+                Email = result.Email
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UsersApi ForgotPassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UsersApi ForgotPassword] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<ResetPasswordResponse> ResetPassword(ResetPasswordRequest request, ServerCallContext context)
+    {
+        _logger?.LogInformation("[gRPC UsersApi ResetPassword] Incoming request for Email: '{Email}'", request.Email);
+        try
+        {
+            var dto = new ResetPasswordDto(request.Email, request.OtpCode, request.NewPassword, request.ConfirmPassword);
+            var result = await _authService.ResetPasswordAsync(dto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi ResetPassword] Succeeded for Email: '{Email}'", request.Email);
+            return new ResetPasswordResponse
+            {
+                Success = result.Success
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UsersApi ResetPassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UsersApi ResetPassword] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<ChangePasswordResponse> ChangePassword(ChangePasswordRequest request, ServerCallContext context)
+    {
+        var userIdStr = context.RequestHeaders.Get("x-user-id")?.Value ?? request.Caller?.UserId;
+        _logger?.LogInformation("[gRPC UsersApi ChangePassword] Incoming request for UserId: '{UserId}'", userIdStr);
+
+        if (!Guid.TryParse(userIdStr, out var userId))
+        {
+            _logger?.LogWarning("[gRPC UsersApi ChangePassword] Invalid or missing user identifier: '{UserId}'", userIdStr);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
+        }
+
+        try
+        {
+            var dto = new ChangePasswordDto(request.OldPassword, request.NewPassword, request.ConfirmPassword);
+            var result = await _authService.ChangePasswordAsync(userId, dto, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi ChangePassword] Succeeded for UserId: {UserId}", userId);
+            return new ChangePasswordResponse
+            {
+                Success = result.Success
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UsersApi ChangePassword] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UsersApi ChangePassword] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<LogoutResponse> Logout(LogoutRequest request, ServerCallContext context)
+    {
+        _logger?.LogInformation("[gRPC UsersApi Logout] Incoming logout request");
+        try
+        {
+            var success = await _authService.LogoutAsync(request.RefreshToken, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi Logout] Succeeded");
+            return new LogoutResponse
+            {
+                Success = success
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UsersApi Logout] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UsersApi Logout] Unhandled Exception: {Message}", ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    public override async Task<LogoutAllResponse> LogoutAll(LogoutAllRequest request, ServerCallContext context)
+    {
+        var userIdStr = request.Caller?.UserId ?? context.RequestHeaders.Get("x-user-id")?.Value;
+        _logger?.LogInformation("[gRPC UsersApi LogoutAll] Incoming request for UserId: '{UserId}'", userIdStr);
+
+        if (!Guid.TryParse(userIdStr, out var userId))
+        {
+            _logger?.LogWarning("[gRPC UsersApi LogoutAll] Invalid or missing user identifier: '{UserId}'", userIdStr);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user identifier."));
+        }
+
+        try
+        {
+            var countRevoked = await _authService.LogoutAllAsync(userId, context.CancellationToken);
+            _logger?.LogInformation("[gRPC UsersApi LogoutAll] Succeeded for UserId: {UserId} -> Revoked: {Count}", userId, countRevoked);
+            return new LogoutAllResponse
+            {
+                CountRevoked = countRevoked
+            };
+        }
+        catch (DomainException ex)
+        {
+            var grpcStatus = MapDomainErrorCodeToGrpcStatus(ex.ErrorCode);
+            _logger?.LogWarning("[gRPC UsersApi LogoutAll] DomainException: [{ErrorCode}] {Message} -> gRPC {Status}", ex.ErrorCode, ex.Message, grpcStatus);
+            throw new RpcException(new Status(grpcStatus, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[gRPC UsersApi LogoutAll] Unhandled Exception: {Message}", ex.Message);
             throw new RpcException(new Status(StatusCode.Internal, ex.Message));
         }
     }
