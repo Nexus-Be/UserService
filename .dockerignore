@@ -7,4 +7,5 @@
 **/.agents
 **/.claude
 **/.gitnexus
+**/*.Tests
 
