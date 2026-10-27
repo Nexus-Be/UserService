@@ -66,8 +66,12 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
 ## 🔒 NGUYÊN TẮC 4: RÀO CHẮN BẤT BIẾN TẠI USER SERVICE
 1. **TUYỆT ĐỐI KHÔNG DÙNG REPOSITORY PATTERN BỌC NGOÀI EF CORE**: Sử dụng trực tiếp `AppDbContext` (lớp triển khai thật của `IUserDbContext`) và `DbSet<T>` trong tầng Application. Cấm tạo `IUserRepository`, `GenericRepository`, `UnitOfWork`. ⚠️ Lưu ý: `UserDbContext : AppDbContext` tồn tại trong code nhưng **không được đăng ký DI** — đừng dùng nó.
 2. **TUYỆT ĐỐI KHÔNG LƯU MẬT KHẨU PLAIN TEXT**: Mật khẩu phải được hash bằng **BCrypt có salt** (`BCrypt.Net-Next 4.0.3`, `AuthService.cs:75,95`). ⚠️ Repo **không** dùng Argon2id — đừng viết tài liệu/code giả định có Argon2.
-3. **CẤU HÌNH PORT 8001 (gRPC + HTTP cùng port, h2c) VÀ DATABASE `usermanagement_db` (host port 5433) LÀ BẤT BIẾN**. Tuyệt đối không dùng tên `user_db`.
-4. **HỢP ĐỒNG PROTOBUF ĐỒNG BỘ 100% VỚI GATEWAY**: `User.Api/Contracts/shop.proto` là bản server-side; **cấm sửa** khi chưa chốt nguồn sự thật Protobuf toàn hệ thống.
+3. **CẤU HÌNH PORT 8001 (HTTP RESTful) VÀ DATABASE `usermanagement_db` (host port 5433) LÀ BẤT BIẾN**. Tuyệt đối không dùng tên `user_db`.
+4. **QUY TẮC BẤT BIẾN: CHUYỂN ĐỔI 100% SANG RESTFUL HTTP/JSON — CẤM SỬ DỤNG gRPC CHO CÁC DỊCH VỤ ĐỒNG BỘ**:
+   - Toàn bộ API của UserService phục vụ giao tiếp đồng bộ qua **RESTful HTTP/JSON** (`/api/v1/auth`, `/api/v1/users`, `/health`).
+   - Tuyệt đối **KHÔNG** sử dụng gRPC cho các dịch vụ đồng bộ.
+   - Chuẩn hóa HTTP Verbs theo RFC 9110 (`GET`, `POST`, `PATCH`, `DELETE`), mã lỗi `SCREAMING_SNAKE_CASE` và câu thông báo tiếng Anh chuẩn Sentence case theo Nguyên tắc 5.
+   - Giao tiếp bất đồng bộ tiếp tục sử dụng RabbitMQ qua MassTransit (Event-driven / Outbox Pattern).
 5. **TÔN TRỌNG HIỆN TRẠNG**: không mô tả tính năng chưa có (JWT, refresh token, seller, report, penalty, audit log) như thể đã hoạt động. Xem Nguyên tắc 7.
 6. **CẤM TỰ Ý SỬA ĐỔI BIẾN MÔI TRƯỜNG, SECRET VÀ KEY BÍ MẬT (MANDATORY HUMAN-IN-THE-LOOP FOR SECRETS)**:
    - **Tuyệt đối CẤM mọi AI Coding Agent tự ý sửa đổi, thay thế, xóa hoặc ghi đè các biến môi trường (`.env`, `.env.*`), Connection Strings, API Keys, JWT Secrets, chứng chỉ hoặc bất kỳ thông tin bí mật (credentials/secrets) nào trong toàn bộ hệ thống.**

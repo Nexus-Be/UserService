@@ -1,29 +1,17 @@
 using Microsoft.EntityFrameworkCore;
 using User.Api.Middleware;
-using User.Api.Services;
 using User.Application;
 using User.Infrastructure;
 using User.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cấu hình Kestrel hỗ trợ cả HTTP/1.1 (REST API) và HTTP/2 (gRPC h2c)
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.ConfigureEndpointDefaults(listenOptions =>
-    {
-        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
-    });
-});
-
 // 1. Application & Infrastructure Dependency Injection
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
-// 2. REST & gRPC Services
+// 2. REST Services
 builder.Services.AddControllers();
-builder.Services.AddGrpc();
-builder.Services.AddGrpcReflection();
 
 // 3. Swagger / OpenAPI & JSON Serialization
 builder.Services.AddEndpointsApiExplorer();
@@ -46,7 +34,6 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-    app.MapGrpcReflectionService();
 }
 
 // Tự động apply migrations nếu kết nối CSDL thành công
@@ -67,7 +54,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapControllers();
-app.MapGrpcService<UsersGrpcService>();
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "User.Api" }));
 
 app.Run();
