@@ -7,12 +7,12 @@ using User.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cấu hình Kestrel chỉ định HTTP/2 cho gRPC không cần TLS (h2c)
+// Cấu hình Kestrel hỗ trợ cả HTTP/1.1 (REST API) và HTTP/2 (gRPC h2c)
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ConfigureEndpointDefaults(listenOptions =>
     {
-        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
     });
 });
 
@@ -20,7 +20,8 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
-// 2. gRPC Services
+// 2. REST & gRPC Services
+builder.Services.AddControllers();
 builder.Services.AddGrpc();
 builder.Services.AddGrpcReflection();
 
@@ -65,6 +66,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+app.MapControllers();
 app.MapGrpcService<UsersGrpcService>();
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "User.Api" }));
 
