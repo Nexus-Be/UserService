@@ -12,6 +12,8 @@ using User.Domain.Enums;
 using User.Domain.Exceptions;
 using User.Infrastructure.Persistence;
 using User.Infrastructure.Services.Redis;
+using MassTransit;
+using Nexus.Contracts.Events;
 using Xunit;
 
 public sealed class AuthServiceTests
@@ -52,6 +54,61 @@ public sealed class AuthServiceTests
         Assert.NotNull(savedOtp);
         Assert.Equal(OtpStatus.Active, savedOtp.Status);
         Assert.Equal(6, savedOtp.Code.Length);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_publishes_SendOtpEmailIntegrationEvent_when_publishEndpoint_provided()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var publishEndpoint = new TestPublishEndpoint();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, publishEndpoint);
+
+        var dto = new RegisterDto(
+            Email: "event.buyer@nexus.local",
+            Password: "Password123!",
+            FirstName: "Nguyen",
+            LastName: "Van Event",
+            PhoneNumber: "0909999999"
+        );
+
+        var user = await authService.RegisterAsync(dto);
+
+        Assert.NotNull(user);
+        Assert.Single(publishEndpoint.PublishedMessages);
+        var publishedEvent = Assert.IsType<SendOtpEmailIntegrationEvent>(publishEndpoint.PublishedMessages[0]);
+        Assert.Equal("event.buyer@nexus.local", publishedEvent.Email);
+        Assert.Equal("Nguyen Van Event", publishedEvent.FullName);
+        Assert.Equal(6, publishedEvent.Otp.Length);
+        Assert.Equal(5, publishedEvent.ExpiresInMinutes);
+    }
+
+    [Fact]
+    public async Task ResendOtpAsync_publishes_SendOtpEmailIntegrationEvent_when_publishEndpoint_provided()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var publishEndpoint = new TestPublishEndpoint();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, publishEndpoint);
+
+        var dto = new RegisterDto(
+            Email: "resend.event@nexus.local",
+            Password: "Password123!",
+            FirstName: "Tran",
+            LastName: "Thi Event"
+        );
+
+        await authService.RegisterAsync(dto);
+        publishEndpoint.PublishedMessages.Clear();
+
+        var success = await authService.ResendOtpAsync("resend.event@nexus.local");
+
+        Assert.True(success);
+        Assert.Single(publishEndpoint.PublishedMessages);
+        var publishedEvent = Assert.IsType<SendOtpEmailIntegrationEvent>(publishEndpoint.PublishedMessages[0]);
+        Assert.Equal("resend.event@nexus.local", publishedEvent.Email);
+        Assert.Equal("Tran Thi Event", publishedEvent.FullName);
+        Assert.Equal(6, publishedEvent.Otp.Length);
     }
 
     [Fact]
@@ -1299,5 +1356,72 @@ public sealed class AuthServiceTests
             }
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class TestPublishEndpoint : IPublishEndpoint
+    {
+        public System.Collections.Generic.List<object> PublishedMessages { get; } = new();
+
+        public Task Publish<T>(T message, System.Threading.CancellationToken cancellationToken = default) where T : class
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish<T>(T message, IPipe<PublishContext<T>> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish<T>(T message, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish(object message, System.Threading.CancellationToken cancellationToken = default)
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish(object message, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default)
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish(object message, Type messageType, System.Threading.CancellationToken cancellationToken = default)
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish(object message, Type messageType, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default)
+        {
+            PublishedMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish<T>(object values, System.Threading.CancellationToken cancellationToken = default) where T : class
+        {
+            PublishedMessages.Add(values);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish<T>(object values, IPipe<PublishContext<T>> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
+        {
+            PublishedMessages.Add(values);
+            return Task.CompletedTask;
+        }
+
+        public Task Publish<T>(object values, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
+        {
+            PublishedMessages.Add(values);
+            return Task.CompletedTask;
+        }
+
+        public ConnectHandle ConnectPublishObserver(IPublishObserver observer) => throw new NotImplementedException();
     }
 }

@@ -47,7 +47,7 @@ services.AddMassTransit(x =>
 - ✅ `AddEntityFrameworkOutbox<AppDbContext>` với `UsePostgres()` + `UseBusOutbox()` — đúng pattern.
 - ✅ 3 entity outbox/inbox được map vào model: `AppDbContext.cs:36-38` (`AddInboxStateEntity`, `AddOutboxMessageEntity`, `AddOutboxStateEntity`).
 - ✅ 3 bảng tương ứng tồn tại trong migration: `InboxState`, `OutboxMessage`, `OutboxState` (`User.Infrastructure/Migrations/20261024103058_InitialUserSchema.cs`).
-- ⚠️ **Rủi ro thứ tự gọi (cần kiểm chứng runtime)**: trong `AuthService`, `Publish` được gọi **sau** `SaveChangesAsync` cuối cùng (`AuthService.cs:136` lưu Redis → `:139` `_dbContext.SaveChangesAsync` → `:147` publish) và **không có `SaveChangesAsync` nào sau đó**. Với bus outbox, message được thêm vào change tracker dưới dạng `OutboxMessage` và chỉ persisted khi `SaveChanges` chạy; nếu đúng như vậy thì message **không bao giờ được ghi vào bảng outbox** và sẽ mất khi scope dispose → email OTP không được gửi (chỉ còn log fallback). Đây là giả thuyết từ đọc code, **chưa** kiểm chứng bằng runtime; hướng sửa an toàn là publish **trước** `SaveChangesAsync` để message nằm trong cùng transaction.
+- ✅ **Thứ tự gọi Outbox (Đã chuẩn hóa)**: Trong `AuthService`, `_publishEndpoint.Publish(...)` được gọi **trước** `_dbContext.SaveChangesAsync()` trong cả `RegisterAsync` và `ResendOtpAsync`. Nhờ đó entity `OutboxMessage` nằm trọn vẹn trong Change Tracker và được commit cùng transaction với dữ liệu người dùng xuống PostgreSQL, đảm bảo MassTransit Outbox Delivery Service quét và gửi tin cậy sang RabbitMQ.
 - ⚠️ Không có `IConsumer` nào ⇒ `InboxState` hiện **không được dùng** (chỉ là bảng rỗng).
 ### 2.2 Những gì **không** có trong repo
 - ❌ Không có `IRequestClient`/`Send<>` (không gọi đồng bộ service khác qua bus).
