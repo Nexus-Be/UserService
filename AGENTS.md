@@ -73,10 +73,14 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
    - Chuẩn hóa HTTP Verbs theo RFC 9110 (`GET`, `POST`, `PATCH`, `DELETE`), mã lỗi `SCREAMING_SNAKE_CASE` và câu thông báo tiếng Anh chuẩn Sentence case theo Nguyên tắc 5.
    - Giao tiếp bất đồng bộ tiếp tục sử dụng RabbitMQ qua MassTransit (Event-driven / Outbox Pattern).
 5. **TÔN TRỌNG HIỆN TRẠNG**: không mô tả tính năng chưa có (JWT, refresh token, seller, report, penalty, audit log) như thể đã hoạt động. Xem Nguyên tắc 7.
-6. **CẤM TỰ Ý SỬA ĐỔI BIẾN MÔI TRƯỜNG, SECRET VÀ KEY BÍ MẬT (MANDATORY HUMAN-IN-THE-LOOP FOR SECRETS)**:
-   - **Tuyệt đối CẤM mọi AI Coding Agent tự ý sửa đổi, thay thế, xóa hoặc ghi đè các biến môi trường (`.env`, `.env.*`), Connection Strings, API Keys, JWT Secrets, chứng chỉ hoặc bất kỳ thông tin bí mật (credentials/secrets) nào trong toàn bộ hệ thống.**
-   - **Bắt buộc phải xin ý kiến và nhận được sự đồng ý rõ ràng (explicit approval) từ người dùng trước khi thực hiện bất kỳ thay đổi nào liên quan đến biến môi trường hoặc tài khoản bí mật.**
-   - Khi phát hiện cấu hình môi trường, connection string hoặc secret key có vấn đề hoặc cần cập nhật, Agent **CHỈ ĐƯỢC PHÉP báo cáo hiện trạng, đề xuất phương án và chờ người dùng xác nhận**, tuyệt đối không tự ý can thiệp.
+6. **NGUYÊN TẮC BẢO MẬT & QUẢN LÝ BIẾN MÔI TRƯỜNG (`.env`, `.env.*`)**:
+   - **Bảo vệ Secrets & Rào chắn Sandbox**: AI Coding Agent không được tự ý xóa, làm lộ hoặc ghi đè sai lệch các biến môi trường nhạy cảm (JWT Secrets, DB Connection Strings, API Keys...). Lưu ý: Do cơ chế bảo vệ an toàn của sandbox (`secret.basename.env`), việc đọc/ghi trực tiếp file `.env` thực tế có thể bị hệ thống chặn tự động.
+   - **Quyền chỉnh sửa khi có chỉ đạo từ Người dùng (Sếp)**: Khi Người dùng (Sếp) có chỉ đạo trực tiếp (ví dụ: *"chỉnh giúp tôi các file env"*, *"cập nhật cấu hình môi trường"*...), AI Agent **ĐƯỢC PHÉP và BẮT BUỘC PHẢI THỰC HIỆN** rà soát, chuẩn hóa các file mẫu `.env.example`, `.env.test`, cấu hình compose, đồng thời đối soát chi tiết và cung cấp block cấu hình rõ ràng để Người dùng cập nhật vào file `.env` thực tế một cách nhanh chóng, chính xác.
+   - **Tuyệt đối cấm duplicate keys**: Không để xảy ra tình trạng khai báo trùng lặp biến trong các file môi trường.
+7. **HẠ TẦNG REDIS DÙNG CHUNG (SHARED REDIS) — PORT 6379, 500MB**:
+   - UserService kết nối tới Redis dùng chung (`nexus-shared-redis:6379`) do cụm hạ tầng chung quản lý để lưu mã xác thực OTP (TTL 5 phút) và cache thông tin.
+   - Bắt buộc dùng key prefix `otp:*` (hoặc `user:*`) để phân tách vùng dữ liệu độc lập với API Gateway (`nexus:gateway:*`).
+   - Tuyệt đối CẤM khai báo container Redis riêng trong `src/Services/User/docker-compose.yml`.
 ---
 ## 💬 NGUYÊN TẮC 5: QUY CHUẨN THÔNG BÁO LỖI TOÀN HỆ THỐNG (MANDATORY ERROR RULES)
 Tất cả các thông báo lỗi (Error Messages, Exceptions, ProblemDetails, Validation Errors, Response Details) **BẮT BUỘC** phải tuân theo 3 nguyên tắc sau:

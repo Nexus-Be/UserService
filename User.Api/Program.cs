@@ -1,10 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using User.Api.Extensions;
 using User.Api.Middleware;
 using User.Application;
 using User.Infrastructure;
 using User.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 0. Observability / OpenTelemetry Tracing
+builder.Services.AddServiceObservability(builder.Configuration, "user-service");
 
 // 1. Application & Infrastructure Dependency Injection
 builder.Services.AddApplicationServices();

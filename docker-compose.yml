@@ -9,7 +9,7 @@
 
 services:
 
-  # 1. Ứng dụng User Service gRPC/HTTP (Port 8001)
+  # 1. Ứng dụng User Service RESTful Web API (Port 8001)
   user-service:
     build:
       context: .
