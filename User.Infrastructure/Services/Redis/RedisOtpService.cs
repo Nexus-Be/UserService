@@ -1,6 +1,7 @@
 namespace User.Infrastructure.Services.Redis;
 
 using System;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,7 @@ public sealed class RedisOtpService : IRedisOtpService
 {
     private readonly IConnectionMultiplexer? _redis;
     private readonly ILogger<RedisOtpService> _logger;
+    private readonly ConcurrentDictionary<string, OtpEntry> _inMemoryFallback = new(StringComparer.OrdinalIgnoreCase);
     private const string KeyPrefix = "otp:registration:";
 
     public RedisOtpService(
@@ -44,7 +46,8 @@ public sealed class RedisOtpService : IRedisOtpService
         }
         else
         {
-            _logger.LogWarning("[REDIS OFFLINE] Simulated storing OTP for '{Email}'. CODE: >>> {Code} <<<", email, code);
+            _inMemoryFallback[key] = entry;
+            _logger.LogWarning("[REDIS OFFLINE - IN-MEMORY FALLBACK] Stored OTP in memory for '{Email}'. CODE: >>> {Code} <<<", email, code);
         }
     }
 
@@ -70,6 +73,12 @@ public sealed class RedisOtpService : IRedisOtpService
                 _logger.LogError(ex, "Failed to deserialize OTP entry from Redis for key '{Key}'.", key);
                 return null;
             }
+        }
+
+        if (_inMemoryFallback.TryGetValue(key, out var inMemoryEntry))
+        {
+            _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Retrieved OTP from memory for '{Email}' | CODE: >>> {Code} <<<", email, inMemoryEntry.Code);
+            return inMemoryEntry;
         }
 
         _logger.LogWarning("[REDIS OFFLINE] Cannot fetch OTP for '{Email}'. Returning null.", email);
@@ -106,6 +115,14 @@ public sealed class RedisOtpService : IRedisOtpService
                 }
             }
         }
+        else
+        {
+            if (_inMemoryFallback.TryGetValue(key, out var inMemoryEntry))
+            {
+                inMemoryEntry.Status = OtpStatus.Consumed;
+                _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Marked OTP as Consumed in memory for '{Email}'.", email);
+            }
+        }
     }
 
     public async Task InvalidateExistingOtpsAsync(string email, string purpose = "registration")
@@ -117,6 +134,11 @@ public sealed class RedisOtpService : IRedisOtpService
             var db = _redis.GetDatabase();
             await db.KeyDeleteAsync(key);
             _logger.LogInformation("Invalidated (deleted) existing OTPs in Redis for '{Email}'.", email);
+        }
+        else
+        {
+            _inMemoryFallback.TryRemove(key, out _);
+            _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Invalidated OTP in memory for '{Email}'.", email);
         }
     }
 
