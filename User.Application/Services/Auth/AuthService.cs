@@ -164,27 +164,27 @@ public class AuthService : IAuthService
         // Lưu vào Redis: Hiệu lực 5 phút, lưu trữ tối đa 15 phút
         await _otpService.SaveOtpAsync(email, otpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
 
-        // Lưu CSDL
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        // Bắn sự kiện lên RabbitMQ cho Worker gửi mail bất đồng bộ
+        // Bắn sự kiện lên RabbitMQ cho Worker gửi mail bất đồng bộ (ghi nhận vào Outbox của DbContext)
         if (_publishEndpoint != null)
         {
             try
             {
                 var fullName = $"{user.FirstName} {user.LastName}".Trim();
                 await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(user.Email, fullName, otpCode, 5), cancellationToken);
-                _logger.LogInformation("Published SendOtpEmailIntegrationEvent for recipient '{Email}'.", email);
+                _logger.LogInformation("Enqueued SendOtpEmailIntegrationEvent to Outbox for recipient '{Email}'.", email);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to publish SendOtpEmailIntegrationEvent to RabbitMQ. OTP simulation code: {Otp}", otpCode);
+                _logger.LogWarning(ex, "Failed to enqueue SendOtpEmailIntegrationEvent to Outbox. OTP simulation code: {Otp}", otpCode);
             }
         }
         else
         {
             _logger.LogWarning("[MESSAGE BUS OFFLINE] Simulated sending OTP email to '{Email}'. OTP: {Otp}", email, otpCode);
         }
+
+        // Lưu CSDL: Commit cả dữ liệu người dùng lẫn OutboxMessage trong cùng một Transaction
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return user;
     }
@@ -287,17 +287,20 @@ public class AuthService : IAuthService
             {
                 var fullName = $"{user.FirstName} {user.LastName}".Trim();
                 await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(user.Email, fullName, newOtpCode, 5), cancellationToken);
-                _logger.LogInformation("Published resend SendOtpEmailIntegrationEvent for '{Email}'.", normalizedEmail);
+                _logger.LogInformation("Enqueued resend SendOtpEmailIntegrationEvent to Outbox for '{Email}'.", normalizedEmail);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to publish resend SendOtpEmailIntegrationEvent to RabbitMQ. OTP simulation code: {Otp}", newOtpCode);
+                _logger.LogWarning(ex, "Failed to enqueue resend SendOtpEmailIntegrationEvent to Outbox. OTP simulation code: {Otp}", newOtpCode);
             }
         }
         else
         {
             _logger.LogWarning("[MESSAGE BUS OFFLINE] Simulated resending OTP email to '{Email}'. New OTP: {Otp}", normalizedEmail, newOtpCode);
         }
+
+        // Lưu CSDL: Commit OutboxMessage vào CSDL để MassTransit quét và gửi sang RabbitMQ
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return true;
     }

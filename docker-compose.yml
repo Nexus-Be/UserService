@@ -1,53 +1,83 @@
 # =============================================================================
-# NEXUS USER SERVICE - INFRASTRUCTURE DOCKER COMPOSE
+# NEXUS INFRASTRUCTURE - DOCKER COMPOSE
 # =============================================================================
-# Chỉ chạy 2 dịch vụ phụ trợ cục bộ: Redis Cache & RabbitMQ Broker
-# CSDL chính lưu trên Neon Cloud: ep-still-glade...neon.tech
+# Cụm hạ tầng dùng chung độc lập (RabbitMQ, Redis Local, Tempo, Grafana).
+# Khởi chạy:
+#   docker compose up -d
 # =============================================================================
 
 services:
 
-  # 1. Redis Cache (Lưu OTP & Token Blacklist)
-  user-cache:
-    image: redis:7-alpine
-    container_name: nexus-user-cache
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-
-  # 2. RabbitMQ Message Broker (Bắn sự kiện)
+  # 1. RabbitMQ (AMQP Protocol & Management Web UI)
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: nexus-rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+    container_name: nexus-shared-rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-MatkhaucuaTui123@}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 1m
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+
+  # 2. Redis (Local Cache & Rate Limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-shared-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1m
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - redis_data:/data
+
+  # 3. Tempo (Distributed Tracing Backend)
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: nexus-shared-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./configs/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "${TEMPO_PORT_GRPC:-4317}:4317"
+      - "${TEMPO_PORT_HTTP:-4318}:4318"
+      - "${TEMPO_PORT_UI:-3200}:3200"
     restart: unless-stopped
 
-# 3. Backend User Service (.NET 8) - Setup sẵn để đóng gói
-  user-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: nexus-user-service
+  # 4. Grafana (Dashboard trực quan hóa)
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: nexus-shared-grafana
     ports:
-      - "${USER_SERVICE_PORT:-8001}:8001"
+      - "${GRAFANA_PORT:-3000}:3000"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=${CONNECTION_STRING}
-      - Redis__ConnectionString=${REDIS_CONNECTION_STRING}
-      - RabbitMq__Host=rabbitmq
-      - RabbitMq__Port=5672
-      - RabbitMq__User=${RABBITMQ_USER}
-      - RabbitMq__Password=${RABBITMQ_PASSWORD}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./configs/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
     depends_on:
-      - user-cache
-      - rabbitmq
+      - tempo
     restart: unless-stopped
 
 networks:
   default:
     name: nexus-network
+
+volumes:
+  redis_data:
+    name: nexus-be_redis_data
+  tempo_data:
+    name: nexus-be_tempo_data
