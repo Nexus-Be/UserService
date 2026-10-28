@@ -10,4 +10,22 @@ public interface ISellerService
         Guid userId,
         CreateSellerRegistrationDto dto,
         CancellationToken cancellationToken = default);
+
+    Task<PagedResultDto<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
+        int page,
+        int limit,
+        string? status,
+        CancellationToken cancellationToken = default);
+
+    Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(
+        Guid registrationId,
+        Guid? reviewerId,
+        ApproveSellerRegistrationDto? dto,
+        CancellationToken cancellationToken = default);
+
+    Task<RejectSellerRegistrationResponseDto> RejectSellerRegistrationAsync(
+        Guid registrationId,
+        Guid? reviewerId,
+        RejectSellerRegistrationDto dto,
+        CancellationToken cancellationToken = default);
 }

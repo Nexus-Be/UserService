@@ -95,3 +95,54 @@ public sealed record SellerRegistrationResponseDto(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt
 );
+
+public sealed record AdminSellerRegistrationItemDto(
+    [property: JsonPropertyName("registrationId")] string RegistrationId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail,
+    [property: JsonPropertyName("hotline")] string? Hotline,
+    [property: JsonPropertyName("identityCardNumber")] string? IdentityCardNumber,
+    [property: JsonPropertyName("warehouseAddress")] string? WarehouseAddress,
+    [property: JsonPropertyName("pickupAddress")] string? PickupAddress,
+    [property: JsonPropertyName("reputationScore")] int ReputationScore,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);
+
+public sealed record PagedResultDto<T>(
+    [property: JsonPropertyName("items")] System.Collections.Generic.IReadOnlyList<T> Items,
+    [property: JsonPropertyName("total")] int Total,
+    [property: JsonPropertyName("page")] int Page,
+    [property: JsonPropertyName("limit")] int Limit
+);
+
+public sealed class ApproveSellerRegistrationDto
+{
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+}
+
+public sealed record ApproveSellerRegistrationResponseDto(
+    [property: JsonPropertyName("registrationId")] string RegistrationId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("approvedAt")] DateTimeOffset ApprovedAt
+);
+
+public sealed class RejectSellerRegistrationDto
+{
+    [JsonPropertyName("rejection_reason")]
+    public string? RejectionReasonSnake { set => RejectionReason ??= value; }
+
+    [JsonPropertyName("rejectionReason")]
+    public string? RejectionReason { get; set; }
+}
+
+public sealed record RejectSellerRegistrationResponseDto(
+    [property: JsonPropertyName("registrationId")] string RegistrationId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejectedAt")] DateTimeOffset RejectedAt,
+    [property: JsonPropertyName("rejectionReason")] string RejectionReason
+);

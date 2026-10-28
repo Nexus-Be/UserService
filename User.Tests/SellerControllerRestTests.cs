@@ -123,4 +123,112 @@ public sealed class SellerControllerRestTests
         var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
         Assert.NotNull(badRequestResult.Value);
     }
+
+    [Fact]
+    public async Task ListSellerRegistrations_Returns200Ok_WithPagedResult()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var result = await controller.ListSellerRegistrations(1, 20, null, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var pagedResult = Assert.IsType<PagedResultDto<AdminSellerRegistrationItemDto>>(okResult.Value);
+        Assert.NotNull(pagedResult);
+    }
+
+    [Fact]
+    public async Task ApproveSellerRegistration_Returns200Ok_WithApprovalResponse()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "pending@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Van",
+            LastName = "A",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Test Shop To Approve",
+            Hotline = "0901234567",
+            PickupAddress = "Address 1",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending
+        });
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var staffId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = staffId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.ApproveSellerRegistration(regId, new ApproveSellerRegistrationDto { Note = "Approved" }, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<ApproveSellerRegistrationResponseDto>(okResult.Value);
+        Assert.Equal("APPROVED", response.Status);
+        Assert.Equal(regId.ToString(), response.RegistrationId);
+    }
+
+    [Fact]
+    public async Task RejectSellerRegistration_Returns200Ok_WithRejectionResponse()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "reject_candidate@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Van",
+            LastName = "A",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Test Shop To Reject",
+            Hotline = "0901234567",
+            PickupAddress = "Address 1",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending
+        });
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var staffId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = staffId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.RejectSellerRegistration(regId, new RejectSellerRegistrationDto { RejectionReason = "Invalid business license" }, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<RejectSellerRegistrationResponseDto>(okResult.Value);
+        Assert.Equal("REJECTED", response.Status);
+        Assert.Equal("Invalid business license", response.RejectionReason);
+    }
 }

@@ -173,6 +173,7 @@ public sealed class AuthController : ControllerBase
         });
     }
 
+    [HttpPost("refresh")]
     [HttpPost("refresh-token")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -227,6 +228,7 @@ public sealed class AuthController : ControllerBase
         return Ok(new { countRevoked = count });
     }
 
+    [HttpPost("password/forgot")]
     [HttpPost("forgot-password")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -243,6 +245,8 @@ public sealed class AuthController : ControllerBase
         return Ok(new { email = result.Email });
     }
 
+    [HttpPost("password/reset")]
+    [HttpPut("password/reset")]
     [HttpPost("reset-password")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -260,6 +264,9 @@ public sealed class AuthController : ControllerBase
         return Ok(new { success = result.Success });
     }
 
+    [HttpPost("password/change")]
+    [HttpPatch("password")]
+    [HttpPatch("password/change")]
     [HttpPost("change-password")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
