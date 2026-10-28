@@ -681,4 +681,211 @@ public sealed class AdminUserService : IAdminUserService
             UpdatedAt: DateTimeOffset.UtcNow
         );
     }
+
+    public async Task<AdminUserUpdatedResponseDto> UpdateUserAsync(
+        Guid targetUserId,
+        UpdateAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        if (dto == null)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User update payload is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for updating user is required.");
+        }
+
+        // 1. Tìm user trong DB (bao gồm cả trường hợp bị soft-delete nếu cần xem xét khôi phục)
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[ADMIN USER UPDATE] User '{UserId}' not found.", targetUserId);
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
+        }
+
+        // 2. Thu thập OldValues
+        var oldValues = new Dictionary<string, object?>
+        {
+            ["FirstName"] = user.FirstName,
+            ["LastName"] = user.LastName,
+            ["PhoneNumber"] = user.PhoneNumber,
+            ["Status"] = user.Status.ToString().ToUpperInvariant()
+        };
+
+        var changedColumns = new List<string>();
+
+        // 3. Cập nhật Họ & Tên
+        if (dto.FirstName != null)
+        {
+            var trimmedFirst = dto.FirstName.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedFirst))
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_FIRST_NAME", "First name cannot be empty.");
+            }
+            if (trimmedFirst != user.FirstName)
+            {
+                user.FirstName = trimmedFirst;
+                changedColumns.Add("FirstName");
+            }
+        }
+
+        if (dto.LastName != null)
+        {
+            var trimmedLast = dto.LastName.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedLast))
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_LAST_NAME", "Last name cannot be empty.");
+            }
+            if (trimmedLast != user.LastName)
+            {
+                user.LastName = trimmedLast;
+                changedColumns.Add("LastName");
+            }
+        }
+
+        // 4. Cập nhật Số điện thoại
+        if (dto.PhoneNumber != null)
+        {
+            var trimmedPhone = dto.PhoneNumber.Trim();
+            if (!string.IsNullOrEmpty(trimmedPhone) && (trimmedPhone.Length < 7 || trimmedPhone.Length > 20))
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_PHONE", "Phone number must be between 7 and 20 characters.");
+            }
+            var newPhoneVal = string.IsNullOrEmpty(trimmedPhone) ? null : trimmedPhone;
+            if (newPhoneVal != user.PhoneNumber)
+            {
+                user.PhoneNumber = newPhoneVal;
+                changedColumns.Add("PhoneNumber");
+            }
+        }
+
+        // 5. Cập nhật Trạng thái (Status)
+        if (!string.IsNullOrWhiteSpace(dto.Status))
+        {
+            var normalizedStatus = dto.Status.Trim().ToLowerInvariant();
+            UserStatus parsedStatus;
+            switch (normalizedStatus)
+            {
+                case "active":
+                    parsedStatus = UserStatus.Active;
+                    break;
+                case "banned":
+                    parsedStatus = UserStatus.Banned;
+                    break;
+                case "pendingverification":
+                case "pending_verification":
+                case "pending":
+                    parsedStatus = UserStatus.PendingVerification;
+                    break;
+                case "deleted":
+                    parsedStatus = UserStatus.Deleted;
+                    break;
+                default:
+                    throw new BusinessRuleValidationException("VAL_INVALID_USER_STATUS", "Invalid user status.");
+            }
+
+            if (parsedStatus != user.Status)
+            {
+                var previousStatus = user.Status;
+                user.Status = parsedStatus;
+                changedColumns.Add("Status");
+
+                // Nếu chuyển sang Banned
+                if (parsedStatus == UserStatus.Banned)
+                {
+                    user.BannedAt = DateTimeOffset.UtcNow;
+                    user.BannedBy = adminId;
+                    user.BanReason = dto.Reason.Trim();
+                    changedColumns.Add("BannedAt");
+                    changedColumns.Add("BannedBy");
+                    changedColumns.Add("BanReason");
+                }
+                // Nếu gỡ Banned
+                else if (previousStatus == UserStatus.Banned)
+                {
+                    user.BannedAt = null;
+                    user.BannedBy = null;
+                    user.BanReason = null;
+                    changedColumns.Add("BannedAt");
+                    changedColumns.Add("BannedBy");
+                    changedColumns.Add("BanReason");
+                }
+
+                // Nếu chuyển sang Deleted
+                if (parsedStatus == UserStatus.Deleted)
+                {
+                    user.IsDeleted = true;
+                    user.DeletedAt = DateTimeOffset.UtcNow;
+                    changedColumns.Add("IsDeleted");
+                    changedColumns.Add("DeletedAt");
+                }
+                else if (previousStatus == UserStatus.Deleted)
+                {
+                    user.IsDeleted = false;
+                    user.DeletedAt = null;
+                    changedColumns.Add("IsDeleted");
+                    changedColumns.Add("DeletedAt");
+                }
+            }
+        }
+
+        // 6. Cập nhật Metadata Audit
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+        if (adminId.HasValue)
+        {
+            user.UpdatedBy = adminId.Value;
+        }
+
+        // Thu thập NewValues
+        var newValues = new Dictionary<string, object?>
+        {
+            ["FirstName"] = user.FirstName,
+            ["LastName"] = user.LastName,
+            ["PhoneNumber"] = user.PhoneNumber,
+            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["Reason"] = dto.Reason.Trim()
+        };
+
+        // 7. Ghi AuditLog
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            ServiceName = "user-service",
+            Action = AuditAction.UserUpdate,
+            EntityName = "User",
+            EntityId = targetUserId.ToString(),
+            UserId = adminId?.ToString(),
+            OldValues = JsonSerializer.Serialize(oldValues),
+            NewValues = JsonSerializer.Serialize(newValues),
+            ChangedColumns = JsonSerializer.Serialize(changedColumns),
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[ADMIN USER UPDATE] Successfully updated user '{UserId}'. Changed columns: {ChangedCols}",
+            targetUserId, string.Join(", ", changedColumns));
+
+        return new AdminUserUpdatedResponseDto(
+            Id: user.Id.ToString(),
+            UserId: user.Id.ToString(),
+            FirstName: user.FirstName,
+            LastName: user.LastName,
+            PhoneNumber: user.PhoneNumber,
+            Status: user.Status.ToString().ToUpperInvariant(),
+            UpdatedBy: adminId?.ToString() ?? "system",
+            UpdatedAt: user.UpdatedAt,
+            Message: "User updated successfully."
+        );
+    }
 }
