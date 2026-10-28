@@ -296,9 +296,10 @@ public sealed class AuthServiceTests
 
         Assert.NotNull(result);
         Assert.Equal("mock-jwt-access-token-xyz", result.AccessToken);
-        Assert.Equal(user.Id.ToString(), result.UserId);
-        Assert.Contains("buyer", result.Roles);
-        Assert.NotNull(result.ExpiresAt);
+        Assert.Equal(user.Id.ToString(), result.User.Id);
+        Assert.Contains("buyer", result.User.Roles);
+        Assert.True(result.ExpiresIn > 0);
+        Assert.Equal("Bearer", result.TokenType);
     }
 
     [Fact]
@@ -317,8 +318,8 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("wrongpass@nexus.local", "WrongPassword999!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
-        Assert.Equal("Invalid username or password.", ex.Message);
+        Assert.Equal("ERR_INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
     }
 
     [Fact]
@@ -332,8 +333,8 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("nonexistent@nexus.local", "Password123!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
-        Assert.Equal("Invalid username or password.", ex.Message);
+        Assert.Equal("ERR_INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
     }
 
     [Fact]
@@ -350,8 +351,8 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("pending@nexus.local", "Password123!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("USER_NOT_VERIFIED", ex.ErrorCode);
-        Assert.Equal("User account is pending verification. Please verify your OTP code.", ex.Message);
+        Assert.Equal("ERR_ACCOUNT_NOT_VERIFIED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
     }
 
     [Fact]
@@ -370,8 +371,43 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("banned@nexus.local", "Password123!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("USER_BANNED", ex.ErrorCode);
-        Assert.Equal("User account has been banned.", ex.Message);
+        Assert.Equal("ERR_ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginAsync_locks_account_temporarily_after_five_failed_attempts()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("lockout@nexus.local", "CorrectPassword123!", "Lock", "Out");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var wrongLoginDto = new LoginDto("lockout@nexus.local", "WrongPassword!");
+
+        // First 4 attempts return 401 ERR_INVALID_CREDENTIALS
+        for (int i = 0; i < 4; i++)
+        {
+            var ex401 = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(wrongLoginDto));
+            Assert.Equal("ERR_INVALID_CREDENTIALS", ex401.ErrorCode);
+            Assert.Equal(401, ex401.StatusCode);
+        }
+
+        // 5th attempt locks account for 30 minutes and throws 423 ERR_ACCOUNT_LOCKED_TEMPORARY
+        var ex423 = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(wrongLoginDto));
+        Assert.Equal("ERR_ACCOUNT_LOCKED_TEMPORARY", ex423.ErrorCode);
+        Assert.Equal(423, ex423.StatusCode);
+
+        // Subsequent attempt with correct password still blocked by lockout
+        var correctLoginDto = new LoginDto("lockout@nexus.local", "CorrectPassword123!");
+        var exSubsequent = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(correctLoginDto));
+        Assert.Equal("ERR_ACCOUNT_LOCKED_TEMPORARY", exSubsequent.ErrorCode);
+        Assert.Equal(423, exSubsequent.StatusCode);
     }
 
     [Fact]
@@ -447,7 +483,7 @@ public sealed class AuthServiceTests
         var result = await authService.LoginAsync(loginDto);
 
         Assert.NotNull(result);
-        Assert.Equal(user.Id.ToString(), result.UserId);
+        Assert.Equal(user.Id.ToString(), result.User.Id);
         Assert.Equal("mock-jwt-access-token-xyz", result.AccessToken);
         Assert.NotNull(result.RefreshToken);
         Assert.True(await dbContext.RefreshTokens.AnyAsync(r => r.UserId == user.Id && !r.IsRevoked));
@@ -475,7 +511,7 @@ public sealed class AuthServiceTests
         Assert.NotNull(refreshResult);
         Assert.Equal("mock-jwt-access-token-xyz", refreshResult.AccessToken);
         Assert.NotEqual(loginResult.RefreshToken, refreshResult.RefreshToken);
-        Assert.Equal(user.Id.ToString(), refreshResult.UserId);
+        Assert.True(refreshResult.ExpiresIn > 0);
 
         // Kiểm tra Refresh Token cũ đã bị thu hồi
         var oldTokens = await dbContext.RefreshTokens.Where(t => t.UserId == user.Id && t.IsRevoked).ToListAsync();
@@ -1316,6 +1352,8 @@ public sealed class AuthServiceTests
     private sealed class TestRedisOtpService : IRedisOtpService
     {
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _loginAttempts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DateTimeOffset> _lockouts = new(StringComparer.OrdinalIgnoreCase);
 
         private static string Key(string email, string purpose) => $"{purpose}:{email}";
 
@@ -1354,6 +1392,38 @@ public sealed class AuthServiceTests
             {
                 entry.Status = OtpStatus.Expired;
             }
+            return Task.CompletedTask;
+        }
+
+        public Task<int> IncrementLoginAttemptsAsync(string identifier, TimeSpan window)
+        {
+            var attempts = _loginAttempts.AddOrUpdate(identifier, 1, (_, current) => current + 1);
+            return Task.FromResult(attempts);
+        }
+
+        public Task<bool> IsAccountLockedAsync(string identifier)
+        {
+            if (_lockouts.TryGetValue(identifier, out var expiresAt))
+            {
+                if (DateTimeOffset.UtcNow < expiresAt)
+                {
+                    return Task.FromResult(true);
+                }
+                _lockouts.TryRemove(identifier, out _);
+            }
+            return Task.FromResult(false);
+        }
+
+        public Task LockAccountAsync(string identifier, TimeSpan duration)
+        {
+            _lockouts[identifier] = DateTimeOffset.UtcNow.Add(duration);
+            return Task.CompletedTask;
+        }
+
+        public Task ResetLoginAttemptsAsync(string identifier)
+        {
+            _loginAttempts.TryRemove(identifier, out _);
+            _lockouts.TryRemove(identifier, out _);
             return Task.CompletedTask;
         }
     }

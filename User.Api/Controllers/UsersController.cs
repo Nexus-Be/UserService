@@ -42,12 +42,12 @@ public sealed class UsersController : ControllerBase
 
     [HttpGet("{id:guid}")]
     [HttpGet("/api/v1/user/{id:guid}")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserProfileDto))]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PublicUserProfileDto))]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetUserProfileById([FromRoute] Guid id, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[REST GetProfileById] Loading profile for UserId: '{UserId}'", id);
-        var profile = await _profileService.GetProfileAsync(id, cancellationToken);
+        _logger.LogInformation("[REST GetProfileById] Loading public profile for UserId: '{UserId}'", id);
+        var profile = await _profileService.GetPublicProfileAsync(id, cancellationToken);
 
         return Ok(profile);
     }

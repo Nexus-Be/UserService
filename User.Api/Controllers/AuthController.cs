@@ -22,13 +22,13 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(RegisterApiResponse))]
+    [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(RegisterApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register([FromBody] RegisterApiRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("[REST Register] Incoming request for Email: '{Email}', Username: '{Username}'", request.Email, request.Username);
         var response = await _authService.RegisterUserAsync(request, cancellationToken);
-        return Ok(response);
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     [HttpPost("otp/verify")]
@@ -55,12 +55,11 @@ public sealed class AuthController : ControllerBase
         }
 
         _logger.LogInformation("[REST ResendOtp] Incoming request for Email: '{Email}'", request.Email);
-        var success = await _authService.ResendOtpAsync(request.Email, cancellationToken);
+        await _authService.ResendOtpAsync(request.Email, cancellationToken);
 
         return Ok(new ResendOtpApiResponse(
-            Success: success,
-            Message: "New OTP verification code has been dispatched to your email address.",
-            Email: request.Email
+            Email: request.Email,
+            ResendCooldown: 60
         ));
     }
 
@@ -68,24 +67,25 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(LoginApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status423Locked)]
     public async Task<IActionResult> Login([FromBody] LoginApiRequest request, CancellationToken cancellationToken)
     {
-        var usernameOrEmail = request.Username ?? request.Email;
-        if (string.IsNullOrWhiteSpace(usernameOrEmail) || string.IsNullOrWhiteSpace(request.Password))
+        if (string.IsNullOrWhiteSpace(request.Identifier) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest(new { title = "Invalid input", detail = "Username and password are required.", errorCode = "VAL_INVALID_INPUT" });
+            return BadRequest(new { title = "Invalid input", detail = "Identifier and password are required.", errorCode = "VAL_INVALID_INPUT" });
         }
 
-        _logger.LogInformation("[REST Login] Incoming login for: '{UsernameOrEmail}'", usernameOrEmail);
-        var dto = new LoginDto(usernameOrEmail, request.Password);
+        _logger.LogInformation("[REST Login] Incoming login for: '{Identifier}'", request.Identifier);
+        var dto = new LoginDto(request.Identifier, request.Password);
         var result = await _authService.LoginAsync(dto, cancellationToken);
 
         return Ok(new LoginApiResponse(
             AccessToken: result.AccessToken,
-            RefreshToken: result.RefreshToken ?? string.Empty,
-            ExpiresAt: result.ExpiresAt,
-            UserId: result.UserId,
-            Roles: result.Roles
+            RefreshToken: result.RefreshToken,
+            TokenType: result.TokenType,
+            ExpiresIn: result.ExpiresIn,
+            User: result.User
         ));
     }
 
@@ -107,13 +107,12 @@ public sealed class AuthController : ControllerBase
         return Ok(new RefreshTokenApiResponse(
             AccessToken: result.AccessToken,
             RefreshToken: result.RefreshToken,
-            ExpiresAt: result.ExpiresAt,
-            UserId: result.UserId
+            ExpiresIn: result.ExpiresIn
         ));
     }
 
     [HttpPost("logout")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(LogoutApiResponse))]
     public async Task<IActionResult> Logout([FromBody] LogoutApiRequest? request, CancellationToken cancellationToken)
     {
         var token = request?.RefreshToken;
@@ -123,7 +122,7 @@ public sealed class AuthController : ControllerBase
             await _authService.LogoutAsync(token, cancellationToken);
         }
 
-        return NoContent();
+        return Ok(new LogoutApiResponse(true));
     }
 
     [HttpPost("logout-all")]

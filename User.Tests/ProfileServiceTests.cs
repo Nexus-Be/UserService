@@ -412,4 +412,54 @@ public sealed class ProfileServiceTests
 
         Assert.Equal("VAL_INVALID_ADDRESS", ex.ErrorCode);
     }
+
+    [Fact]
+    public async Task GetPublicProfileAsync_succeeds_and_masks_sensitive_data()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Username = "public_user",
+            Email = "sensitive_email@nexus.local",
+            PasswordHash = "hashed_pw",
+            FirstName = "Van",
+            LastName = "Nguyen",
+            PhoneNumber = "0987654321",
+            Address = "123 Private St, TP.HCM",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsDeleted = false
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var profile = await profileService.GetPublicProfileAsync(userId);
+
+        Assert.NotNull(profile);
+        Assert.Equal(userId.ToString(), profile.Id);
+        Assert.Equal("public_user", profile.Username);
+        Assert.Equal("Van", profile.FirstName);
+        Assert.Equal("Nguyen", profile.LastName);
+        Assert.Equal(50, profile.ReputationScore);
+        Assert.Equal("Standard", profile.TrustLevel);
+        Assert.False(profile.IsSeller);
+    }
+
+    [Fact]
+    public async Task GetPublicProfileAsync_throws_when_user_not_found()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            profileService.GetPublicProfileAsync(Guid.NewGuid()));
+
+        Assert.Equal("ERR_USER_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal(404, ex.StatusCode);
+    }
 }

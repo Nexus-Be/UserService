@@ -14,6 +14,8 @@ public sealed class RedisOtpService : IRedisOtpService
     private readonly IConnectionMultiplexer? _redis;
     private readonly ILogger<RedisOtpService> _logger;
     private readonly ConcurrentDictionary<string, OtpEntry> _inMemoryFallback = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset ExpiresAt)> _inMemoryAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _inMemoryLockouts = new(StringComparer.OrdinalIgnoreCase);
     private const string KeyPrefix = "otp:registration:";
 
     public RedisOtpService(
@@ -142,5 +144,86 @@ public sealed class RedisOtpService : IRedisOtpService
         }
     }
 
+    public async Task<int> IncrementLoginAttemptsAsync(string identifier, TimeSpan window)
+    {
+        var key = FormatAttemptKey(identifier);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            var count = await db.StringIncrementAsync(key);
+            if (count == 1)
+            {
+                await db.KeyExpireAsync(key, window);
+            }
+            return (int)count;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var entry = _inMemoryAttempts.AddOrUpdate(
+            key,
+            _ => (1, now.Add(window)),
+            (_, existing) => existing.ExpiresAt > now ? (existing.Count + 1, existing.ExpiresAt) : (1, now.Add(window))
+        );
+        return entry.Count;
+    }
+
+    public async Task<bool> IsAccountLockedAsync(string identifier)
+    {
+        var key = FormatLockoutKey(identifier);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            return await db.KeyExistsAsync(key);
+        }
+
+        if (_inMemoryLockouts.TryGetValue(key, out var expiresAt))
+        {
+            if (expiresAt > DateTimeOffset.UtcNow)
+            {
+                return true;
+            }
+            _inMemoryLockouts.TryRemove(key, out _);
+        }
+
+        return false;
+    }
+
+    public async Task LockAccountAsync(string identifier, TimeSpan duration)
+    {
+        var key = FormatLockoutKey(identifier);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(key, "locked", duration);
+            await db.KeyDeleteAsync(FormatAttemptKey(identifier));
+            _logger.LogWarning("[AUTH] Account '{Identifier}' locked for {DurationMinutes} minutes in Redis.", identifier, duration.TotalMinutes);
+        }
+        else
+        {
+            _inMemoryLockouts[key] = DateTimeOffset.UtcNow.Add(duration);
+            _inMemoryAttempts.TryRemove(FormatAttemptKey(identifier), out _);
+            _logger.LogWarning("[REDIS OFFLINE - IN-MEMORY FALLBACK] Account '{Identifier}' locked for {DurationMinutes} minutes.", identifier, duration.TotalMinutes);
+        }
+    }
+
+    public async Task ResetLoginAttemptsAsync(string identifier)
+    {
+        var attemptKey = FormatAttemptKey(identifier);
+        var lockoutKey = FormatLockoutKey(identifier);
+
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.KeyDeleteAsync(new RedisKey[] { attemptKey, lockoutKey });
+        }
+        else
+        {
+            _inMemoryAttempts.TryRemove(attemptKey, out _);
+            _inMemoryLockouts.TryRemove(lockoutKey, out _);
+        }
+    }
+
     private static string FormatKey(string email, string purpose = "registration") => $"otp:{purpose}:{email.Trim().ToLowerInvariant()}";
+    private static string FormatAttemptKey(string identifier) => $"user:login_attempts:{identifier.Trim().ToLowerInvariant()}";
+    private static string FormatLockoutKey(string identifier) => $"user:login_lockout:{identifier.Trim().ToLowerInvariant()}";
 }

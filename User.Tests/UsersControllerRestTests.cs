@@ -124,4 +124,39 @@ public sealed class UsersControllerRestTests
         Assert.Equal("TheGreat", profile.LastName);
         Assert.Equal("0999888777", profile.PhoneNumber);
     }
+
+    [Fact]
+    public async Task GetUserProfileById_Returns_PublicUserProfileDto_Masking_Sensitive_Data()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Username = "publicjohn",
+            Email = "private@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "John",
+            LastName = "Public",
+            PhoneNumber = "0912345678",
+            Address = "123 Private Road",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+        var controller = new UsersController(profileService, NullLogger<UsersController>.Instance);
+
+        var result = await controller.GetUserProfileById(userId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var publicProfile = Assert.IsType<PublicUserProfileDto>(okResult.Value);
+        Assert.Equal(userId.ToString(), publicProfile.Id);
+        Assert.Equal("publicjohn", publicProfile.Username);
+        Assert.Equal("John", publicProfile.FirstName);
+        Assert.Equal("Public", publicProfile.LastName);
+    }
 }

@@ -66,6 +66,11 @@ public sealed class SellerServiceTests
             Storage.TryRemove(Key(email, purpose), out _);
             return Task.CompletedTask;
         }
+
+        public Task<int> IncrementLoginAttemptsAsync(string identifier, TimeSpan window) => Task.FromResult(1);
+        public Task<bool> IsAccountLockedAsync(string identifier) => Task.FromResult(false);
+        public Task LockAccountAsync(string identifier, TimeSpan duration) => Task.CompletedTask;
+        public Task ResetLoginAttemptsAsync(string identifier) => Task.CompletedTask;
     }
 
     [Fact]

@@ -7,5 +7,6 @@ using System.Threading.Tasks;
 public interface IProfileService
 {
     Task<UserProfileDto> GetProfileAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<PublicUserProfileDto> GetPublicProfileAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto, CancellationToken cancellationToken = default);
 }

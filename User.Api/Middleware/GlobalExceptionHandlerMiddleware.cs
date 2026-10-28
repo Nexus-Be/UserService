@@ -36,14 +36,14 @@ public sealed class GlobalExceptionHandlerMiddleware
         var (statusCode, errorCode, title, detail) = exception switch
         {
             BusinessRuleValidationException vex => (
-                StatusCodes.Status400BadRequest,
+                vex.StatusCode,
                 vex.ErrorCode,
-                "Validation error",
+                GetStatusTitle(vex.StatusCode, "Validation error"),
                 vex.Message),
             DomainException dex => (
-                StatusCodes.Status400BadRequest,
+                dex.StatusCode,
                 dex.ErrorCode,
-                "Business rule violation",
+                GetStatusTitle(dex.StatusCode, "Business rule violation"),
                 dex.Message),
             ArgumentException aex => (
                 StatusCodes.Status400BadRequest,
@@ -81,6 +81,17 @@ public sealed class GlobalExceptionHandlerMiddleware
 
         await context.Response.WriteAsync(JsonSerializer.Serialize(problemDetails));
     }
+
+    private static string GetStatusTitle(int statusCode, string fallback) => statusCode switch
+    {
+        StatusCodes.Status401Unauthorized => "Unauthorized",
+        StatusCodes.Status403Forbidden => "Forbidden",
+        StatusCodes.Status404NotFound => "Not found",
+        StatusCodes.Status409Conflict => "Conflict",
+        StatusCodes.Status423Locked => "Account locked",
+        StatusCodes.Status429TooManyRequests => "Too many requests",
+        _ => fallback
+    };
 }
 
 public static class GlobalExceptionHandlerMiddlewareExtensions

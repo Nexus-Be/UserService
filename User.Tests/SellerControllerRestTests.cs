@@ -33,6 +33,10 @@ public sealed class SellerControllerRestTests
         public Task<OtpEntry?> GetOtpAsync(string email, string purpose = "registration") => Task.FromResult<OtpEntry?>(null);
         public Task MarkOtpConsumedAsync(string email, string purpose = "registration") => Task.CompletedTask;
         public Task InvalidateExistingOtpsAsync(string email, string purpose = "registration") => Task.CompletedTask;
+        public Task<int> IncrementLoginAttemptsAsync(string identifier, TimeSpan window) => Task.FromResult(1);
+        public Task<bool> IsAccountLockedAsync(string identifier) => Task.FromResult(false);
+        public Task LockAccountAsync(string identifier, TimeSpan duration) => Task.CompletedTask;
+        public Task ResetLoginAttemptsAsync(string identifier) => Task.CompletedTask;
     }
 
     [Fact]

@@ -191,44 +191,21 @@ public class AuthService : IAuthService
 
     public async Task<RegisterApiResponse> RegisterUserAsync(RegisterApiRequest request, CancellationToken cancellationToken = default)
     {
-        var firstName = request.FirstName;
-        var lastName = request.LastName;
-
-        if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.DisplayName))
-        {
-            var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            firstName = parts[0];
-            lastName = parts.Length > 1 ? parts[1] : (string.IsNullOrWhiteSpace(lastName) ? "User" : lastName);
-        }
-        else if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.Username))
-        {
-            firstName = request.Username.Trim();
-            if (string.IsNullOrWhiteSpace(lastName)) lastName = "User";
-        }
-        else if (string.IsNullOrWhiteSpace(lastName))
-        {
-            lastName = "User";
-        }
-
         var dto = new RegisterDto(
             Email: request.Email,
             Password: request.Password,
-            FirstName: firstName ?? "User",
-            LastName: lastName ?? "User",
-            PhoneNumber: request.PhoneNumber,
+            FirstName: request.FirstName.Trim(),
+            LastName: request.LastName.Trim(),
+            PhoneNumber: request.PhoneNumber?.Trim(),
             Username: string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim()
         );
 
         var user = await RegisterAsync(dto, cancellationToken);
-        var roles = MapUserRoles(user);
 
         return new RegisterApiResponse(
-            Id: user.Id.ToString(),
+            UserId: user.Id.ToString(),
             Email: user.Email,
-            DisplayName: $"{user.FirstName} {user.LastName}".Trim(),
-            Status: user.Status.ToString(),
-            ShopName: user.SellerProfile?.ShopName ?? string.Empty,
-            Roles: roles
+            OtpExpiresIn: 300
         );
     }
 
@@ -299,22 +276,16 @@ public class AuthService : IAuthService
 
     public async Task<VerifyOtpApiResponse> VerifyUserOtpAsync(VerifyOtpApiRequest request, CancellationToken cancellationToken = default)
     {
-        var otpCode = request.Otp ?? request.ResolvedOtp ?? request.OtpCode;
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(otpCode))
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Otp))
         {
             throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Email and OTP code are required.");
         }
 
-        var user = await VerifyOtpAsync(request.Email, otpCode, cancellationToken);
-        var roles = MapUserRoles(user);
+        var user = await VerifyOtpAsync(request.Email, request.Otp, cancellationToken);
 
         return new VerifyOtpApiResponse(
-            Id: user.Id.ToString(),
-            Email: user.Email,
-            DisplayName: $"{user.FirstName} {user.LastName}".Trim(),
-            Status: user.Status.ToString(),
-            ShopName: user.SellerProfile?.ShopName ?? string.Empty,
-            Roles: roles
+            IsVerified: true,
+            Email: user.Email
         );
     }
 
@@ -391,33 +362,47 @@ public class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(dto.UsernameOrEmail) || string.IsNullOrWhiteSpace(dto.Password))
         {
-            throw new DomainException("INVALID_CREDENTIALS", "Invalid username or password.");
+            throw new DomainException("ERR_INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
         var identifier = dto.UsernameOrEmail.Trim();
         var normalizedIdentifier = identifier.ToLowerInvariant();
 
+        if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
+        {
+            _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
+            throw new DomainException("ERR_ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
+        }
+
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
+                .ThenInclude(ur => ur.Role)
+                    .ThenInclude(r => r!.RolePermissions)
+                        .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(u => u.Email == normalizedIdentifier || u.Email == identifier || (u.Username != null && u.Username.ToLower() == normalizedIdentifier), cancellationToken);
 
         if (user == null || user.IsDeleted)
         {
             _logger.LogWarning("[AUTH] Login failed: User '{Identifier}' does not exist or was deleted.", identifier);
-            throw new DomainException("INVALID_CREDENTIALS", "Invalid username or password.");
+            var attempts = await _otpService.IncrementLoginAttemptsAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
+            if (attempts >= 5)
+            {
+                await _otpService.LockAccountAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
+                throw new DomainException("ERR_ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
+            }
+            throw new DomainException("ERR_INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
         if (user.Status == UserStatus.PendingVerification)
         {
             _logger.LogWarning("[AUTH] Login rejected: User '{Email}' is PendingVerification. OTP verification required.", user.Email);
-            throw new DomainException("USER_NOT_VERIFIED", "User account is pending verification. Please verify your OTP code.");
+            throw new DomainException("ERR_ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
         }
 
         if (user.Status == UserStatus.Banned)
         {
             _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned.", user.Email);
-            throw new DomainException("USER_BANNED", "User account has been banned.");
+            throw new DomainException("ERR_ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
         }
 
         bool isPasswordValid = false;
@@ -434,8 +419,16 @@ public class AuthService : IAuthService
         if (!isPasswordValid)
         {
             _logger.LogWarning("[AUTH] Login failed: Invalid password provided for '{Email}'.", user.Email);
-            throw new DomainException("INVALID_CREDENTIALS", "Invalid username or password.");
+            var attempts = await _otpService.IncrementLoginAttemptsAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
+            if (attempts >= 5)
+            {
+                await _otpService.LockAccountAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
+                throw new DomainException("ERR_ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
+            }
+            throw new DomainException("ERR_INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
+
+        await _otpService.ResetLoginAttemptsAsync(normalizedIdentifier);
 
         var roles = new List<string>();
         ExtractUserRoles(user, roles);
@@ -445,12 +438,17 @@ public class AuthService : IAuthService
             roles.Add("buyer");
         }
 
+        var permissions = new List<string>();
+        ExtractUserPermissions(user, roles, permissions);
+
         if (_jwtTokenGenerator == null)
         {
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
         var token = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
+        var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
+        if (expiresIn == 0) expiresIn = 3600;
 
         // Sinh Refresh Token an toàn và lưu bản băm SHA-256 vào Database (TTL: 7 ngày)
         var rawRefreshToken = GenerateSecureToken();
@@ -472,12 +470,22 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("[AUTH] User '{Email}' logged in successfully. UserId: {UserId} | Roles: [{Roles}]. JWT & RefreshToken issued.", user.Email, user.Id, string.Join(", ", roles));
 
+        var userResponse = new LoginUserApiResponse(
+            Id: user.Id.ToString(),
+            Email: user.Email,
+            Username: user.Username,
+            FirstName: user.FirstName,
+            LastName: user.LastName,
+            Roles: roles,
+            Permissions: permissions.Distinct().ToList()
+        );
+
         return new LoginResultDto(
             AccessToken: token,
-            ExpiresAt: expiresAt.ToString("o"),
-            UserId: user.Id.ToString(),
-            Roles: roles,
-            RefreshToken: rawRefreshToken);
+            RefreshToken: rawRefreshToken,
+            TokenType: "Bearer",
+            ExpiresIn: expiresIn,
+            User: userResponse);
     }
 
     public async Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default)
@@ -572,6 +580,8 @@ public class AuthService : IAuthService
 
         // 4. Phát hành Access Token mới mang quyền hạn cập nhật
         var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
+        var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
+        if (expiresIn == 0) expiresIn = 3600;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -580,9 +590,7 @@ public class AuthService : IAuthService
         return new RefreshTokenResultDto(
             AccessToken: newAccessToken,
             RefreshToken: newRawRefreshToken,
-            ExpiresAt: expiresAt.ToString("o"),
-            UserId: user.Id.ToString(),
-            Roles: roles);
+            ExpiresIn: expiresIn);
     }
 
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken cancellationToken = default)
@@ -934,6 +942,44 @@ public class AuthService : IAuthService
             if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
             {
                 roles.Add(roleName);
+            }
+        }
+    }
+
+    private static void ExtractUserPermissions(User user, IReadOnlyList<string> roles, List<string> permissions)
+    {
+        if (user.UserRoles != null)
+        {
+            foreach (var ur in user.UserRoles)
+            {
+                if (ur.Role?.RolePermissions == null) continue;
+                foreach (var rp in ur.Role.RolePermissions)
+                {
+                    if (rp.Permission != null && !string.IsNullOrWhiteSpace(rp.Permission.PermissionCode))
+                    {
+                        var code = rp.Permission.PermissionCode.ToUpperInvariant();
+                        if (!permissions.Contains(code))
+                        {
+                            permissions.Add(code);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (permissions.Count == 0)
+        {
+            if (roles.Contains("admin"))
+            {
+                permissions.AddRange(new[] { "USER.MANAGE", "ROLE.MANAGE", "SYSTEM.CONFIG", "AUDIT.VIEW" });
+            }
+            else if (roles.Contains("seller"))
+            {
+                permissions.AddRange(new[] { "PRODUCT.CREATE", "PRODUCT.UPDATE", "ORDER.VIEW", "SHOP.MANAGE" });
+            }
+            else
+            {
+                permissions.AddRange(new[] { "CART.VIEW", "CART.UPDATE", "ORDER.VIEW", "CHECKOUT.START" });
             }
         }
     }

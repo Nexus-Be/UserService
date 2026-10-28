@@ -30,7 +30,7 @@ public sealed class AuthControllerRestTests
     }
 
     [Fact]
-    public async Task Register_With_DisplayName_Returns_Ok_With_User_Info()
+    public async Task Register_Returns_Created_With_UserId_And_OtpExpiresIn()
     {
         using var dbContext = CreateInMemoryDbContext();
         var otpService = new TestRedisOtpService();
@@ -40,14 +40,20 @@ public sealed class AuthControllerRestTests
         var request = new RegisterApiRequest(
             Email: "newrestuser@nexus.local",
             Password: "Password123!",
-            DisplayName: "Nguyen Van B",
-            PhoneNumber: "0912345678"
+            FirstName: "Nguyen",
+            LastName: "Van B",
+            PhoneNumber: "0912345678",
+            Username: "nguyenvanb"
         );
 
         var result = await controller.Register(request, CancellationToken.None);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(okResult.Value);
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, objectResult.StatusCode);
+        var resp = Assert.IsType<RegisterApiResponse>(objectResult.Value);
+        Assert.Equal("newrestuser@nexus.local", resp.Email);
+        Assert.Equal(300, resp.OtpExpiresIn);
+        Assert.False(string.IsNullOrWhiteSpace(resp.UserId));
     }
 
     [Fact]
@@ -102,7 +108,36 @@ public sealed class AuthControllerRestTests
     }
 
     [Fact]
-    public async Task Logout_Returns_NoContent()
+    public async Task Login_Returns_Ok_With_User_And_Tokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var registerDto = new RegisterDto("login_rest@nexus.local", "Password123!", "Nguyen", "Van C");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Active;
+        await dbContext.SaveChangesAsync();
+
+        var request = new LoginApiRequest(
+            Identifier: "login_rest@nexus.local",
+            Password: "Password123!"
+        );
+
+        var result = await controller.Login(request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<LoginApiResponse>(okResult.Value);
+        Assert.Equal("mock-jwt-access-token-xyz", resp.AccessToken);
+        Assert.Equal("Bearer", resp.TokenType);
+        Assert.Equal(user.Id.ToString(), resp.User.Id);
+        Assert.Equal("login_rest@nexus.local", resp.User.Email);
+    }
+
+    [Fact]
+    public async Task Logout_Returns_Ok_With_Success_True()
     {
         using var dbContext = CreateInMemoryDbContext();
         var rawToken = "sample-valid-refresh-token";
@@ -126,12 +161,25 @@ public sealed class AuthControllerRestTests
         var request = new LogoutApiRequest(RefreshToken: rawToken);
         var result = await controller.Logout(request, CancellationToken.None);
 
-        Assert.IsType<NoContentResult>(result);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<LogoutApiResponse>(okResult.Value);
+        Assert.True(response.Success);
+    }
+
+    private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
+    {
+        public string GenerateToken(User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)
+        {
+            expiresAt = DateTime.UtcNow.AddMinutes(60);
+            return "mock-jwt-access-token-xyz";
+        }
     }
 
     private sealed class TestRedisOtpService : IRedisOtpService
     {
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _loginAttempts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DateTimeOffset> _lockouts = new(StringComparer.OrdinalIgnoreCase);
 
         private static string Key(string email, string purpose) => $"{purpose}:{email}";
 
@@ -170,6 +218,38 @@ public sealed class AuthControllerRestTests
             {
                 entry.Status = OtpStatus.Expired;
             }
+            return Task.CompletedTask;
+        }
+
+        public Task<int> IncrementLoginAttemptsAsync(string identifier, TimeSpan window)
+        {
+            var attempts = _loginAttempts.AddOrUpdate(identifier, 1, (_, current) => current + 1);
+            return Task.FromResult(attempts);
+        }
+
+        public Task<bool> IsAccountLockedAsync(string identifier)
+        {
+            if (_lockouts.TryGetValue(identifier, out var expiresAt))
+            {
+                if (DateTimeOffset.UtcNow < expiresAt)
+                {
+                    return Task.FromResult(true);
+                }
+                _lockouts.TryRemove(identifier, out _);
+            }
+            return Task.FromResult(false);
+        }
+
+        public Task LockAccountAsync(string identifier, TimeSpan duration)
+        {
+            _lockouts[identifier] = DateTimeOffset.UtcNow.Add(duration);
+            return Task.CompletedTask;
+        }
+
+        public Task ResetLoginAttemptsAsync(string identifier)
+        {
+            _loginAttempts.TryRemove(identifier, out _);
+            _lockouts.TryRemove(identifier, out _);
             return Task.CompletedTask;
         }
     }
