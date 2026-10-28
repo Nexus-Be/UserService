@@ -213,4 +213,43 @@ public sealed class AdminUsersControllerRestTests
         Assert.Equal("ACTIVE", response.Status);
         Assert.Equal(adminId.ToString(), response.UpdatedBy);
     }
+
+    [Fact]
+    public async Task DeleteUser_ValidPayload_Returns204NoContent()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "delete.controller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new DeleteAdminUserDto
+        {
+            Reason = "User requested account termination"
+        };
+
+        var result = await controller.DeleteUser(userId, request, CancellationToken.None);
+
+        var noContentResult = Assert.IsType<NoContentResult>(result);
+        Assert.Equal(StatusCodes.Status204NoContent, noContentResult.StatusCode);
+
+        var deletedDbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.True(deletedDbUser.IsDeleted);
+        Assert.Equal(UserStatus.Deleted, deletedDbUser.Status);
+    }
 }

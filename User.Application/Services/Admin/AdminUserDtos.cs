@@ -233,3 +233,9 @@ public sealed record AdminUserUpdatedResponseDto(
     [property: JsonPropertyName("message")] string Message
 );
 
+public sealed class DeleteAdminUserDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}
+

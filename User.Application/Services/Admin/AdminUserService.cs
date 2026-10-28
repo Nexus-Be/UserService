@@ -888,4 +888,120 @@ public sealed class AdminUserService : IAdminUserService
             Message: "User updated successfully."
         );
     }
+
+    public async Task DeleteUserAsync(
+        Guid targetUserId,
+        DeleteAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for deleting user is required.");
+        }
+
+        // 1. Tìm user trong DB (bao gồm cả trường hợp query filter nếu có)
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[ADMIN USER DELETE] User '{UserId}' not found.", targetUserId);
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
+        }
+
+        if (user.IsDeleted)
+        {
+            _logger.LogWarning("[ADMIN USER DELETE] User '{UserId}' has already been deleted.", targetUserId);
+            throw new DomainException("USER_ALREADY_DELETED", "User has already been deleted.");
+        }
+
+        // 2. Rào chắn bảo vệ Admin cuối cùng (Demotion/Delete Guard)
+        var isTargetAdmin = user.UserRoles
+            .Any(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RoleCode == RoleType.Admin);
+
+        if (isTargetAdmin)
+        {
+            var activeAdminCount = await _dbContext.UserRoles
+                .Include(ur => ur.User)
+                .Include(ur => ur.Role)
+                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
+                .Select(ur => ur.UserId)
+                .Distinct()
+                .CountAsync(cancellationToken);
+
+            if (activeAdminCount <= 1)
+            {
+                throw new BusinessRuleValidationException("ERR_CANNOT_DELETE_LAST_ADMIN", "Cannot delete the last active Administrator in the system.");
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var oldValues = new Dictionary<string, object?>
+        {
+            ["IsDeleted"] = user.IsDeleted,
+            ["Status"] = user.Status.ToString().ToUpperInvariant()
+        };
+
+        // 3. Thực hiện xóa mềm
+        user.IsDeleted = true;
+        user.DeletedAt = now;
+        user.Status = UserStatus.Deleted;
+        user.UpdatedAt = now;
+        if (adminId.HasValue)
+        {
+            user.UpdatedBy = adminId.Value;
+        }
+
+        // 4. Tự động hủy bỏ mọi phiên đăng nhập (Revoke All Refresh Tokens)
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+        }
+
+        // 5. Ghi nhật ký kiểm toán (AuditLog)
+        var newValues = new Dictionary<string, object?>
+        {
+            ["IsDeleted"] = true,
+            ["DeletedAt"] = now,
+            ["Status"] = UserStatus.Deleted.ToString().ToUpperInvariant(),
+            ["Reason"] = dto.Reason.Trim(),
+            ["RevokedTokensCount"] = activeTokens.Count
+        };
+
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            ServiceName = "user-service",
+            Action = AuditAction.SoftDelete,
+            EntityName = "User",
+            EntityId = targetUserId.ToString(),
+            UserId = adminId?.ToString(),
+            OldValues = JsonSerializer.Serialize(oldValues),
+            NewValues = JsonSerializer.Serialize(newValues),
+            ChangedColumns = JsonSerializer.Serialize(new[] { "IsDeleted", "DeletedAt", "Status" }),
+            CreatedAt = now
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[ADMIN USER DELETE] Successfully soft-deleted user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
+            targetUserId, activeTokens.Count, dto.Reason.Trim());
+    }
 }

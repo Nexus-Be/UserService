@@ -922,4 +922,179 @@ public sealed class AdminUserServiceTests
             service.UpdateUserAsync(userId, dto2, Guid.NewGuid(), CancellationToken.None));
         Assert.Equal("VAL_INVALID_LAST_NAME", ex2.ErrorCode);
     }
+
+    [Fact]
+    public async Task DeleteUserAsync_WhenValidInput_SoftDeletesUserRevokesTokensAndRecordsAuditLog()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "todelete.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Delete",
+            LastName = "Target",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        // Add 2 active refresh tokens
+        var token1 = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = "hash1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false
+        };
+        var token2 = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TokenHash = "hash2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false
+        };
+        dbContext.RefreshTokens.AddRange(token1, token2);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new DeleteAdminUserDto
+        {
+            Reason = "Severe breach of trust and fraudulent activity"
+        };
+
+        await service.DeleteUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        // Verify DB User
+        var deletedDbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.True(deletedDbUser.IsDeleted);
+        Assert.NotNull(deletedDbUser.DeletedAt);
+        Assert.Equal(UserStatus.Deleted, deletedDbUser.Status);
+        Assert.Equal(adminId, deletedDbUser.UpdatedBy);
+
+        // Verify RefreshTokens
+        var tokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
+        Assert.Equal(2, tokens.Count);
+        Assert.All(tokens, t =>
+        {
+            Assert.True(t.IsRevoked);
+            Assert.NotNull(t.RevokedAt);
+        });
+
+        // Verify AuditLog
+        var audit = await dbContext.AuditLogs.FirstAsync(a => a.EntityId == userId.ToString());
+        Assert.Equal(AuditAction.SoftDelete, audit.Action);
+        Assert.Equal("User", audit.EntityName);
+        Assert.Equal(adminId.ToString(), audit.UserId);
+        Assert.Contains("Severe breach of trust", audit.NewValues);
+        Assert.Contains("\"RevokedTokensCount\":2", audit.NewValues);
+        Assert.Contains("IsDeleted", audit.ChangedColumns);
+        Assert.Contains("DeletedAt", audit.ChangedColumns);
+        Assert.Contains("Status", audit.ChangedColumns);
+    }
+
+    [Fact]
+    public async Task DeleteUserAsync_WhenAttemptingToDeleteLastAdmin_ThrowsCannotDeleteLastAdminException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rAdmin = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Admin, RoleName = "Administrator" };
+        dbContext.Roles.Add(rAdmin);
+
+        var soleAdminId = Guid.NewGuid();
+        var soleAdmin = new User
+        {
+            Id = soleAdminId,
+            Email = "sole.admin.del@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Sole",
+            LastName = "Admin",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(soleAdmin);
+        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = soleAdminId, RoleId = rAdmin.Id });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new DeleteAdminUserDto
+        {
+            Reason = "Attempt deleting the last admin"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.DeleteUserAsync(soleAdminId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("ERR_CANNOT_DELETE_LAST_ADMIN", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteUserAsync_WhenUserNotFound_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new DeleteAdminUserDto
+        {
+            Reason = "Delete missing user"
+        };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.DeleteUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteUserAsync_WhenUserAlreadyDeleted_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "already.deleted@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Already",
+            LastName = "Deleted",
+            Status = UserStatus.Deleted,
+            IsDeleted = true,
+            DeletedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new DeleteAdminUserDto
+        {
+            Reason = "Delete again"
+        };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.DeleteUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_DELETED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteUserAsync_WhenReasonIsMissing_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var dto = new DeleteAdminUserDto
+        {
+            Reason = "   "
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.DeleteUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
 }
