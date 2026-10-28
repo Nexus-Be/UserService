@@ -666,7 +666,7 @@ public sealed class AdminUserService : IAdminUserService
             UserId = adminId?.ToString(),
             OldValues = JsonSerializer.Serialize(oldRoleNames),
             NewValues = JsonSerializer.Serialize(newRoleNames),
-            ChangedColumns = "UserRoles",
+            ChangedColumns = JsonSerializer.Serialize(new[] { "UserRoles" }),
             CreatedAt = DateTimeOffset.UtcNow
         });
 
