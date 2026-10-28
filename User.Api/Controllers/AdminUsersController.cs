@@ -63,4 +63,18 @@ public sealed class AdminUsersController : ControllerBase
 
         return Ok(result);
     }
+
+    [HttpGet("{userId:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserDetailDto))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUserDetail(
+        [FromRoute] Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST Admin GetUserDetail] Incoming request for UserId: '{UserId}'", userId);
+
+        var result = await _adminUserService.GetUserDetailAsync(userId, cancellationToken);
+
+        return Ok(result);
+    }
 }

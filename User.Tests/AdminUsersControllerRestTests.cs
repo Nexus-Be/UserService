@@ -130,4 +130,38 @@ public sealed class AdminUsersControllerRestTests
         Assert.Single(pagedResult.Items);
         Assert.Equal("listed.user@nexus.local", pagedResult.Items[0].Email);
     }
+
+    [Fact]
+    public async Task GetUserDetail_ValidUserId_Returns200OkWithData()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "detail.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Hoang",
+            LastName = "Le",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.GetUserDetail(userId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var detail = Assert.IsType<AdminUserDetailDto>(okResult.Value);
+        Assert.NotNull(detail);
+        Assert.Equal(userId.ToString(), detail.Id);
+        Assert.Equal("detail.user@nexus.local", detail.Email);
+        Assert.Equal("Hoang Le", detail.DisplayName);
+    }
 }

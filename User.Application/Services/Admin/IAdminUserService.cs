@@ -20,4 +20,9 @@ public interface IAdminUserService
         string? status = null,
         CancellationToken cancellationToken = default
     );
+
+    Task<AdminUserDetailDto> GetUserDetailAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default
+    );
 }

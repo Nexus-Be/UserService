@@ -378,4 +378,172 @@ public sealed class AdminUserServiceTests
         Assert.Single(bannedResult.Items);
         Assert.Equal("banned@nexus.local", bannedResult.Items[0].Email);
     }
+
+    [Fact]
+    public async Task GetUserDetailAsync_WhenUserExists_ReturnsCompleteDetailWithRolesPermissionsReputation()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var perm1 = new Permission { Id = Guid.NewGuid(), PermissionCode = "USER.VIEW", PermissionName = "View User", Category = "USER" };
+        var perm2 = new Permission { Id = Guid.NewGuid(), PermissionCode = "ORDER.CREATE", PermissionName = "Create Order", Category = "ORDER" };
+        dbContext.Permissions.AddRange(perm1, perm2);
+
+        var role = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.Add(role);
+
+        var rp1 = new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = perm1.Id };
+        var rp2 = new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = perm2.Id };
+        dbContext.RolePermissions.AddRange(rp1, rp2);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "staff.detail@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Thanh",
+            LastName = "Vinh",
+            Username = "vinhth",
+            PhoneNumber = "+84912345678",
+            IdentifyNumber = "079200000001",
+            AvatarUrl = "https://cdn.nexus.local/avatars/vinhth.png",
+            Gender = Gender.Male,
+            DateOfBirth = new DateTimeOffset(2000, 1, 15, 0, 0, 0, TimeSpan.Zero),
+            Address = "District 1, Ho Chi Minh City",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        var userRole = new UserRole { Id = Guid.NewGuid(), UserId = userId, RoleId = role.Id };
+        dbContext.UserRoles.Add(userRole);
+
+        var repScore = new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 80,
+            TrustLevel = TrustLevel.Good
+        };
+        dbContext.ReputationScores.Add(repScore);
+
+        var repLog = new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ChangeAmount = 5,
+            Reason = ReputationChangeReason.OrderCompleted,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.ReputationLogs.Add(repLog);
+
+        await dbContext.SaveChangesAsync();
+
+        var detail = await service.GetUserDetailAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(detail);
+        Assert.Equal(userId.ToString(), detail.Id);
+        Assert.Equal("staff.detail@nexus.local", detail.Email);
+        Assert.Equal("vinhth", detail.Username);
+        Assert.Equal("Thanh Vinh", detail.DisplayName);
+        Assert.Equal("+84912345678", detail.PhoneNumber);
+        Assert.Equal("079200000001", detail.IdentifyNumber);
+        Assert.Equal("Male", detail.Gender);
+        Assert.Equal(80, detail.ReputationScore);
+        Assert.Equal("GOOD", detail.TrustLevel);
+        Assert.Contains("support staff", detail.Roles);
+        Assert.Contains("user.view", detail.Permissions);
+        Assert.Contains("order.create", detail.Permissions);
+        Assert.Single(detail.ReputationLogs);
+        Assert.Equal(5, detail.ReputationLogs[0].ChangeAmount);
+    }
+
+    [Fact]
+    public async Task GetUserDetailAsync_WhenUserIsSeller_ReturnsSellerProfile()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "seller.tech@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Shop",
+            LastName = "Tech",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Nexus Official Tech Store",
+            Hotline = "19001234",
+            BusinessEmail = "techstore@nexus.local",
+            PickupAddress = "123 Le Loi, D1, HCMC",
+            ProvinceId = 1,
+            DistrictId = 2,
+            WardCode = "10001",
+            Status = SellerProfileStatus.Approved,
+            ReviewedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+
+        await dbContext.SaveChangesAsync();
+
+        var detail = await service.GetUserDetailAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(detail);
+        Assert.True(detail.IsSeller);
+        Assert.NotNull(detail.SellerProfile);
+        Assert.Equal("Nexus Official Tech Store", detail.SellerProfile.ShopName);
+        Assert.Equal("APPROVED", detail.SellerProfile.Status);
+        Assert.Equal("19001234", detail.SellerProfile.Hotline);
+    }
+
+    [Fact]
+    public async Task GetUserDetailAsync_WhenUserIsNotSeller_ReturnsNullSellerProfile()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "buyer.only@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Regular",
+            LastName = "Buyer",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var detail = await service.GetUserDetailAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(detail);
+        Assert.False(detail.IsSeller);
+        Assert.Null(detail.SellerProfile);
+    }
+
+    [Fact]
+    public async Task GetUserDetailAsync_WhenUserNotFound_ThrowsDomainExceptionWithUserNotFoundCode()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var nonExistentUserId = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.GetUserDetailAsync(nonExistentUserId, CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal("User account not found.", ex.Message);
+    }
 }
