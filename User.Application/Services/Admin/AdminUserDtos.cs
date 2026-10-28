@@ -93,3 +93,58 @@ public sealed record AdminUserListPagedResultDto(
     [property: JsonPropertyName("limit")] int Limit
 );
 
+public sealed record AdminSellerProfileDetailDto(
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("hotline")] string? Hotline,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail,
+    [property: JsonPropertyName("pickupAddress")] string? PickupAddress,
+    [property: JsonPropertyName("provinceId")] int? ProvinceId,
+    [property: JsonPropertyName("districtId")] int? DistrictId,
+    [property: JsonPropertyName("wardCode")] string? WardCode,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("idCardFrontUrl")] string? IdCardFrontUrl,
+    [property: JsonPropertyName("idCardBackUrl")] string? IdCardBackUrl,
+    [property: JsonPropertyName("businessLicenseUrl")] string? BusinessLicenseUrl,
+    [property: JsonPropertyName("rejectionReason")] string? RejectionReason,
+    [property: JsonPropertyName("reviewedAt")] DateTimeOffset? ReviewedAt
+);
+
+public sealed record AdminUserReputationLogDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("changeAmount")] int ChangeAmount,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("referenceType")] string? ReferenceType,
+    [property: JsonPropertyName("referenceId")] string? ReferenceId,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);
+
+public sealed record AdminUserDetailDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("username")] string? Username,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("firstName")] string FirstName,
+    [property: JsonPropertyName("lastName")] string LastName,
+    [property: JsonPropertyName("phoneNumber")] string? PhoneNumber,
+    [property: JsonPropertyName("identifyNumber")] string? IdentifyNumber,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("gender")] string Gender,
+    [property: JsonPropertyName("dateOfBirth")] DateTimeOffset? DateOfBirth,
+    [property: JsonPropertyName("address")] string? Address,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("isSeller")] bool IsSeller,
+    [property: JsonPropertyName("reputationScore")] int ReputationScore,
+    [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("roles")] List<string> Roles,
+    [property: JsonPropertyName("permissions")] List<string> Permissions,
+    [property: JsonPropertyName("sellerProfile")] AdminSellerProfileDetailDto? SellerProfile,
+    [property: JsonPropertyName("reputationLogs")] List<AdminUserReputationLogDto> ReputationLogs,
+    [property: JsonPropertyName("bannedAt")] DateTimeOffset? BannedAt,
+    [property: JsonPropertyName("banReason")] string? BanReason,
+    [property: JsonPropertyName("emailVerifiedAt")] DateTimeOffset? EmailVerifiedAt,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
+);
+

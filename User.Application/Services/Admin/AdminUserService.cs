@@ -357,4 +357,124 @@ public sealed class AdminUserService : IAdminUserService
 
         return new AdminUserListPagedResultDto(items, total, safePage, safeLimit);
     }
+
+    public async Task<AdminUserDetailDto> GetUserDetailAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[AdminUserService.GetUserDetailAsync] Fetching user profile detail for UserId: {UserId}", userId);
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role!)
+                    .ThenInclude(r => r.RolePermissions)
+                        .ThenInclude(rp => rp.Permission)
+            .Include(u => u.SellerProfile)
+            .Include(u => u.ReputationScore)
+            .Include(u => u.ReputationLogs)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[AdminUserService.GetUserDetailAsync] User not found with UserId: {UserId}", userId);
+            throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        // Roles
+        var roles = user.UserRoles?
+            .Where(ur => ur.Role != null)
+            .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
+            .Distinct()
+            .ToList() ?? new List<string>();
+
+        if (roles.Count == 0)
+        {
+            roles.Add("buyer");
+        }
+
+        // Permissions
+        var permissions = user.UserRoles?
+            .Where(ur => ur.Role != null && ur.Role.RolePermissions != null)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.Permission != null)
+            .Select(rp => rp.Permission!.PermissionCode.ToLowerInvariant())
+            .Distinct()
+            .OrderBy(p => p)
+            .ToList() ?? new List<string>();
+
+        // Reputation
+        var repScore = user.ReputationScore?.CurrentScore ?? 50;
+        var trustLevel = (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString().ToUpperInvariant();
+
+        // Seller Profile
+        AdminSellerProfileDetailDto? sellerProfileDto = null;
+        var isSeller = roles.Contains("seller") || (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved);
+
+        if (user.SellerProfile != null)
+        {
+            var sp = user.SellerProfile;
+            sellerProfileDto = new AdminSellerProfileDetailDto(
+                ShopName: sp.ShopName,
+                Status: sp.Status.ToString().ToUpperInvariant(),
+                Hotline: sp.Hotline,
+                BusinessEmail: sp.BusinessEmail,
+                PickupAddress: sp.PickupAddress,
+                ProvinceId: sp.ProvinceId,
+                DistrictId: sp.DistrictId,
+                WardCode: sp.WardCode,
+                AvatarUrl: sp.AvatarUrl,
+                IdCardFrontUrl: sp.IdCardFrontUrl,
+                IdCardBackUrl: sp.IdCardBackUrl,
+                BusinessLicenseUrl: sp.BusinessLicenseUrl,
+                RejectionReason: sp.RejectionReason,
+                ReviewedAt: sp.ReviewedAt
+            );
+        }
+
+        // Reputation Logs (Top 10 recent logs)
+        var reputationLogs = user.ReputationLogs?
+            .OrderByDescending(l => l.CreatedAt)
+            .Take(10)
+            .Select(l => new AdminUserReputationLogDto(
+                Id: l.Id.ToString(),
+                ChangeAmount: l.ChangeAmount,
+                Reason: l.Reason.ToString(),
+                ReferenceType: l.ReferenceType?.ToString(),
+                ReferenceId: l.ReferenceId,
+                CreatedAt: l.CreatedAt
+            ))
+            .ToList() ?? new List<AdminUserReputationLogDto>();
+
+        var displayName = $"{user.FirstName} {user.LastName}".Trim();
+
+        return new AdminUserDetailDto(
+            Id: user.Id.ToString(),
+            UserId: user.Id.ToString(),
+            Email: user.Email,
+            Username: user.Username,
+            DisplayName: displayName,
+            FirstName: user.FirstName,
+            LastName: user.LastName,
+            PhoneNumber: user.PhoneNumber,
+            IdentifyNumber: user.IdentifyNumber,
+            AvatarUrl: user.AvatarUrl,
+            Gender: user.Gender.ToString(),
+            DateOfBirth: user.DateOfBirth,
+            Address: user.Address,
+            Status: user.Status.ToString().ToUpperInvariant(),
+            IsSeller: isSeller,
+            ReputationScore: repScore,
+            TrustLevel: trustLevel,
+            Roles: roles,
+            Permissions: permissions,
+            SellerProfile: sellerProfileDto,
+            ReputationLogs: reputationLogs,
+            BannedAt: user.BannedAt,
+            BanReason: user.BanReason,
+            EmailVerifiedAt: user.EmailVerifiedAt,
+            CreatedAt: user.CreatedAt,
+            UpdatedAt: user.UpdatedAt
+        );
+    }
 }
