@@ -231,4 +231,68 @@ public sealed class SellerControllerRestTests
         Assert.Equal("REJECTED", response.Status);
         Assert.Equal("Invalid business license", response.RejectionReason);
     }
+
+    [Fact]
+    public async Task GetSellerOwnProfile_ValidUserId_Returns200OkWithData()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_me@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Hoang",
+            LastName = "Le",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Hoang Audio Store",
+            Hotline = "+84909112233",
+            PickupAddress = "99 Tran Hung Dao, District 5, HCMC",
+            ProvinceId = 202,
+            DistrictId = 1444,
+            WardCode = "20202",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = userId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.GetSellerOwnProfile(CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<SellerOwnProfileResponseDto>(okResult.Value);
+        Assert.Equal(sellerProfile.Id.ToString(), response.SellerId);
+        Assert.Equal("Hoang Audio Store", response.ShopName);
+        Assert.Equal("+84909112233", response.Hotline);
+        Assert.Equal("APPROVED", response.Status);
+    }
+
+    [Fact]
+    public async Task GetSellerOwnProfile_MissingOrInvalidUserId_Returns400BadRequest()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = "invalid-uuid";
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.GetSellerOwnProfile(CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 }

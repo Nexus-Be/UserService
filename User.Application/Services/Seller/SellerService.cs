@@ -464,4 +464,59 @@ public sealed class SellerService : ISellerService
             RejectionReason: reason
         );
     }
+
+    public async Task<SellerOwnProfileResponseDto> GetSellerOwnProfileAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var sellerProfile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(sp => sp.User)
+                .ThenInclude(u => u!.ReputationScore)
+            .Include(sp => sp.User)
+                .ThenInclude(u => u!.ReviewsReceived)
+            .FirstOrDefaultAsync(sp => sp.UserId == userId, cancellationToken);
+
+        if (sellerProfile == null)
+        {
+            _logger.LogWarning("[SELLER PROFILE] Seller profile not found for UserId: '{UserId}'.", userId);
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found for the current user.");
+        }
+
+        var reviews = sellerProfile.User?.ReviewsReceived?.Where(r => !r.IsDisabled).ToList();
+        double ratingAvg = 5.0;
+        if (reviews != null && reviews.Count > 0)
+        {
+            ratingAvg = Math.Round(reviews.Average(r => r.Rating), 2);
+        }
+
+        var reputationScore = sellerProfile.User?.ReputationScore?.CurrentScore ?? 50;
+        var trustLevel = sellerProfile.User?.ReputationScore?.TrustLevel.ToString() ?? TrustLevel.Standard.ToString();
+
+        return new SellerOwnProfileResponseDto(
+            SellerId: sellerProfile.Id.ToString(),
+            ShopId: sellerProfile.Id.ToString(),
+            UserId: sellerProfile.UserId.ToString(),
+            ShopName: sellerProfile.ShopName,
+            AvatarUrl: sellerProfile.AvatarUrl,
+            BusinessEmail: sellerProfile.BusinessEmail,
+            Hotline: sellerProfile.Hotline,
+            Description: null,
+            PickupAddress: sellerProfile.PickupAddress,
+            ProvinceId: sellerProfile.ProvinceId,
+            DistrictId: sellerProfile.DistrictId,
+            WardCode: sellerProfile.WardCode,
+            Status: sellerProfile.Status.ToString().ToUpperInvariant(),
+            RatingAvg: ratingAvg,
+            ReputationScore: reputationScore,
+            TrustLevel: trustLevel,
+            CreatedAt: sellerProfile.CreatedAt,
+            UpdatedAt: sellerProfile.UpdatedAt
+        );
+    }
 }
