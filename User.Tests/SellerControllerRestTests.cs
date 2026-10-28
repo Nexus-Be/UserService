@@ -295,4 +295,74 @@ public sealed class SellerControllerRestTests
 
         Assert.IsType<BadRequestObjectResult>(result);
     }
+
+    [Fact]
+    public async Task UpdateSellerOwnProfile_ValidPayload_Returns200Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_patch@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "An",
+            LastName = "Vo",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "An Vo Electronics",
+            Hotline = "+84900111222",
+            PickupAddress = "100 Pasteur, D1, HCMC",
+            ProvinceId = 201,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = userId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var updateDto = new UpdateSellerOwnProfileDto
+        {
+            ShopName = "An Vo Gaming & Gear",
+            Hotline = "+84900999888",
+            PickupAddress = "200 Hai Ba Trung, D1, HCMC"
+        };
+
+        var result = await controller.UpdateSellerOwnProfile(updateDto, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<SellerOwnProfileUpdatedResponseDto>(okResult.Value);
+        Assert.Equal(sellerProfile.Id.ToString(), response.ShopId);
+        Assert.Equal(sellerProfile.Id.ToString(), response.SellerId);
+        Assert.Equal("An Vo Gaming & Gear", response.ShopName);
+    }
+
+    [Fact]
+    public async Task UpdateSellerOwnProfile_MissingOrInvalidUserId_Returns400BadRequest()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = "invalid-uuid";
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.UpdateSellerOwnProfile(new UpdateSellerOwnProfileDto { ShopName = "Test" }, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 }

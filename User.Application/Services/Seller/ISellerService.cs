@@ -32,4 +32,9 @@ public interface ISellerService
     Task<SellerOwnProfileResponseDto> GetSellerOwnProfileAsync(
         Guid userId,
         CancellationToken cancellationToken = default);
+
+    Task<SellerOwnProfileUpdatedResponseDto> UpdateSellerOwnProfileAsync(
+        Guid userId,
+        UpdateSellerOwnProfileDto dto,
+        CancellationToken cancellationToken = default);
 }
