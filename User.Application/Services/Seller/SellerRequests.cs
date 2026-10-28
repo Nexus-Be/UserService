@@ -1,4 +1,4 @@
-namespace User.Application.Dtos.Seller;
+namespace User.Application.Services.Seller;
 
 using System.Text.Json.Serialization;
 

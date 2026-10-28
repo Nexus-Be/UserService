@@ -1,4 +1,4 @@
-namespace User.Application.Dtos.Auth;
+namespace User.Application.Services.Auth;
 
 public sealed record RegisterApiRequest(
     string Email,

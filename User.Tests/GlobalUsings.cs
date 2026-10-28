@@ -1,5 +1,5 @@
-global using User.Application.Dtos.Auth;
-global using User.Application.Dtos.Profile;
-global using User.Application.Dtos.Seller;
-global using User.Application.Dtos.Admin;
-global using User.Application.Dtos.Common;
+global using User.Application.Services.Auth;
+global using User.Application.Services.Profile;
+global using User.Application.Services.Seller;
+global using User.Application.Services.Admin;
+global using User.Application.Common.Models;

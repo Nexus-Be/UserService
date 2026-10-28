@@ -1,7 +1,7 @@
 # 01 — PHÂN TẦNG CLEAN ARCHITECTURE & QUY TẮC PHỤ THUỘC (USER SERVICE)
-> **Trạng thái triển khai (2026-10-24):** ⚠️ Một phần — cấu trúc 4 tầng **có thật** (5 project: Domain 34 file/520 LOC, Application 8/374, Infrastructure 19/949, Api 3/324, Tests 1/266), nhưng **2 quy tắc phụ thuộc bị vi phạm** (Api → Infrastructure, Application → EF Core package) và **0/4 thành phần lý thuyết** (`MediatR`/CQRS, `IPasswordHasher`, `IJwtTokenGenerator`, `TokenService`) tồn tại trong code.
-> **Nguồn sự thật:** code trong repo này (`file:line` ghi kèm trong từng bảng).
-> **Cập nhật lần cuối:** 2026-10-24.
+> **Trạng thái triển khai (2026-10-29):** ✅ ĐÃ CHUẨN HÓA — Cấu trúc 4 tầng Clean Architecture chuẩn hóa: Feature Co-location tại `User.Application/Services/{Feature}/` (Auth, Profile, Seller, Admin), Consumer DI extension tại `User.Application/Consumers/ConsumerExtensions.cs`, và 1-to-1 Controllers tại `User.Api/Controllers/`. 100% RESTful HTTP/JSON (CẤM gRPC).
+> **Nguồn sự thật:** code trong repo này (`User.sln`, `User.Application/Services/`, `User.Application/Consumers/`, `User.Api/Controllers/`).
+> **Cập nhật lần cuối:** 2026-10-29.
 Solution `User.sln` bao gồm 4 project tương ứng với 4 tầng kiến trúc sạch (Clean Architecture):
 ```
 User.sln

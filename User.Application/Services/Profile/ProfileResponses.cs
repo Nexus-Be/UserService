@@ -1,4 +1,4 @@
-namespace User.Application.Dtos.Profile;
+namespace User.Application.Services.Profile;
 
 using System;
 using System.Collections.Generic;

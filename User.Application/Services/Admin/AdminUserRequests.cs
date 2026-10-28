@@ -1,4 +1,4 @@
-namespace User.Application.Dtos.Admin;
+namespace User.Application.Services.Admin;
 
 using System.Collections.Generic;
 using System.Text.Json.Serialization;

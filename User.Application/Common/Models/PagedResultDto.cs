@@ -1,4 +1,4 @@
-namespace User.Application.Dtos.Common;
+namespace User.Application.Common.Models;
 
 using System.Collections.Generic;
 using System.Text.Json.Serialization;

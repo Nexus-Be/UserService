@@ -1,4 +1,4 @@
-namespace User.Application.Dtos.Auth;
+namespace User.Application.Services.Auth;
 
 using System.Collections.Generic;
 

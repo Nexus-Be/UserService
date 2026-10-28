@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
+using User.Application.Consumers;
 using User.Application.Interfaces;
 using User.Infrastructure.Persistence;
 using User.Infrastructure.Services.Redis;
@@ -40,6 +41,8 @@ public static class DependencyInjection
         services.AddMassTransit(x =>
         {
             x.SetKebabCaseEndpointNameFormatter();
+
+            x.AddApplicationConsumers();
 
             x.AddEntityFrameworkOutbox<AppDbContext>(o =>
             {
