@@ -373,6 +373,12 @@ public sealed class SellerService : ISellerService
                     sellerProfile.Id,
                     sellerProfile.UserId,
                     sellerProfile.ShopName,
+                    sellerProfile.BusinessEmail,
+                    sellerProfile.Hotline,
+                    sellerProfile.PickupAddress,
+                    sellerProfile.ProvinceId,
+                    sellerProfile.DistrictId,
+                    sellerProfile.WardCode,
                     DateTimeOffset.UtcNow
                 ), cancellationToken);
 
