@@ -477,4 +477,208 @@ public sealed class AdminUserService : IAdminUserService
             UpdatedAt: user.UpdatedAt
         );
     }
+
+    public async Task<AdminRoleListResponseDto> GetRolesAsync(CancellationToken cancellationToken = default)
+    {
+        var roles = await _dbContext.Roles
+            .AsNoTracking()
+            .Where(r => !r.IsDeleted)
+            .Include(r => r.RolePermissions)
+            .OrderBy(r => r.RoleCode)
+            .ToListAsync(cancellationToken);
+
+        var dtoList = roles.Select(r => new AdminRoleDto(
+            Id: r.Id.ToString(),
+            RoleId: r.Id.ToString(),
+            RoleCode: r.RoleCode.ToString(),
+            RoleName: r.RoleName,
+            Description: r.Description,
+            IsSystemRole: r.IsSystemRole,
+            IsActive: r.IsActive,
+            PermissionsCount: r.RolePermissions?.Count(rp => !rp.IsDeleted) ?? 0,
+            CreatedAt: r.CreatedAt
+        )).ToList();
+
+        return new AdminRoleListResponseDto(dtoList);
+    }
+
+    public async Task<AdminUserRolesResponseDto> AssignUserRolesAsync(
+        Guid targetUserId,
+        AssignAdminUserRolesDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        if (dto == null)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Role assignment payload is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for role assignment is required.");
+        }
+
+        // 1. Kiểm tra User tồn tại
+        var targetUser = await _dbContext.Users
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Id == targetUserId && !u.IsDeleted, cancellationToken);
+
+        if (targetUser == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
+        }
+
+        // 2. Phân giải danh sách vai trò yêu cầu
+        var requestedRoles = new HashSet<RoleType>();
+        if (dto.RoleCodes != null && dto.RoleCodes.Count > 0)
+        {
+            foreach (var code in dto.RoleCodes)
+            {
+                if (string.IsNullOrWhiteSpace(code)) continue;
+                var normalizedCode = code.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
+                switch (normalizedCode)
+                {
+                    case "admin":
+                    case "administrator":
+                        requestedRoles.Add(RoleType.Admin);
+                        break;
+                    case "staff":
+                    case "supportstaff":
+                    case "support":
+                        requestedRoles.Add(RoleType.SupportStaff);
+                        break;
+                    case "seller":
+                        requestedRoles.Add(RoleType.Seller);
+                        break;
+                    case "buyer":
+                        requestedRoles.Add(RoleType.Buyer);
+                        break;
+                }
+            }
+        }
+
+        // Nếu truyền RoleIds dạng int hoặc string
+        if (dto.RoleIds != null && dto.RoleIds.Count > 0)
+        {
+            foreach (var rId in dto.RoleIds)
+            {
+                if (int.TryParse(rId, out var parsedInt) && Enum.IsDefined(typeof(RoleType), parsedInt))
+                {
+                    requestedRoles.Add((RoleType)parsedInt);
+                }
+            }
+        }
+
+        // Nếu không có role nào được truyền, mặc định giữ Buyer
+        if (requestedRoles.Count == 0)
+        {
+            requestedRoles.Add(RoleType.Buyer);
+        }
+
+        // 3. Quy tắc SoD: Không được đồng thời là Admin và SupportStaff
+        if (requestedRoles.Contains(RoleType.Admin) && requestedRoles.Contains(RoleType.SupportStaff))
+        {
+            throw new BusinessRuleValidationException("ERR_SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
+        }
+
+        // 4. Quy tắc Demotion Guard: Không được tước role Admin của Admin duy nhất còn lại
+        var currentRoles = targetUser.UserRoles
+            .Where(ur => !ur.IsDeleted && ur.Role != null)
+            .Select(ur => ur.Role!.RoleCode)
+            .ToHashSet();
+
+        if (currentRoles.Contains(RoleType.Admin) && !requestedRoles.Contains(RoleType.Admin))
+        {
+            var activeAdminCount = await _dbContext.UserRoles
+                .Include(ur => ur.User)
+                .Include(ur => ur.Role)
+                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
+                .Select(ur => ur.UserId)
+                .Distinct()
+                .CountAsync(cancellationToken);
+
+            if (activeAdminCount <= 1)
+            {
+                throw new BusinessRuleValidationException("ERR_CANNOT_DEMOTE_LAST_ADMIN", "Cannot remove Admin role from the last active Administrator in the system.");
+            }
+        }
+
+        // 5. Cập nhật UserRoles
+        var allDbRoles = await _dbContext.Roles
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+
+        var oldRoleNames = targetUser.UserRoles
+            .Where(ur => !ur.IsDeleted && ur.Role != null)
+            .Select(ur => ur.Role!.RoleCode.ToString())
+            .ToList();
+
+        // Đánh dấu xóa các role không còn trong requestedRoles
+        foreach (var existingUr in targetUser.UserRoles.Where(ur => !ur.IsDeleted).ToList())
+        {
+            if (existingUr.Role == null || !requestedRoles.Contains(existingUr.Role.RoleCode))
+            {
+                existingUr.IsDeleted = true;
+                existingUr.DeletedAt = DateTimeOffset.UtcNow;
+                existingUr.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
+
+        // Thêm các role mới
+        foreach (var reqRole in requestedRoles)
+        {
+            var alreadyHas = targetUser.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == reqRole);
+            if (!alreadyHas)
+            {
+                var dbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == reqRole);
+                if (dbRole != null)
+                {
+                    _dbContext.UserRoles.Add(new UserRole
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = targetUser.Id,
+                        RoleId = dbRole.Id,
+                        AssignedAt = DateTimeOffset.UtcNow,
+                        AssignedBy = adminId ?? Guid.Empty,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                        IsDeleted = false
+                    });
+                }
+            }
+        }
+
+        var newRoleNames = requestedRoles.Select(r => r.ToString().ToLowerInvariant()).ToList();
+
+        // 6. Ghi AuditLog
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            ServiceName = "user-service",
+            Action = AuditAction.RoleAssign,
+            EntityName = "UserRoles",
+            EntityId = targetUserId.ToString(),
+            UserId = adminId?.ToString(),
+            OldValues = JsonSerializer.Serialize(oldRoleNames),
+            NewValues = JsonSerializer.Serialize(newRoleNames),
+            ChangedColumns = "UserRoles",
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[ADMIN ASSIGN ROLES] Successfully updated roles for User '{UserId}'. New roles: {Roles}",
+            targetUserId, string.Join(", ", newRoleNames));
+
+        return new AdminUserRolesResponseDto(
+            UserId: targetUserId.ToString(),
+            Roles: newRoleNames,
+            UpdatedAt: DateTimeOffset.UtcNow
+        );
+    }
 }

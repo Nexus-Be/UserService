@@ -148,3 +148,46 @@ public sealed record AdminUserDetailDto(
     [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
 );
 
+public sealed record AdminRoleDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("roleId")] string RoleId,
+    [property: JsonPropertyName("roleCode")] string RoleCode,
+    [property: JsonPropertyName("roleName")] string RoleName,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("isSystemRole")] bool IsSystemRole,
+    [property: JsonPropertyName("isActive")] bool IsActive,
+    [property: JsonPropertyName("permissionsCount")] int PermissionsCount,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);
+
+public sealed record AdminRoleListResponseDto(
+    [property: JsonPropertyName("roles")] List<AdminRoleDto> Roles
+);
+
+public sealed class AssignAdminUserRolesDto
+{
+    [JsonPropertyName("roleCodes")]
+    public List<string>? RoleCodes { get; set; }
+
+    [JsonPropertyName("role_codes")]
+    public List<string>? RoleCodesSnake { set => RoleCodes ??= value; }
+
+    [JsonPropertyName("roles")]
+    public List<string>? Roles { set => RoleCodes ??= value; }
+
+    [JsonPropertyName("roleIds")]
+    public List<string>? RoleIds { get; set; }
+
+    [JsonPropertyName("role_ids")]
+    public List<string>? RoleIdsSnake { set => RoleIds ??= value; }
+
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}
+
+public sealed record AdminUserRolesResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("roles")] List<string> Roles,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
+
