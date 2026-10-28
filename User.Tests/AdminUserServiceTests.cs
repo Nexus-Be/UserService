@@ -546,4 +546,158 @@ public sealed class AdminUserServiceTests
         Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
         Assert.Equal("User account not found.", ex.Message);
     }
+
+    [Fact]
+    public async Task GetRolesAsync_ReturnsAllActiveRolesWithPermissionsCount()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var r1 = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer", IsSystemRole = true, IsActive = true };
+        var r2 = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Admin, RoleName = "Administrator", IsSystemRole = true, IsActive = true };
+        dbContext.Roles.AddRange(r1, r2);
+
+        var perm = new Permission { Id = Guid.NewGuid(), PermissionCode = "ROLE.VIEW", PermissionName = "View Roles", Category = "ROLE" };
+        dbContext.Permissions.Add(perm);
+        dbContext.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = r2.Id, PermissionId = perm.Id });
+
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.GetRolesAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Roles.Count);
+        var adminRole = result.Roles.FirstOrDefault(r => r.RoleCode == "Admin");
+        Assert.NotNull(adminRole);
+        Assert.Equal("Administrator", adminRole.RoleName);
+        Assert.Equal(1, adminRole.PermissionsCount);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenValidPayload_UpdatesUserRolesAndLogsAudit()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.AddRange(rBuyer, rSeller);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "promote.seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        var testUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id };
+        dbContext.UserRoles.Add(testUr);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "seller" },
+            Reason = "Approved seller registration"
+        };
+        var adminId = Guid.NewGuid();
+
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(targetUserId.ToString(), result.UserId);
+        Assert.Contains("seller", result.Roles);
+
+        var auditLog = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == targetUserId.ToString());
+        Assert.NotNull(auditLog);
+        Assert.Equal(AuditAction.RoleAssign, auditLog.Action);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenBothAdminAndStaffRequested_ThrowsSodViolationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "sod.target@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Sod",
+            LastName = "Violator",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "admin", "staff" },
+            Reason = "Attempt illegal dual privilege"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("ERR_SOD_VIOLATION", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenAttemptingToDemoteLastAdmin_ThrowsCannotDemoteLastAdminException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rAdmin = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Admin, RoleName = "Administrator" };
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        dbContext.Roles.AddRange(rAdmin, rBuyer);
+
+        var soleAdminId = Guid.NewGuid();
+        var soleAdmin = new User
+        {
+            Id = soleAdminId,
+            Email = "sole.admin@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Sole",
+            LastName = "Admin",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(soleAdmin);
+        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = soleAdminId, RoleId = rAdmin.Id });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer" },
+            Reason = "Demoting sole admin"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(soleAdminId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("ERR_CANNOT_DEMOTE_LAST_ADMIN", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenTargetUserNotFound_ThrowsUserNotFoundException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer" },
+            Reason = "Assign to nonexistent"
+        };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.AssignUserRolesAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
 }

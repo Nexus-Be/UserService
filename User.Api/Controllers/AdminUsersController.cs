@@ -77,4 +77,35 @@ public sealed class AdminUsersController : ControllerBase
 
         return Ok(result);
     }
+
+    [HttpGet("/api/v1/admin/roles")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminRoleListResponseDto))]
+    public async Task<IActionResult> ListRoles(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST Admin ListRoles] Incoming request to list all roles");
+        var result = await _adminUserService.GetRolesAsync(cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPut("{userId:guid}/roles")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserRolesResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AssignUserRoles(
+        [FromRoute] Guid userId,
+        [FromBody] AssignAdminUserRolesDto request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST Admin AssignRoles] Incoming request for UserId: '{UserId}'", userId);
+
+        Guid? adminId = null;
+        if (Request.Headers.TryGetValue("x-user-id", out var headerVal) &&
+            Guid.TryParse(headerVal.ToString(), out var parsedAdminId))
+        {
+            adminId = parsedAdminId;
+        }
+
+        var result = await _adminUserService.AssignUserRolesAsync(userId, request, adminId, cancellationToken);
+        return Ok(result);
+    }
 }

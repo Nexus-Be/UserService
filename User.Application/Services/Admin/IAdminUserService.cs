@@ -25,4 +25,15 @@ public interface IAdminUserService
         Guid userId,
         CancellationToken cancellationToken = default
     );
+
+    Task<AdminRoleListResponseDto> GetRolesAsync(
+        CancellationToken cancellationToken = default
+    );
+
+    Task<AdminUserRolesResponseDto> AssignUserRolesAsync(
+        Guid targetUserId,
+        AssignAdminUserRolesDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default
+    );
 }
