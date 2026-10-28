@@ -519,4 +519,146 @@ public sealed class SellerService : ISellerService
             UpdatedAt: sellerProfile.UpdatedAt
         );
     }
+
+    public async Task<SellerOwnProfileUpdatedResponseDto> UpdateSellerOwnProfileAsync(
+        Guid userId,
+        UpdateSellerOwnProfileDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        if (dto == null)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Update payload is required.");
+        }
+
+        var sellerProfile = await _dbContext.SellerProfiles
+            .Include(sp => sp.User)
+            .FirstOrDefaultAsync(sp => sp.UserId == userId, cancellationToken);
+
+        if (sellerProfile == null)
+        {
+            _logger.LogWarning("[SELLER PROFILE UPDATE] Seller profile not found for UserId: '{UserId}'.", userId);
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found for the current user.");
+        }
+
+        if (sellerProfile.User != null && sellerProfile.User.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[SELLER PROFILE UPDATE] User '{UserId}' is banned.", userId);
+            throw new DomainException("USER_BANNED", "User account has been banned.");
+        }
+
+        // 1. Cập nhật ShopName (nếu có truyền)
+        if (!string.IsNullOrWhiteSpace(dto.ShopName))
+        {
+            var trimmedShopName = dto.ShopName.Trim();
+            if (trimmedShopName.Length < 3 || trimmedShopName.Length > 100)
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_SHOP_NAME", "Shop name must be between 3 and 100 characters.");
+            }
+
+            if (!string.Equals(sellerProfile.ShopName, trimmedShopName, StringComparison.OrdinalIgnoreCase))
+            {
+                var isTaken = await _dbContext.SellerProfiles
+                    .AnyAsync(s => s.ShopName.ToLower() == trimmedShopName.ToLower() && s.UserId != userId, cancellationToken);
+
+                if (isTaken)
+                {
+                    _logger.LogWarning("[SELLER PROFILE UPDATE] Shop name '{ShopName}' is already taken.", trimmedShopName);
+                    throw new DomainException("SHOP_NAME_TAKEN", "Shop name is already taken.");
+                }
+
+                sellerProfile.ShopName = trimmedShopName;
+            }
+        }
+
+        // 2. Cập nhật Hotline (nếu có truyền)
+        if (!string.IsNullOrWhiteSpace(dto.Hotline))
+        {
+            sellerProfile.Hotline = dto.Hotline.Trim();
+        }
+
+        // 3. Cập nhật AvatarUrl (nếu có truyền)
+        if (!string.IsNullOrWhiteSpace(dto.AvatarUrl))
+        {
+            sellerProfile.AvatarUrl = dto.AvatarUrl.Trim();
+        }
+
+        // 4. Cập nhật BusinessEmail (nếu có truyền)
+        if (!string.IsNullOrWhiteSpace(dto.BusinessEmail))
+        {
+            var normalizedEmail = dto.BusinessEmail.Trim().ToLowerInvariant();
+            if (!normalizedEmail.Contains('@') || !normalizedEmail.Contains('.'))
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_EMAIL", "Email address format is invalid.");
+            }
+            sellerProfile.BusinessEmail = normalizedEmail;
+        }
+
+        // 5. Cập nhật địa chỉ kho lấy hàng GHN (PickupAddress / StreetAddress / Province / District / Ward)
+        var newAddress = !string.IsNullOrWhiteSpace(dto.PickupAddress)
+            ? dto.PickupAddress.Trim()
+            : !string.IsNullOrWhiteSpace(dto.StreetAddress)
+                ? dto.StreetAddress.Trim()
+                : null;
+
+        if (!string.IsNullOrWhiteSpace(newAddress))
+        {
+            sellerProfile.PickupAddress = newAddress;
+        }
+
+        if (dto.ProvinceId.HasValue && dto.ProvinceId.Value > 0)
+        {
+            sellerProfile.ProvinceId = dto.ProvinceId.Value;
+        }
+
+        if (dto.DistrictId.HasValue && dto.DistrictId.Value > 0)
+        {
+            sellerProfile.DistrictId = dto.DistrictId.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.WardCode))
+        {
+            sellerProfile.WardCode = dto.WardCode.Trim();
+        }
+
+        sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // 6. Ghi AuditLog (sử dụng AuditAction.UserUpdate sẵn có, không sửa Domain enum!)
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            ServiceName = "UserService",
+            Action = AuditAction.UserUpdate,
+            EntityName = nameof(SellerProfile),
+            EntityId = sellerProfile.Id.ToString(),
+            UserId = userId.ToString(),
+            NewValues = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                shopName = sellerProfile.ShopName,
+                hotline = sellerProfile.Hotline,
+                avatarUrl = sellerProfile.AvatarUrl,
+                businessEmail = sellerProfile.BusinessEmail,
+                pickupAddress = sellerProfile.PickupAddress,
+                provinceId = sellerProfile.ProvinceId,
+                districtId = sellerProfile.DistrictId,
+                wardCode = sellerProfile.WardCode
+            }),
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER PROFILE UPDATE] Successfully updated seller profile '{SellerId}' for User '{UserId}'.", sellerProfile.Id, userId);
+
+        return new SellerOwnProfileUpdatedResponseDto(
+            ShopId: sellerProfile.Id.ToString(),
+            SellerId: sellerProfile.Id.ToString(),
+            ShopName: sellerProfile.ShopName,
+            UpdatedAt: sellerProfile.UpdatedAt,
+            Message: "Seller profile updated successfully."
+        );
+    }
 }
