@@ -676,4 +676,113 @@ public sealed class SellerServiceTests
 
         Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
     }
+
+    [Fact]
+    public async Task GetSellerOwnProfileAsync_WhenProfileExists_ReturnsProfileDataWithReputationAndRating()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_own@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Minh",
+            LastName = "Dang",
+            Status = UserStatus.Active,
+            ReputationScore = new ReputationScore
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                CurrentScore = 85,
+                TrustLevel = TrustLevel.Good
+            }
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Tech World Hub",
+            AvatarUrl = "https://cdn.nexus.local/shop.png",
+            BusinessEmail = "biz@techworld.local",
+            Hotline = "+84912345678",
+            PickupAddress = "123 Le Loi, D1, HCMC",
+            ProvinceId = 201,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+
+        // Add 2 reviews: 5 and 4 stars => avg = 4.5
+        dbContext.UserReviews.Add(new UserReview
+        {
+            Id = Guid.NewGuid(),
+            ReviewerId = Guid.NewGuid(),
+            RevieweeId = userId,
+            ReviewerRole = ReviewerRole.Buyer,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = "ORD-001",
+            Rating = 5
+        });
+        dbContext.UserReviews.Add(new UserReview
+        {
+            Id = Guid.NewGuid(),
+            ReviewerId = Guid.NewGuid(),
+            RevieweeId = userId,
+            ReviewerRole = ReviewerRole.Buyer,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = "ORD-002",
+            Rating = 4
+        });
+        await dbContext.SaveChangesAsync();
+
+        var profile = await service.GetSellerOwnProfileAsync(userId);
+
+        Assert.NotNull(profile);
+        Assert.Equal(sellerProfile.Id.ToString(), profile.SellerId);
+        Assert.Equal(sellerProfile.Id.ToString(), profile.ShopId);
+        Assert.Equal(userId.ToString(), profile.UserId);
+        Assert.Equal("Tech World Hub", profile.ShopName);
+        Assert.Equal("https://cdn.nexus.local/shop.png", profile.AvatarUrl);
+        Assert.Equal("biz@techworld.local", profile.BusinessEmail);
+        Assert.Equal("+84912345678", profile.Hotline);
+        Assert.Equal("123 Le Loi, D1, HCMC", profile.PickupAddress);
+        Assert.Equal(201, profile.ProvinceId);
+        Assert.Equal(1442, profile.DistrictId);
+        Assert.Equal("20101", profile.WardCode);
+        Assert.Equal("APPROVED", profile.Status);
+        Assert.Equal(85, profile.ReputationScore);
+        Assert.Equal("Good", profile.TrustLevel);
+        Assert.Equal(4.5, profile.RatingAvg);
+    }
+
+    [Fact]
+    public async Task GetSellerOwnProfileAsync_WhenProfileNotFound_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var randomUserId = Guid.NewGuid();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.GetSellerOwnProfileAsync(randomUserId));
+
+        Assert.Equal("SELLER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetSellerOwnProfileAsync_WhenUserIdEmpty_ThrowsValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.GetSellerOwnProfileAsync(Guid.Empty));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
 }

@@ -146,3 +146,24 @@ public sealed record RejectSellerRegistrationResponseDto(
     [property: JsonPropertyName("rejectedAt")] DateTimeOffset RejectedAt,
     [property: JsonPropertyName("rejectionReason")] string RejectionReason
 );
+
+public sealed record SellerOwnProfileResponseDto(
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("shopId")] string ShopId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail,
+    [property: JsonPropertyName("hotline")] string Hotline,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("pickupAddress")] string PickupAddress,
+    [property: JsonPropertyName("provinceId")] int ProvinceId,
+    [property: JsonPropertyName("districtId")] int DistrictId,
+    [property: JsonPropertyName("wardCode")] string WardCode,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("ratingAvg")] double RatingAvg,
+    [property: JsonPropertyName("reputationScore")] int ReputationScore,
+    [property: JsonPropertyName("trustLevel")] string? TrustLevel,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
+);

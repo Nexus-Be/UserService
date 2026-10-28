@@ -28,4 +28,8 @@ public interface ISellerService
         Guid? reviewerId,
         RejectSellerRegistrationDto dto,
         CancellationToken cancellationToken = default);
+
+    Task<SellerOwnProfileResponseDto> GetSellerOwnProfileAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
 }
