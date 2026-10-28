@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #pragma warning disable CA1814 // Prefer jagged arrays over multidimensional
 
-namespace User.Infrastructure.Migrations
+namespace User.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
     public partial class Initial : Migration
@@ -24,7 +24,7 @@ namespace User.Infrastructure.Migrations
                     TraceId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     UserId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     UserName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
-                    Action = table.Column<string>(type: "text", nullable: false),
+                    Action = table.Column<int>(type: "integer", nullable: false),
                     EntityName = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: false),
                     EntityId = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: false),
                     OldValues = table.Column<string>(type: "jsonb", nullable: true),
@@ -105,7 +105,7 @@ namespace User.Infrastructure.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    RoleCode = table.Column<string>(type: "text", nullable: false),
+                    RoleCode = table.Column<int>(type: "integer", nullable: false),
                     RoleName = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: false),
                     Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
@@ -129,7 +129,7 @@ namespace User.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     ConfigKey = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     ConfigValue = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false),
-                    DataType = table.Column<string>(type: "text", nullable: false),
+                    DataType = table.Column<int>(type: "integer", nullable: false),
                     Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     UpdatedBy = table.Column<Guid>(type: "uuid", nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -155,10 +155,10 @@ namespace User.Infrastructure.Migrations
                     PhoneNumber = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     IdentifyNumber = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     AvatarUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    Gender = table.Column<string>(type: "text", nullable: false),
+                    Gender = table.Column<int>(type: "integer", nullable: false),
                     DateOfBirth = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     Address = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
-                    Status = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
                     EmailVerifiedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     BannedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     BannedBy = table.Column<Guid>(type: "uuid", nullable: true),
@@ -289,8 +289,8 @@ namespace User.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
                     ChangeAmount = table.Column<int>(type: "integer", nullable: false),
-                    Reason = table.Column<string>(type: "text", nullable: false),
-                    ReferenceType = table.Column<string>(type: "text", nullable: true),
+                    Reason = table.Column<int>(type: "integer", nullable: false),
+                    ReferenceType = table.Column<int>(type: "integer", nullable: true),
                     ReferenceId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -322,7 +322,7 @@ namespace User.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
                     CurrentScore = table.Column<int>(type: "integer", nullable: false),
-                    TrustLevel = table.Column<string>(type: "text", nullable: false),
+                    TrustLevel = table.Column<int>(type: "integer", nullable: false),
                     TotalPositiveReviews = table.Column<int>(type: "integer", nullable: false),
                     TotalNegativeReviews = table.Column<int>(type: "integer", nullable: false),
                     PenaltyCount = table.Column<int>(type: "integer", nullable: false),
@@ -359,7 +359,7 @@ namespace User.Infrastructure.Migrations
                     DistrictId = table.Column<int>(type: "integer", nullable: false),
                     WardCode = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     Hotline = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
                     RejectionReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
                     ReviewedBy = table.Column<Guid>(type: "uuid", nullable: true),
                     ReviewedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -391,11 +391,11 @@ namespace User.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ViolationType = table.Column<string>(type: "text", nullable: false),
+                    ViolationType = table.Column<int>(type: "integer", nullable: false),
                     Reason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    PenaltyApplied = table.Column<string>(type: "text", nullable: false),
+                    PenaltyApplied = table.Column<int>(type: "integer", nullable: false),
                     PointsDeducted = table.Column<int>(type: "integer", nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
                     IssuedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     ExpiresAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
@@ -428,10 +428,10 @@ namespace User.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     ReporterId = table.Column<Guid>(type: "uuid", nullable: false),
                     ReportedUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ViolationType = table.Column<string>(type: "text", nullable: false),
+                    ViolationType = table.Column<int>(type: "integer", nullable: false),
                     Description = table.Column<string>(type: "text", nullable: false),
                     EvidenceUrls = table.Column<List<string>>(type: "text[]", nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
                     ResolvedBy = table.Column<Guid>(type: "uuid", nullable: true),
                     ResolutionNote = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -469,8 +469,8 @@ namespace User.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     ReviewerId = table.Column<Guid>(type: "uuid", nullable: false),
                     RevieweeId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ReviewerRole = table.Column<string>(type: "text", nullable: false),
-                    ReferenceType = table.Column<string>(type: "text", nullable: false),
+                    ReviewerRole = table.Column<int>(type: "integer", nullable: false),
+                    ReferenceType = table.Column<int>(type: "integer", nullable: false),
                     ReferenceId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     Rating = table.Column<int>(type: "integer", nullable: false),
                     Comment = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
@@ -535,10 +535,10 @@ namespace User.Infrastructure.Migrations
                 columns: new[] { "Id", "CreatedAt", "CreatedBy", "DeletedAt", "Description", "IsActive", "IsDeleted", "RoleCode", "RoleName", "UpdatedAt", "UpdatedBy" },
                 values: new object[,]
                 {
-                    { new Guid("11111111-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Khách mua hàng và tham gia đấu giá", true, false, "Buyer", "Buyer", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
-                    { new Guid("22222222-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Người bán hàng và mở phiên đấu giá", true, false, "Seller", "Seller", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
-                    { new Guid("33333333-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Nhân viên hỗ trợ thẩm định và chăm sóc khách hàng", true, false, "SupportStaff", "Support Staff", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
-                    { new Guid("44444444-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Quản trị viên tối cao sàn", true, false, "Admin", "Administrator", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") }
+                    { new Guid("11111111-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Khách mua hàng và tham gia đấu giá", true, false, 0, "Buyer", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("22222222-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Người bán hàng và mở phiên đấu giá", true, false, 1, "Seller", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("33333333-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Nhân viên hỗ trợ thẩm định và chăm sóc khách hàng", true, false, 2, "Support Staff", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") },
+                    { new Guid("44444444-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, "Quản trị viên tối cao sàn", true, false, 3, "Administrator", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000") }
                 });
 
             migrationBuilder.InsertData(
@@ -546,8 +546,8 @@ namespace User.Infrastructure.Migrations
                 columns: new[] { "Id", "ConfigKey", "ConfigValue", "CreatedAt", "DataType", "DeletedAt", "Description", "IsDeleted", "UpdatedAt", "UpdatedBy" },
                 values: new object[,]
                 {
-                    { new Guid("11111111-2222-3333-4444-555555555551"), "DEFAULT_REPUTATION_SCORE", "50", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Int", null, "Điểm uy tín mặc định khi đăng ký mới", false, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null },
-                    { new Guid("11111111-2222-3333-4444-555555555552"), "AUTO_APPROVE_BUYER", "true", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Boolean", null, "Tự động kích hoạt tài khoản buyer sau xác thực email", false, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null }
+                    { new Guid("11111111-2222-3333-4444-555555555551"), "DEFAULT_REPUTATION_SCORE", "50", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 1, null, "Điểm uy tín mặc định khi đăng ký mới", false, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null },
+                    { new Guid("11111111-2222-3333-4444-555555555552"), "AUTO_APPROVE_BUYER", "true", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 3, null, "Tự động kích hoạt tài khoản buyer sau xác thực email", false, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null }
                 });
 
             migrationBuilder.InsertData(
@@ -555,10 +555,10 @@ namespace User.Infrastructure.Migrations
                 columns: new[] { "Id", "Address", "AvatarUrl", "BanReason", "BannedAt", "BannedBy", "CreatedAt", "CreatedBy", "DateOfBirth", "DeletedAt", "Email", "EmailVerifiedAt", "FirstName", "Gender", "IdentifyNumber", "IsDeleted", "LastName", "PasswordHash", "PhoneNumber", "Status", "UpdatedAt", "UpdatedBy", "Username" },
                 values: new object[,]
                 {
-                    { new Guid("aaaaaaaa-1111-1111-1111-111111111111"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "admin@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Admin", "Unspecified", null, false, "System", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000001", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "admin" },
-                    { new Guid("bbbbbbbb-2222-2222-2222-222222222222"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "staff@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Staff", "Unspecified", null, false, "Support", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000002", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "staff" },
-                    { new Guid("cccccccc-3333-3333-3333-333333333333"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "seller@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Official", "Unspecified", null, false, "Seller", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000003", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "seller" },
-                    { new Guid("dddddddd-4444-4444-4444-444444444444"), "123 Nguyen Trai, Thanh Xuan, Ha Noi", null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "buyer@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "John", "Unspecified", null, false, "Buyer", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000004", "Active", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "buyer" }
+                    { new Guid("aaaaaaaa-1111-1111-1111-111111111111"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "admin@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Admin", 0, null, false, "System", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000001", 1, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "admin" },
+                    { new Guid("bbbbbbbb-2222-2222-2222-222222222222"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "staff@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Staff", 0, null, false, "Support", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000002", 1, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "staff" },
+                    { new Guid("cccccccc-3333-3333-3333-333333333333"), null, null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "seller@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "Official", 0, null, false, "Seller", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000003", 1, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "seller" },
+                    { new Guid("dddddddd-4444-4444-4444-444444444444"), "123 Nguyen Trai, Thanh Xuan, Ha Noi", null, null, null, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), null, null, "buyer@nexus.com", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "John", 0, null, false, "Buyer", "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG", "0900000004", 1, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("00000000-0000-0000-0000-000000000000"), "buyer" }
                 });
 
             migrationBuilder.InsertData(
@@ -566,16 +566,16 @@ namespace User.Infrastructure.Migrations
                 columns: new[] { "Id", "CreatedAt", "CurrentScore", "DeletedAt", "IsDeleted", "PenaltyCount", "TotalNegativeReviews", "TotalPositiveReviews", "TrustLevel", "UpdatedAt", "UserId" },
                 values: new object[,]
                 {
-                    { new Guid("eaaaaaaa-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 0, "Excellent", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111") },
-                    { new Guid("ebbbbbbb-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 0, "Excellent", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("bbbbbbbb-2222-2222-2222-222222222222") },
-                    { new Guid("eccccccc-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 50, "Good", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333") },
-                    { new Guid("eddddddd-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 80, null, false, 0, 0, 10, "Standard", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("dddddddd-4444-4444-4444-444444444444") }
+                    { new Guid("eaaaaaaa-1111-1111-1111-111111111111"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 0, 4, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111") },
+                    { new Guid("ebbbbbbb-2222-2222-2222-222222222222"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 0, 4, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("bbbbbbbb-2222-2222-2222-222222222222") },
+                    { new Guid("eccccccc-3333-3333-3333-333333333333"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 100, null, false, 0, 0, 50, 3, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333") },
+                    { new Guid("eddddddd-4444-4444-4444-444444444444"), new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 80, null, false, 0, 0, 10, 2, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("dddddddd-4444-4444-4444-444444444444") }
                 });
 
             migrationBuilder.InsertData(
                 table: "SellerProfiles",
                 columns: new[] { "Id", "AvatarUrl", "BusinessEmail", "BusinessLicenseUrl", "CreatedAt", "DeletedAt", "DistrictId", "Hotline", "IdCardBackUrl", "IdCardFrontUrl", "IsDeleted", "PickupAddress", "ProvinceId", "RejectionReason", "ReviewedAt", "ReviewedBy", "ShopName", "Status", "UpdatedAt", "UserId", "WardCode" },
-                values: new object[] { new Guid("cccccccc-3333-3333-3333-333333333334"), null, "seller@nexus.com", null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, 1, "19001234", null, null, false, "Toa nha Nexus, Duy Tan, Cau Giay, Ha Noi", 1, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111"), "Nexus Official Store", "Approved", new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333"), "00001" });
+                values: new object[] { new Guid("cccccccc-3333-3333-3333-333333333334"), null, "seller@nexus.com", null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), null, 1, "19001234", null, null, false, "Toa nha Nexus, Duy Tan, Cau Giay, Ha Noi", 1, null, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("aaaaaaaa-1111-1111-1111-111111111111"), "Nexus Official Store", 1, new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), new Guid("cccccccc-3333-3333-3333-333333333333"), "00001" });
 
             migrationBuilder.InsertData(
                 table: "UserRoles",

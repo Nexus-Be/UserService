@@ -3,21 +3,18 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using User.Infrastructure.Persistence;
 
 #nullable disable
 
-namespace User.Infrastructure.Migrations
+namespace User.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261026124521_Initial")]
-    partial class Initial
+    partial class AppDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -200,9 +197,8 @@ namespace User.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Action")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ChangedColumns")
                         .HasColumnType("jsonb");
@@ -383,16 +379,15 @@ namespace User.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Reason")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ReferenceId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<string>("ReferenceType")
-                        .HasColumnType("text");
+                    b.Property<int?>("ReferenceType")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -436,9 +431,8 @@ namespace User.Infrastructure.Migrations
                     b.Property<int>("TotalPositiveReviews")
                         .HasColumnType("integer");
 
-                    b.Property<string>("TrustLevel")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("TrustLevel")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -463,7 +457,7 @@ namespace User.Infrastructure.Migrations
                             PenaltyCount = 0,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 0,
-                            TrustLevel = "Excellent",
+                            TrustLevel = 4,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("aaaaaaaa-1111-1111-1111-111111111111")
                         },
@@ -476,7 +470,7 @@ namespace User.Infrastructure.Migrations
                             PenaltyCount = 0,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 0,
-                            TrustLevel = "Excellent",
+                            TrustLevel = 4,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("bbbbbbbb-2222-2222-2222-222222222222")
                         },
@@ -489,7 +483,7 @@ namespace User.Infrastructure.Migrations
                             PenaltyCount = 0,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 50,
-                            TrustLevel = "Good",
+                            TrustLevel = 3,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("cccccccc-3333-3333-3333-333333333333")
                         },
@@ -502,7 +496,7 @@ namespace User.Infrastructure.Migrations
                             PenaltyCount = 0,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 10,
-                            TrustLevel = "Standard",
+                            TrustLevel = 2,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
                         });
@@ -538,9 +532,8 @@ namespace User.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
-                    b.Property<string>("RoleCode")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("RoleCode")
+                        .HasColumnType("integer");
 
                     b.Property<string>("RoleName")
                         .IsRequired()
@@ -567,7 +560,7 @@ namespace User.Infrastructure.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
-                            RoleCode = "Buyer",
+                            RoleCode = 0,
                             RoleName = "Buyer",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
@@ -581,7 +574,7 @@ namespace User.Infrastructure.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
-                            RoleCode = "Seller",
+                            RoleCode = 1,
                             RoleName = "Seller",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
@@ -595,7 +588,7 @@ namespace User.Infrastructure.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
-                            RoleCode = "SupportStaff",
+                            RoleCode = 2,
                             RoleName = "Support Staff",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
@@ -609,7 +602,7 @@ namespace User.Infrastructure.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
-                            RoleCode = "Admin",
+                            RoleCode = 3,
                             RoleName = "Administrator",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
@@ -722,9 +715,8 @@ namespace User.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -763,7 +755,7 @@ namespace User.Infrastructure.Migrations
                             ReviewedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             ReviewedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
                             ShopName = "Nexus Official Store",
-                            Status = "Approved",
+                            Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             WardCode = "00001"
@@ -789,9 +781,8 @@ namespace User.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("DataType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("DataType")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
@@ -823,7 +814,7 @@ namespace User.Infrastructure.Migrations
                             ConfigKey = "DEFAULT_REPUTATION_SCORE",
                             ConfigValue = "50",
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            DataType = "Int",
+                            DataType = 1,
                             Description = "Điểm uy tín mặc định khi đăng ký mới",
                             IsDeleted = false,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
@@ -834,7 +825,7 @@ namespace User.Infrastructure.Migrations
                             ConfigKey = "AUTO_APPROVE_BUYER",
                             ConfigValue = "true",
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            DataType = "Boolean",
+                            DataType = 3,
                             Description = "Tự động kích hoạt tài khoản buyer sau xác thực email",
                             IsDeleted = false,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
@@ -890,9 +881,8 @@ namespace User.Infrastructure.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
-                    b.Property<string>("Gender")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Gender")
+                        .HasColumnType("integer");
 
                     b.Property<string>("IdentifyNumber")
                         .HasMaxLength(50)
@@ -915,9 +905,8 @@ namespace User.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -951,12 +940,12 @@ namespace User.Infrastructure.Migrations
                             Email = "admin@nexus.com",
                             EmailVerifiedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FirstName = "Admin",
-                            Gender = "Unspecified",
+                            Gender = 0,
                             IsDeleted = false,
                             LastName = "System",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000001",
-                            Status = "Active",
+                            Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
                             Username = "admin"
@@ -969,12 +958,12 @@ namespace User.Infrastructure.Migrations
                             Email = "staff@nexus.com",
                             EmailVerifiedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FirstName = "Staff",
-                            Gender = "Unspecified",
+                            Gender = 0,
                             IsDeleted = false,
                             LastName = "Support",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000002",
-                            Status = "Active",
+                            Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
                             Username = "staff"
@@ -987,12 +976,12 @@ namespace User.Infrastructure.Migrations
                             Email = "seller@nexus.com",
                             EmailVerifiedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FirstName = "Official",
-                            Gender = "Unspecified",
+                            Gender = 0,
                             IsDeleted = false,
                             LastName = "Seller",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000003",
-                            Status = "Active",
+                            Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
                             Username = "seller"
@@ -1006,12 +995,12 @@ namespace User.Infrastructure.Migrations
                             Email = "buyer@nexus.com",
                             EmailVerifiedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FirstName = "John",
-                            Gender = "Unspecified",
+                            Gender = 0,
                             IsDeleted = false,
                             LastName = "Buyer",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000004",
-                            Status = "Active",
+                            Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
                             Username = "buyer"
@@ -1042,9 +1031,8 @@ namespace User.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("IssuedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("PenaltyApplied")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("PenaltyApplied")
+                        .HasColumnType("integer");
 
                     b.Property<int>("PointsDeducted")
                         .HasColumnType("integer");
@@ -1054,9 +1042,8 @@ namespace User.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1064,9 +1051,8 @@ namespace User.Infrastructure.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ViolationType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("ViolationType")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -1113,16 +1099,14 @@ namespace User.Infrastructure.Migrations
                     b.Property<Guid?>("ResolvedBy")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("ViolationType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("ViolationType")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -1172,9 +1156,8 @@ namespace User.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<string>("ReferenceType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("ReferenceType")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("RevieweeId")
                         .HasColumnType("uuid");
@@ -1182,9 +1165,8 @@ namespace User.Infrastructure.Migrations
                     b.Property<Guid>("ReviewerId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ReviewerRole")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("ReviewerRole")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

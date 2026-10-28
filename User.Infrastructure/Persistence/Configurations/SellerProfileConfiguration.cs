@@ -19,7 +19,6 @@ public class SellerProfileConfiguration : IEntityTypeConfiguration<SellerProfile
         builder.Property(x => x.PickupAddress).HasMaxLength(500).IsRequired();
         builder.Property(x => x.WardCode).HasMaxLength(100).IsRequired();
         builder.Property(x => x.Hotline).HasMaxLength(50).IsRequired();
-        builder.Property(x => x.Status).HasConversion<string>();
         builder.Property(x => x.RejectionReason).HasMaxLength(1000);
 
         builder.HasOne(s => s.User)
