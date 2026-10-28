@@ -356,17 +356,7 @@ public class AuthService : IAuthService
         }
 
         var roles = new List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                var roleName = ur.Role?.RoleName?.ToLowerInvariant() ?? ur.Role?.RoleCode.ToString().ToLowerInvariant();
-                if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
-                {
-                    roles.Add(roleName);
-                }
-            }
-        }
+        ExtractUserRoles(user, roles);
 
         if (roles.Count == 0)
         {
@@ -486,17 +476,7 @@ public class AuthService : IAuthService
 
         // 3. Trích xuất vai trò hiện tại (Roles) mới nhất từ DB
         var roles = new List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                var roleName = ur.Role?.RoleName?.ToLowerInvariant() ?? ur.Role?.RoleCode.ToString().ToLowerInvariant();
-                if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
-                {
-                    roles.Add(roleName);
-                }
-            }
-        }
+        ExtractUserRoles(user, roles);
 
         if (roles.Count == 0)
         {
@@ -844,5 +824,35 @@ public class AuthService : IAuthService
         var bytes = System.Text.Encoding.UTF8.GetBytes(input);
         var hashBytes = System.Security.Cryptography.SHA256.HashData(bytes);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static void ExtractUserRoles(User user, List<string> roles)
+    {
+        if (user.UserRoles == null || user.UserRoles.Count == 0) return;
+
+        foreach (var ur in user.UserRoles)
+        {
+            if (ur.Role == null) continue;
+
+            var standardRole = ur.Role.RoleCode switch
+            {
+                RoleType.Admin => "admin",
+                RoleType.SupportStaff => "staff",
+                RoleType.Seller => "seller",
+                RoleType.Buyer => "buyer",
+                _ => ur.Role.RoleCode.ToString().ToLowerInvariant()
+            };
+
+            if (!roles.Contains(standardRole))
+            {
+                roles.Add(standardRole);
+            }
+
+            var roleName = ur.Role.RoleName?.ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
+            {
+                roles.Add(roleName);
+            }
+        }
     }
 }
