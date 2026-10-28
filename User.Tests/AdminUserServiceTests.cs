@@ -224,4 +224,158 @@ public sealed class AdminUserServiceTests
         var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
         Assert.Equal(2, userRoles.Count);
     }
+
+    [Fact]
+    public async Task GetUsersAsync_Pagination_CalculatesCorrectOffsetsAndTotals()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        for (int i = 1; i <= 5; i++)
+        {
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                Email = $"user{i}@nexus.local",
+                PasswordHash = "hash",
+                FirstName = $"User{i}",
+                LastName = "Test",
+                Status = UserStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow.AddMinutes(i)
+            });
+        }
+        await dbContext.SaveChangesAsync();
+
+        // Page 1, Limit 2
+        var page1 = await service.GetUsersAsync(page: 1, limit: 2, cancellationToken: CancellationToken.None);
+        Assert.Equal(5, page1.Total);
+        Assert.Equal(2, page1.Items.Count);
+        Assert.Equal(1, page1.Page);
+        Assert.Equal(2, page1.Limit);
+        Assert.Equal("user5@nexus.local", page1.Items[0].Email); // Newest first
+
+        // Page 3, Limit 2 (last page with 1 item remaining)
+        var page3 = await service.GetUsersAsync(page: 3, limit: 2, cancellationToken: CancellationToken.None);
+        Assert.Equal(5, page3.Total);
+        Assert.Single(page3.Items);
+        Assert.Equal(3, page3.Page);
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_KeywordSearch_MatchesEmailOrNameOrPhone()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        dbContext.Users.AddRange(
+            new User
+            {
+                Id = Guid.NewGuid(),
+                Email = "alex.rivers@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Alex",
+                LastName = "Rivers",
+                PhoneNumber = "+84901234567",
+                Status = UserStatus.Active
+            },
+            new User
+            {
+                Id = Guid.NewGuid(),
+                Email = "john.doe@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "John",
+                LastName = "Doe",
+                PhoneNumber = "+84909876543",
+                Status = UserStatus.Active
+            }
+        );
+        await dbContext.SaveChangesAsync();
+
+        // Search by keyword "alex"
+        var searchAlex = await service.GetUsersAsync(keyword: "alex", cancellationToken: CancellationToken.None);
+        Assert.Equal(1, searchAlex.Total);
+        Assert.Single(searchAlex.Items);
+        Assert.Equal("alex.rivers@nexus.local", searchAlex.Items[0].Email);
+
+        // Search by phone "9876543"
+        var searchPhone = await service.GetUsersAsync(keyword: "9876543", cancellationToken: CancellationToken.None);
+        Assert.Equal(1, searchPhone.Total);
+        Assert.Equal("john.doe@nexus.local", searchPhone.Items[0].Email);
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_RoleFilter_ReturnsOnlyMatchingRoleUsers()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        await SeedSystemRolesAsync(dbContext);
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var staffRole = await dbContext.Roles.FirstAsync(r => r.RoleCode == RoleType.SupportStaff);
+        var buyerRole = await dbContext.Roles.FirstAsync(r => r.RoleCode == RoleType.Buyer);
+
+        var staffUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "staff.role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Staff",
+            LastName = "Person",
+            Status = UserStatus.Active
+        };
+        var buyerUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "buyer.role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Buyer",
+            LastName = "Person",
+            Status = UserStatus.Active
+        };
+
+        dbContext.Users.AddRange(staffUser, buyerUser);
+        dbContext.UserRoles.AddRange(
+            new UserRole { Id = Guid.NewGuid(), UserId = staffUser.Id, RoleId = staffRole.Id },
+            new UserRole { Id = Guid.NewGuid(), UserId = buyerUser.Id, RoleId = buyerRole.Id }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var staffList = await service.GetUsersAsync(role: "staff", cancellationToken: CancellationToken.None);
+        Assert.Equal(1, staffList.Total);
+        Assert.Single(staffList.Items);
+        Assert.Equal("staff.role@nexus.local", staffList.Items[0].Email);
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_StatusFilter_ReturnsOnlyMatchingStatusUsers()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        dbContext.Users.AddRange(
+            new User
+            {
+                Id = Guid.NewGuid(),
+                Email = "active@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Active",
+                LastName = "User",
+                Status = UserStatus.Active
+            },
+            new User
+            {
+                Id = Guid.NewGuid(),
+                Email = "banned@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Banned",
+                LastName = "User",
+                Status = UserStatus.Banned
+            }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var bannedResult = await service.GetUsersAsync(status: "banned", cancellationToken: CancellationToken.None);
+        Assert.Equal(1, bannedResult.Total);
+        Assert.Single(bannedResult.Items);
+        Assert.Equal("banned@nexus.local", bannedResult.Items[0].Email);
+    }
 }

@@ -98,4 +98,36 @@ public sealed class AdminUsersControllerRestTests
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, objectResult.StatusCode);
     }
+
+    [Fact]
+    public async Task ListUsers_ValidQuery_Returns200OkWithPagedResult()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        dbContext.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "listed.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Van",
+            LastName = "Nguyen",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.ListUsers(page: 1, limit: 10, keyword: null, role: null, status: null, cancellationToken: CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var pagedResult = Assert.IsType<AdminUserListPagedResultDto>(okResult.Value);
+        Assert.Equal(1, pagedResult.Total);
+        Assert.Single(pagedResult.Items);
+        Assert.Equal("listed.user@nexus.local", pagedResult.Items[0].Email);
+    }
 }

@@ -66,3 +66,30 @@ public sealed record AdminUserCreatedResponseDto(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
 );
+
+public sealed record AdminUserListItemDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("username")] string? Username,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("firstName")] string FirstName,
+    [property: JsonPropertyName("lastName")] string LastName,
+    [property: JsonPropertyName("phoneNumber")] string? PhoneNumber,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("address")] string? Address,
+    [property: JsonPropertyName("reputationScore")] int ReputationScore,
+    [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("isSeller")] bool IsSeller,
+    [property: JsonPropertyName("roles")] List<string> Roles,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);
+
+public sealed record AdminUserListPagedResultDto(
+    [property: JsonPropertyName("items")] IReadOnlyList<AdminUserListItemDto> Items,
+    [property: JsonPropertyName("total")] int Total,
+    [property: JsonPropertyName("page")] int Page,
+    [property: JsonPropertyName("limit")] int Limit
+);
+
