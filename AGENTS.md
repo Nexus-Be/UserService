@@ -115,11 +115,16 @@ Một task tại UserService chỉ hoàn tất khi:
 1. **Tuyệt đối không lưu file `.md` ghi chú bừa bãi vào source code dự án**:
    - Toàn bộ nhật ký thực chiến lưu tại: `D:/obsidian/vinhth/UserService - học/Tasks/`
    - Toàn bộ sổ tay lý thuyết & khái niệm lưu tại: `D:/obsidian/vinhth/UserService - học/Concepts/`
-2. **Quy trình 2 Pha bắt buộc khi thực hiện Task**:
-   - **Pha 1 (Bắt đầu):** Xác định rõ **User Story** và **Câu hỏi làm rõ** trước khi đụng vào code.
+2. **Quy trình Git & Pha thực hiện bắt buộc**:
+   - **Pha 1 (Bắt đầu):**
+     - Kéo code mới nhất từ nhánh `dev`: `git checkout dev && git pull origin dev`.
+     - Tạo nhánh tính năng độc lập theo mã chức năng: `git checkout -b feature/<ma-chuc-nang>-<ten-task>` (ví dụ: `feature/seller-01-registration`).
+     - **Tuyệt đối CẤM code trực tiếp trên `dev` hoặc `main`**.
+     - Xác định rõ **User Story**, lập Plan và câu hỏi làm rõ trước khi đụng vào code.
    - **Pha 2 (Kết thúc):** 
      - Tóm tắt thay đổi code trọng tâm (File tạo mới, đoạn code cốt lõi trước/sau).
-     - Hướng dẫn lệnh Git (Branch, add, commit message chuẩn).
+     - Hướng dẫn lệnh Git: `git status`, `git add <file>`, `git commit -m "<type>(<scope>): <subject>"`.
+     - Đẩy nhánh tính năng lên GitHub: `git push -u origin feature/<ma-chuc-nang>-<ten-task>`. **Tuyệt đối CẤM push thẳng lên `dev` hoặc `main`**.
      - Trích xuất mã **Commit Hash** (`git log -1 --oneline`) điền vào file Task Log để Mentor dễ dàng review bằng lệnh `git show <commit_hash>`.
    - **Lý thuyết phát sinh:** Tự động tách riêng thành file tài liệu độc lập trong `Concepts/` kèm mốc thời gian (ngày, tháng, năm, giờ, phút) để hiển thị trong Obsidian Vault.
 
