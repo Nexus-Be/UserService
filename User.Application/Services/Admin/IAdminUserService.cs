@@ -36,4 +36,18 @@ public interface IAdminUserService
         Guid? adminId = null,
         CancellationToken cancellationToken = default
     );
+
+    Task<AdminUserUpdatedResponseDto> UpdateUserAsync(
+        Guid targetUserId,
+        UpdateAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default
+    );
+
+    Task DeleteUserAsync(
+        Guid targetUserId,
+        DeleteAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default
+    );
 }

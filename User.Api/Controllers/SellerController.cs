@@ -55,6 +55,64 @@ public sealed class SellerController : ControllerBase
     }
 
     /// <summary>
+    /// SELLER-02 / US-SELLER.01: Xem hồ sơ Shop của chính mình (Own Seller Profile).
+    /// </summary>
+    [HttpGet("profile")]
+    [HttpGet("/api/v1/seller/profile")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(SellerOwnProfileResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSellerOwnProfile(CancellationToken cancellationToken)
+    {
+        var userIdHeader = Request.Headers["x-user-id"].ToString();
+        if (!Guid.TryParse(userIdHeader, out var userId))
+        {
+            _logger.LogWarning("[REST GetSellerOwnProfile] Missing or invalid x-user-id header.");
+            return BadRequest(new
+            {
+                title = "Invalid user identifier",
+                detail = "Missing or invalid x-user-id header.",
+                errorCode = "VAL_INVALID_USER_ID"
+            });
+        }
+
+        _logger.LogInformation("[REST GetSellerOwnProfile] Fetching seller profile for UserId: '{UserId}'", userId);
+        var result = await _sellerService.GetSellerOwnProfileAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// SELLER-03 / US-SELLER.02: Cập nhật thông tin gian hàng & kho hàng GHN của chính mình.
+    /// </summary>
+    [HttpPatch("profile")]
+    [HttpPatch("/api/v1/seller/profile")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(SellerOwnProfileUpdatedResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateSellerOwnProfile(
+        [FromBody] UpdateSellerOwnProfileDto request,
+        CancellationToken cancellationToken)
+    {
+        var userIdHeader = Request.Headers["x-user-id"].ToString();
+        if (!Guid.TryParse(userIdHeader, out var userId))
+        {
+            _logger.LogWarning("[REST UpdateSellerOwnProfile] Missing or invalid x-user-id header.");
+            return BadRequest(new
+            {
+                title = "Invalid user identifier",
+                detail = "Missing or invalid x-user-id header.",
+                errorCode = "VAL_INVALID_USER_ID"
+            });
+        }
+
+        _logger.LogInformation("[REST UpdateSellerOwnProfile] Updating seller profile for UserId: '{UserId}'", userId);
+        var result = await _sellerService.UpdateSellerOwnProfileAsync(userId, request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// ADMIN-07: Xem danh sách hàng đợi các đơn đăng ký mở Shop đang chờ thẩm định.
     /// </summary>
     [HttpGet("/api/v1/admin/seller-registrations")]

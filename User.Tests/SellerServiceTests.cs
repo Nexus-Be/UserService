@@ -681,4 +681,296 @@ public sealed class SellerServiceTests
 
         Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
     }
+
+    [Fact]
+    public async Task GetSellerOwnProfileAsync_WhenProfileExists_ReturnsProfileDataWithReputationAndRating()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_own@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Minh",
+            LastName = "Dang",
+            Status = UserStatus.Active,
+            ReputationScore = new ReputationScore
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                CurrentScore = 85,
+                TrustLevel = TrustLevel.Good
+            }
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Tech World Hub",
+            AvatarUrl = "https://cdn.nexus.local/shop.png",
+            BusinessEmail = "biz@techworld.local",
+            Hotline = "+84912345678",
+            PickupAddress = "123 Le Loi, D1, HCMC",
+            ProvinceId = 201,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+
+        // Add 2 reviews: 5 and 4 stars => avg = 4.5
+        dbContext.UserReviews.Add(new UserReview
+        {
+            Id = Guid.NewGuid(),
+            ReviewerId = Guid.NewGuid(),
+            RevieweeId = userId,
+            ReviewerRole = ReviewerRole.Buyer,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = "ORD-001",
+            Rating = 5
+        });
+        dbContext.UserReviews.Add(new UserReview
+        {
+            Id = Guid.NewGuid(),
+            ReviewerId = Guid.NewGuid(),
+            RevieweeId = userId,
+            ReviewerRole = ReviewerRole.Buyer,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = "ORD-002",
+            Rating = 4
+        });
+        await dbContext.SaveChangesAsync();
+
+        var profile = await service.GetSellerOwnProfileAsync(userId);
+
+        Assert.NotNull(profile);
+        Assert.Equal(sellerProfile.Id.ToString(), profile.SellerId);
+        Assert.Equal(sellerProfile.Id.ToString(), profile.ShopId);
+        Assert.Equal(userId.ToString(), profile.UserId);
+        Assert.Equal("Tech World Hub", profile.ShopName);
+        Assert.Equal("https://cdn.nexus.local/shop.png", profile.AvatarUrl);
+        Assert.Equal("biz@techworld.local", profile.BusinessEmail);
+        Assert.Equal("+84912345678", profile.Hotline);
+        Assert.Equal("123 Le Loi, D1, HCMC", profile.PickupAddress);
+        Assert.Equal(201, profile.ProvinceId);
+        Assert.Equal(1442, profile.DistrictId);
+        Assert.Equal("20101", profile.WardCode);
+        Assert.Equal("APPROVED", profile.Status);
+        Assert.Equal(85, profile.ReputationScore);
+        Assert.Equal("Good", profile.TrustLevel);
+        Assert.Equal(4.5, profile.RatingAvg);
+    }
+
+    [Fact]
+    public async Task GetSellerOwnProfileAsync_WhenProfileNotFound_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var randomUserId = Guid.NewGuid();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.GetSellerOwnProfileAsync(randomUserId));
+
+        Assert.Equal("SELLER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetSellerOwnProfileAsync_WhenUserIdEmpty_ThrowsValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.GetSellerOwnProfileAsync(Guid.Empty));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateSellerOwnProfileAsync_ValidData_UpdatesProfileAndLogsAudit()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_update@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Nam",
+            LastName = "Nguyen",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Original Shop Name",
+            Hotline = "+84911111111",
+            PickupAddress = "Old Address, Hanoi",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "001",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var updateDto = new UpdateSellerOwnProfileDto
+        {
+            ShopName = "Updated New Shop",
+            Hotline = "+84988888888",
+            PickupAddress = "New Pickup Hub, Ho Chi Minh City",
+            ProvinceId = 202,
+            DistrictId = 1444,
+            WardCode = "20202",
+            AvatarUrl = "https://cdn.nexus.local/new_avatar.jpg",
+            BusinessEmail = "biz_updated@nexus.local"
+        };
+
+        var response = await service.UpdateSellerOwnProfileAsync(userId, updateDto);
+
+        Assert.NotNull(response);
+        Assert.Equal(sellerProfile.Id.ToString(), response.ShopId);
+        Assert.Equal(sellerProfile.Id.ToString(), response.SellerId);
+        Assert.Equal("Updated New Shop", response.ShopName);
+
+        var updatedEntity = await dbContext.SellerProfiles.FindAsync(sellerProfile.Id);
+        Assert.NotNull(updatedEntity);
+        Assert.Equal("Updated New Shop", updatedEntity.ShopName);
+        Assert.Equal("+84988888888", updatedEntity.Hotline);
+        Assert.Equal("New Pickup Hub, Ho Chi Minh City", updatedEntity.PickupAddress);
+        Assert.Equal(202, updatedEntity.ProvinceId);
+        Assert.Equal(1444, updatedEntity.DistrictId);
+        Assert.Equal("20202", updatedEntity.WardCode);
+        Assert.Equal("https://cdn.nexus.local/new_avatar.jpg", updatedEntity.AvatarUrl);
+        Assert.Equal("biz_updated@nexus.local", updatedEntity.BusinessEmail);
+
+        var auditLog = await dbContext.AuditLogs
+            .FirstOrDefaultAsync(a => a.EntityId == sellerProfile.Id.ToString() && a.Action == AuditAction.UserUpdate && a.EntityName == nameof(SellerProfile));
+        Assert.NotNull(auditLog);
+        Assert.Equal(userId.ToString(), auditLog.UserId);
+    }
+
+    [Fact]
+    public async Task UpdateSellerOwnProfileAsync_DuplicateShopName_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var otherUserId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = otherUserId,
+            Email = "other_seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Other",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        });
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = otherUserId,
+            ShopName = "Existing Brand Name",
+            Hotline = "0900000001",
+            PickupAddress = "Address 1",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Approved
+        });
+
+        var currentUserId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = currentUserId,
+            Email = "current_seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Current",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        });
+        var myProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = currentUserId,
+            ShopName = "My Current Shop",
+            Hotline = "0900000002",
+            PickupAddress = "Address 2",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(myProfile);
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UpdateSellerOwnProfileAsync(currentUserId, new UpdateSellerOwnProfileDto
+            {
+                ShopName = "existing brand name"
+            }));
+
+        Assert.Equal("SHOP_NAME_TAKEN", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateSellerOwnProfileAsync_BannedUser_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "banned_seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Banned",
+            LastName = "User",
+            Status = UserStatus.Banned
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Banned Shop",
+            Hotline = "0900000003",
+            PickupAddress = "Address",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UpdateSellerOwnProfileAsync(userId, new UpdateSellerOwnProfileDto { Hotline = "0988888888" }));
+
+        Assert.Equal("USER_BANNED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateSellerOwnProfileAsync_ProfileNotFound_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UpdateSellerOwnProfileAsync(Guid.NewGuid(), new UpdateSellerOwnProfileDto { ShopName = "Valid Shop Name" }));
+
+        Assert.Equal("SELLER_NOT_FOUND", ex.ErrorCode);
+    }
 }
