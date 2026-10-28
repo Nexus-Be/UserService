@@ -53,4 +53,74 @@ public sealed class SellerController : ControllerBase
 
         return StatusCode(StatusCodes.Status201Created, result);
     }
+
+    /// <summary>
+    /// ADMIN-07: Xem danh sách hàng đợi các đơn đăng ký mở Shop đang chờ thẩm định.
+    /// </summary>
+    [HttpGet("/api/v1/admin/seller-registrations")]
+    [HttpGet("/api/v1/staff/seller-profiles")]
+    [HttpGet("/api/v1/staff/seller-registrations")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PagedResultDto<AdminSellerRegistrationItemDto>))]
+    public async Task<IActionResult> ListSellerRegistrations(
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        [FromQuery] string? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST ListSellerRegistrations] Fetching page {Page}, limit {Limit}, status {Status}", page, limit, status);
+        var result = await _sellerService.GetSellerRegistrationsAsync(page, limit, status, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// ADMIN-08 / US-STAFF.03: Phê duyệt hồ sơ mở Shop và tự động cấp Role SELLER cho tài khoản.
+    /// </summary>
+    [HttpPut("/api/v1/admin/seller-registrations/{id:guid}/approve")]
+    [HttpPut("/api/v1/staff/seller-profiles/{id:guid}/approve")]
+    [HttpPut("/api/v1/staff/seller-registrations/{id:guid}/approve")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ApproveSellerRegistrationResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ApproveSellerRegistration(
+        [FromRoute] Guid id,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] ApproveSellerRegistrationDto? body,
+        CancellationToken cancellationToken)
+    {
+        Guid? reviewerId = null;
+        var userIdHeader = Request.Headers["x-user-id"].ToString();
+        if (Guid.TryParse(userIdHeader, out var parsedReviewerId))
+        {
+            reviewerId = parsedReviewerId;
+        }
+
+        _logger.LogInformation("[REST ApproveSellerRegistration] Approving registration '{Id}' by Staff '{StaffId}'", id, reviewerId);
+        var result = await _sellerService.ApproveSellerRegistrationAsync(id, reviewerId, body, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// ADMIN-09 / US-STAFF.03: Từ chối hồ sơ mở Shop kèm lý do bắt buộc.
+    /// </summary>
+    [HttpPut("/api/v1/admin/seller-registrations/{id:guid}/reject")]
+    [HttpPut("/api/v1/staff/seller-profiles/{id:guid}/reject")]
+    [HttpPut("/api/v1/staff/seller-registrations/{id:guid}/reject")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(RejectSellerRegistrationResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RejectSellerRegistration(
+        [FromRoute] Guid id,
+        [FromBody] RejectSellerRegistrationDto body,
+        CancellationToken cancellationToken)
+    {
+        Guid? reviewerId = null;
+        var userIdHeader = Request.Headers["x-user-id"].ToString();
+        if (Guid.TryParse(userIdHeader, out var parsedReviewerId))
+        {
+            reviewerId = parsedReviewerId;
+        }
+
+        _logger.LogInformation("[REST RejectSellerRegistration] Rejecting registration '{Id}' by Staff '{StaffId}'", id, reviewerId);
+        var result = await _sellerService.RejectSellerRegistrationAsync(id, reviewerId, body, cancellationToken);
+        return Ok(result);
+    }
 }

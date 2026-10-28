@@ -461,4 +461,219 @@ public sealed class SellerServiceTests
         Assert.Equal(SellerProfileStatus.Pending, updatedProfile.Status);
         Assert.Null(updatedProfile.RejectionReason);
     }
+
+    [Fact]
+    public async Task GetSellerRegistrationsAsync_ReturnsPagedItems_WithStatusFilter()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var user1 = new Domain.Entities.User { Id = Guid.NewGuid(), Email = "u1@test.com", FirstName = "User", LastName = "One", PasswordHash = "hash", Status = UserStatus.Active };
+        var user2 = new Domain.Entities.User { Id = Guid.NewGuid(), Email = "u2@test.com", FirstName = "User", LastName = "Two", PasswordHash = "hash", Status = UserStatus.Active };
+        dbContext.Users.AddRange(user1, user2);
+
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = user1.Id,
+            ShopName = "Pending Shop",
+            Hotline = "0901",
+            PickupAddress = "Address 1",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending
+        });
+
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = user2.Id,
+            ShopName = "Approved Shop",
+            Hotline = "0902",
+            PickupAddress = "Address 2",
+            ProvinceId = 2,
+            DistrictId = 2,
+            WardCode = "02",
+            Status = SellerProfileStatus.Approved
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.GetSellerRegistrationsAsync(1, 10, "PENDING", CancellationToken.None);
+
+        Assert.Equal(1, result.Total);
+        Assert.Single(result.Items);
+        Assert.Equal("PENDING", result.Items[0].Status);
+        Assert.Equal("Pending Shop", result.Items[0].ShopName);
+    }
+
+    [Fact]
+    public async Task ApproveSellerRegistrationAsync_PendingProfile_GrantsSellerRole_UpdatesStatus_AndRecordsAuditLog()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var roleId = Guid.NewGuid();
+        dbContext.Roles.Add(new Role
+        {
+            Id = roleId,
+            RoleCode = RoleType.Seller,
+            RoleName = "Seller"
+        });
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "candidate@test.com",
+            FirstName = "Van",
+            LastName = "B",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Approved Candidate Shop",
+            Hotline = "0901234567",
+            PickupAddress = "Address 123",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var staffId = Guid.NewGuid();
+        var response = await service.ApproveSellerRegistrationAsync(regId, staffId, new ApproveSellerRegistrationDto { Note = "Valid documents" }, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(regId.ToString(), response.RegistrationId);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("APPROVED", response.Status);
+
+        var updatedProfile = await dbContext.SellerProfiles.FindAsync(regId);
+        Assert.Equal(SellerProfileStatus.Approved, updatedProfile!.Status);
+        Assert.Equal(staffId, updatedProfile.ReviewedBy);
+        Assert.NotNull(updatedProfile.ReviewedAt);
+
+        // Verify Role SELLER was granted to user
+        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
+        Assert.Contains(userRoles, ur => ur.RoleId == roleId);
+
+        // Verify AuditLog
+        var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == regId.ToString() && a.Action == AuditAction.SellerApprove);
+        Assert.NotNull(audit);
+        Assert.Equal(staffId.ToString(), audit.UserId);
+    }
+
+    [Fact]
+    public async Task ApproveSellerRegistrationAsync_NotFound_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.ApproveSellerRegistrationAsync(Guid.NewGuid(), Guid.NewGuid(), null, CancellationToken.None));
+
+        Assert.Equal("REGISTRATION_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ApproveSellerRegistrationAsync_AlreadyApproved_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "already-approved@test.com",
+            FirstName = "Van",
+            LastName = "A",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        });
+
+        var regId = Guid.NewGuid();
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Already Approved Shop",
+            Hotline = "0901234567",
+            PickupAddress = "Address 123",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Approved
+        });
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.ApproveSellerRegistrationAsync(regId, Guid.NewGuid(), null, CancellationToken.None));
+
+        Assert.Equal("ALREADY_APPROVED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RejectSellerRegistrationAsync_ValidReason_UpdatesStatusToRejected_AndRecordsAuditLog()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var regId = Guid.NewGuid();
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "To Be Rejected Shop",
+            Hotline = "0901234567",
+            PickupAddress = "Address 123",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending
+        });
+        await dbContext.SaveChangesAsync();
+
+        var staffId = Guid.NewGuid();
+        var response = await service.RejectSellerRegistrationAsync(regId, staffId, new RejectSellerRegistrationDto
+        {
+            RejectionReason = "Identity card image is blurry or expired"
+        }, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(regId.ToString(), response.RegistrationId);
+        Assert.Equal("REJECTED", response.Status);
+        Assert.Equal("Identity card image is blurry or expired", response.RejectionReason);
+
+        var updatedProfile = await dbContext.SellerProfiles.FindAsync(regId);
+        Assert.Equal(SellerProfileStatus.Rejected, updatedProfile!.Status);
+        Assert.Equal("Identity card image is blurry or expired", updatedProfile.RejectionReason);
+        Assert.Equal(staffId, updatedProfile.ReviewedBy);
+
+        var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == regId.ToString() && a.Action == AuditAction.SellerReject);
+        Assert.NotNull(audit);
+    }
+
+    [Fact]
+    public async Task RejectSellerRegistrationAsync_MissingReason_ThrowsValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new SellerService(dbContext, new FakeRedisOtpService(), null, NullLogger<SellerService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.RejectSellerRegistrationAsync(Guid.NewGuid(), Guid.NewGuid(), new RejectSellerRegistrationDto { RejectionReason = "" }, CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
 }

@@ -240,4 +240,222 @@ public sealed class SellerService : ISellerService
             SubmittedAt: sellerProfile.CreatedAt
         );
     }
+
+    public async Task<PagedResultDto<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
+        int page,
+        int limit,
+        string? status,
+        CancellationToken cancellationToken = default)
+    {
+        page = page < 1 ? 1 : page;
+        limit = limit < 1 ? 20 : (limit > 100 ? 100 : limit);
+
+        var query = _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(s => s.User)
+                .ThenInclude(u => u!.ReputationScore)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (Enum.TryParse<SellerProfileStatus>(status.Trim(), true, out var parsedStatus))
+            {
+                query = query.Where(s => s.Status == parsedStatus);
+            }
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+
+        var profiles = await query
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+        var items = profiles.Select(s => new AdminSellerRegistrationItemDto(
+            RegistrationId: s.Id.ToString(),
+            UserId: s.UserId.ToString(),
+            ShopName: s.ShopName,
+            BusinessEmail: s.BusinessEmail,
+            Hotline: s.Hotline,
+            IdentityCardNumber: s.User?.IdentifyNumber ?? string.Empty,
+            WarehouseAddress: s.PickupAddress,
+            PickupAddress: s.PickupAddress,
+            ReputationScore: s.User?.ReputationScore?.CurrentScore ?? 50,
+            Status: s.Status.ToString().ToUpperInvariant(),
+            CreatedAt: s.CreatedAt
+        )).ToList();
+
+        return new PagedResultDto<AdminSellerRegistrationItemDto>(items, total, page, limit);
+    }
+
+    public async Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(
+        Guid registrationId,
+        Guid? reviewerId,
+        ApproveSellerRegistrationDto? dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (registrationId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Registration identifier is required.");
+        }
+
+        var sellerProfile = await _dbContext.SellerProfiles
+            .Include(s => s.User)
+            .FirstOrDefaultAsync(s => s.Id == registrationId, cancellationToken);
+
+        if (sellerProfile == null)
+        {
+            sellerProfile = await _dbContext.SellerProfiles
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.UserId == registrationId, cancellationToken);
+        }
+
+        if (sellerProfile == null)
+        {
+            _logger.LogWarning("[SELLER APPROVAL] Seller registration '{RegistrationId}' not found.", registrationId);
+            throw new DomainException("REGISTRATION_NOT_FOUND", "Seller registration not found.");
+        }
+
+        if (sellerProfile.Status == SellerProfileStatus.Approved)
+        {
+            _logger.LogWarning("[SELLER APPROVAL] Registration '{RegistrationId}' is already approved.", registrationId);
+            throw new DomainException("ALREADY_APPROVED", "Seller registration has already been approved.");
+        }
+
+        // 1. Tự động cấp Role SELLER cho User (vẫn giữ role Buyer)
+        var sellerRole = await _dbContext.Roles
+            .FirstOrDefaultAsync(r => r.RoleCode == RoleType.Seller, cancellationToken);
+
+        if (sellerRole != null)
+        {
+            var alreadyHasRole = await _dbContext.UserRoles
+                .AnyAsync(ur => ur.UserId == sellerProfile.UserId && ur.RoleId == sellerRole.Id, cancellationToken);
+
+            if (!alreadyHasRole)
+            {
+                _dbContext.UserRoles.Add(new UserRole
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = sellerProfile.UserId,
+                    RoleId = sellerRole.Id,
+                    AssignedAt = DateTimeOffset.UtcNow,
+                    AssignedBy = reviewerId
+                });
+                _logger.LogInformation("[SELLER APPROVAL] Assigned role 'Seller' to UserId: '{UserId}'.", sellerProfile.UserId);
+            }
+        }
+
+        // 2. Cập nhật hồ sơ SellerProfile
+        sellerProfile.Status = SellerProfileStatus.Approved;
+        sellerProfile.ReviewedBy = reviewerId;
+        sellerProfile.ReviewedAt = DateTimeOffset.UtcNow;
+        sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // 3. Ghi vết kiểm toán (AuditLog)
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            ServiceName = "UserService",
+            Action = AuditAction.SellerApprove,
+            EntityName = nameof(SellerProfile),
+            EntityId = sellerProfile.Id.ToString(),
+            UserId = reviewerId?.ToString(),
+            NewValues = System.Text.Json.JsonSerializer.Serialize(new { status = "APPROVED", note = dto?.Note }),
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        // 4. Bắn sự kiện SellerApprovedIntegrationEvent vào Outbox (Publish trước SaveChangesAsync)
+        if (_publishEndpoint != null)
+        {
+            try
+            {
+                await _publishEndpoint.Publish(new SellerApprovedIntegrationEvent(
+                    sellerProfile.Id,
+                    sellerProfile.UserId,
+                    sellerProfile.ShopName,
+                    DateTimeOffset.UtcNow
+                ), cancellationToken);
+
+                _logger.LogInformation("Enqueued SellerApprovedIntegrationEvent to Outbox for seller '{SellerId}'.", sellerProfile.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to enqueue SellerApprovedIntegrationEvent for seller '{SellerId}'.", sellerProfile.Id);
+            }
+        }
+
+        // 5. Commit vào PostgreSQL
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER APPROVAL] Successfully approved seller '{SellerId}' by Reviewer '{ReviewerId}'.", sellerProfile.Id, reviewerId);
+
+        return new ApproveSellerRegistrationResponseDto(
+            RegistrationId: sellerProfile.Id.ToString(),
+            UserId: sellerProfile.UserId.ToString(),
+            Status: "APPROVED",
+            ApprovedAt: sellerProfile.ReviewedAt.Value
+        );
+    }
+
+    public async Task<RejectSellerRegistrationResponseDto> RejectSellerRegistrationAsync(
+        Guid registrationId,
+        Guid? reviewerId,
+        RejectSellerRegistrationDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (registrationId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Registration identifier is required.");
+        }
+
+        if (dto == null || string.IsNullOrWhiteSpace(dto.RejectionReason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Rejection reason is required.");
+        }
+
+        var sellerProfile = await _dbContext.SellerProfiles
+            .FirstOrDefaultAsync(s => s.Id == registrationId, cancellationToken);
+
+        if (sellerProfile == null)
+        {
+            sellerProfile = await _dbContext.SellerProfiles
+                .FirstOrDefaultAsync(s => s.UserId == registrationId, cancellationToken);
+        }
+
+        if (sellerProfile == null)
+        {
+            _logger.LogWarning("[SELLER REJECTION] Seller registration '{RegistrationId}' not found.", registrationId);
+            throw new DomainException("REGISTRATION_NOT_FOUND", "Seller registration not found.");
+        }
+
+        var reason = dto.RejectionReason.Trim();
+        sellerProfile.Status = SellerProfileStatus.Rejected;
+        sellerProfile.RejectionReason = reason;
+        sellerProfile.ReviewedBy = reviewerId;
+        sellerProfile.ReviewedAt = DateTimeOffset.UtcNow;
+        sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
+
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            ServiceName = "UserService",
+            Action = AuditAction.SellerReject,
+            EntityName = nameof(SellerProfile),
+            EntityId = sellerProfile.Id.ToString(),
+            UserId = reviewerId?.ToString(),
+            NewValues = System.Text.Json.JsonSerializer.Serialize(new { status = "REJECTED", reason }),
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER REJECTION] Rejected seller registration '{SellerId}' with reason: '{Reason}'.", sellerProfile.Id, reason);
+
+        return new RejectSellerRegistrationResponseDto(
+            RegistrationId: sellerProfile.Id.ToString(),
+            UserId: sellerProfile.UserId.ToString(),
+            Status: "REJECTED",
+            RejectedAt: sellerProfile.ReviewedAt.Value,
+            RejectionReason: reason
+        );
+    }
 }
