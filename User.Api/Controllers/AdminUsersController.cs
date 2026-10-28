@@ -45,4 +45,22 @@ public sealed class AdminUsersController : ControllerBase
 
         return StatusCode(StatusCodes.Status201Created, result);
     }
+
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserListPagedResultDto))]
+    public async Task<IActionResult> ListUsers(
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        [FromQuery] string? keyword = null,
+        [FromQuery] string? role = null,
+        [FromQuery] string? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST Admin ListUsers] Page: {Page}, Limit: {Limit}, Keyword: '{Keyword}', Role: '{Role}', Status: '{Status}'",
+            page, limit, keyword, role, status);
+
+        var result = await _adminUserService.GetUsersAsync(page, limit, keyword, role, status, cancellationToken);
+
+        return Ok(result);
+    }
 }

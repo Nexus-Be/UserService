@@ -11,4 +11,13 @@ public interface IAdminUserService
         Guid? adminId = null,
         CancellationToken cancellationToken = default
     );
+
+    Task<AdminUserListPagedResultDto> GetUsersAsync(
+        int page = 1,
+        int limit = 20,
+        string? keyword = null,
+        string? role = null,
+        string? status = null,
+        CancellationToken cancellationToken = default
+    );
 }

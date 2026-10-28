@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using User.Application.Common;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -241,5 +242,119 @@ public sealed class AdminUserService : IAdminUserService
             Status: newUser.Status.ToString(),
             CreatedAt: newUser.CreatedAt
         );
+    }
+
+    public async Task<AdminUserListPagedResultDto> GetUsersAsync(
+        int page = 1,
+        int limit = 20,
+        string? keyword = null,
+        string? role = null,
+        string? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (safePage, safeLimit) = PaginationConstants.Normalize(page, limit);
+
+        var query = _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+            .Include(u => u.ReputationScore)
+            .Include(u => u.SellerProfile)
+            .AsQueryable();
+
+        // 1. Tìm kiếm theo từ khóa (keyword)
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var trimmedKeyword = keyword.Trim().ToLower();
+            query = query.Where(u =>
+                u.Email.ToLower().Contains(trimmedKeyword) ||
+                u.FirstName.ToLower().Contains(trimmedKeyword) ||
+                u.LastName.ToLower().Contains(trimmedKeyword) ||
+                (u.Username != null && u.Username.ToLower().Contains(trimmedKeyword)) ||
+                (u.PhoneNumber != null && u.PhoneNumber.Contains(trimmedKeyword)));
+        }
+
+        // 2. Lọc theo trạng thái (status)
+        if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalizedStatus = status.Trim().ToLowerInvariant().Replace("_", "");
+            if (Enum.TryParse<UserStatus>(normalizedStatus, true, out var parsedStatus))
+            {
+                query = query.Where(u => u.Status == parsedStatus);
+            }
+            else if (string.Equals(normalizedStatus, "pending", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(u => u.Status == UserStatus.PendingVerification);
+            }
+        }
+
+        // 3. Lọc theo vai trò (role)
+        if (!string.IsNullOrWhiteSpace(role) && !string.Equals(role, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalizedRole = role.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
+            RoleType? targetRoleType = normalizedRole switch
+            {
+                "staff" or "supportstaff" or "support" => RoleType.SupportStaff,
+                "admin" or "administrator" => RoleType.Admin,
+                "seller" => RoleType.Seller,
+                "buyer" => RoleType.Buyer,
+                _ => null
+            };
+
+            if (targetRoleType.HasValue)
+            {
+                query = query.Where(u => u.UserRoles.Any(ur => ur.Role != null && ur.Role.RoleCode == targetRoleType.Value));
+            }
+        }
+
+        // 4. Đếm tổng số bản ghi (Count)
+        var total = await query.CountAsync(cancellationToken);
+
+        // 5. Phân trang (Skip & Take)
+        var users = await query
+            .OrderByDescending(u => u.CreatedAt)
+            .Skip((safePage - 1) * safeLimit)
+            .Take(safeLimit)
+            .ToListAsync(cancellationToken);
+
+        // 6. Chuyển đổi sang DTO
+        var items = users.Select(u =>
+        {
+            var roles = u.UserRoles?
+                .Where(ur => ur.Role != null)
+                .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
+                .ToList() ?? new List<string>();
+
+            if (roles.Count == 0)
+            {
+                roles.Add("buyer");
+            }
+
+            var displayName = $"{u.FirstName} {u.LastName}".Trim();
+            var repScore = u.ReputationScore?.CurrentScore ?? 50;
+            var trustLevel = (u.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString().ToUpperInvariant();
+            var isSeller = roles.Contains("seller") || u.SellerProfile != null;
+
+            return new AdminUserListItemDto(
+                Id: u.Id.ToString(),
+                UserId: u.Id.ToString(),
+                Username: u.Username,
+                Email: u.Email,
+                DisplayName: displayName,
+                FirstName: u.FirstName,
+                LastName: u.LastName,
+                PhoneNumber: u.PhoneNumber,
+                AvatarUrl: u.AvatarUrl,
+                Address: u.Address,
+                ReputationScore: repScore,
+                TrustLevel: trustLevel,
+                IsSeller: isSeller,
+                Roles: roles,
+                Status: u.Status.ToString().ToUpperInvariant(),
+                CreatedAt: u.CreatedAt
+            );
+        }).ToList();
+
+        return new AdminUserListPagedResultDto(items, total, safePage, safeLimit);
     }
 }
