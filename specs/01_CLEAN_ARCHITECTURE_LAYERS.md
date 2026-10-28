@@ -54,15 +54,29 @@ Sơ đồ **thật** (đọc từ các `*.csproj`):
    - `AppDbContext`: `public class AppDbContext : DbContext, IUserDbContext` (`User.Infrastructure/Persistence/AppDbContext.cs:8`), `OnModelCreating` gọi `ApplyConfigurationsFromAssembly` (`:32`), seed (`:33`), và 3 entity MassTransit Outbox/Inbox (`:36-38`).
    - ⚠️ Có thêm `public class UserDbContext : AppDbContext` (`AppDbContext.cs:42`) nhưng **không được đăng ký DI** — DI chỉ đăng ký `AppDbContext` (`User.Infrastructure/DependencyInjection.cs:19-24`). Tài liệu cũ nói "UserDbContext triển khai IUserDbContext" là **gây nhầm lẫn**: lớp triển khai thật là `AppDbContext`.
    - ✅ Cấu hình Fluent API trong `Persistence/Configurations/` — **14 file** `*Configuration.cs`, không có `builder.ToTable(...)` (tên bảng = tên DbSet, PascalCase), enum map bằng `HasConversion<string>()`.
-4. **`User.Api`** ⚠️:
-   - `Services/UsersGrpcService.cs` — `public sealed class UsersGrpcService : UsersApi.UsersApiBase` (`:14`), override **4/13** rpc.
-   - ❌ Không có MediatR: `UsersGrpcService` nhận **trực tiếp** `IAuthService` + `AppDbContext`, không qua Command/Query bus. `GetProfile` tự query DB (`:127-137`).
-   - Đăng ký endpoint: `app.MapGrpcService<UsersGrpcService>()` (`Program.cs:64`), `app.MapGet("/health", ...)` (`:65`), Swagger + gRPC Reflection chỉ ở Development (`:41-45`).
+4. **`User.Api`** ✅:
+   - Điểm khởi chạy **REST API** — `builder.Services.AddControllers()` (`Program.cs:18`), `app.MapControllers()` (`Program.cs:60`), `app.MapGet("/health", ...)` (`Program.cs:61`).
+   - Controllers: `AuthController.cs`, `UsersController.cs`, `AdminUsersController.cs`, `SellerController.cs`.
+   - **Quy tắc Thin Controller**: Controller chỉ làm nhiệm vụ tiếp nhận HTTP request, gọi Service Interface trong Application, và trả về `IActionResult` với mã HTTP chuẩn. Cấm logic nghiệp vụ, cấm map anonymous object, cấm khai báo class DTO trong file controller.
 ---
-## 3. CÁC VI PHẠM PHÂN TẦNG ĐANG TỒN TẠI (PHẢI BIẾT TRƯỚC KHI SỬA)
-| # | Vi phạm | Hệ quả | Bằng chứng |
+## 3. CÁC VI PHẠM PHÂN TẦNG & TÌNH TRẠNG GIẢI QUYẾT
+| # | Hạng mục | Hiện trạng | Giải pháp chuẩn hóa |
 |--:|:---|:---|:---|
-| 1 | `User.Api` → `User.Infrastructure` (project reference + inject `AppDbContext`) | Không thể thay Infra mà không sửa Api; test tầng Api phải kéo cả EF Core/Postgres | `User.Api/User.Api.csproj`; `User.Api/Services/UsersGrpcService.cs:19,127` |
-| 2 | `User.Application` → package EF Core/BCrypt/MassTransit | "Application thuần nghiệp vụ" chỉ đúng ở mức project reference, không đúng ở mức package | `User.Application/User.Application.csproj` |
-| 3 | `User.Tests` **không** reference `User.Api` | Không thể viết test cho 4 rpc đã implement; 0 test gRPC | `User.Tests/User.Tests.csproj` |
-| 4 | `GlobalExceptionHandlerMiddleware` là middleware HTTP, **không** phải gRPC interceptor | Lỗi gRPC chỉ được map thủ công trong từng method của `UsersGrpcService` (`:111-117`) | `User.Api/Middleware/GlobalExceptionHandlerMiddleware.cs` |
+| 1 | `User.Api` phụ thuộc DTO nội bộ Controller | ✅ Đã dọn dẹp | Toàn bộ DTOs chuyển về `User.Application/Services/{Feature}/`, Controller dùng chung. |
+| 2 | `User.Api` chứa logic chuyển đổi và gán role | ✅ Đã dọn dẹp | Chuyển toàn bộ use case logic về `AuthService` và `ProfileService`. |
+| 3 | Domain Entity leak ra ngoài Controller | ✅ Đã dọn dẹp | `IAuthService` trả về `AuthUserResponseDto` thay vì entity `User`. |
+| 4 | Cấu trúc DI từng tầng | ✅ Đạt chuẩn | `User.Application/DependencyInjection.cs` và `User.Infrastructure/DependencyInjection.cs` tự quản lý IoC. |
+---
+## 4. QUY CHUẨN CẤU TRÚC CHUẨN HÓA CHO USER SERVICE
+1. **Giao tiếp đồng bộ (RESTful)**:
+   - `User.Api/Controllers/`: Thin Dispatcher Controller, không logic, không inline DTO.
+   - `User.Application/Services/{Feature}/`: Mỗi feature (`Auth`, `Profile`, `Admin`, `Seller`) chứa `I{Feature}Service.cs`, `{Feature}Service.cs`, và Request/Response DTOs dùng chung.
+2. **Giao tiếp bất đồng bộ (RabbitMQ MassTransit)**:
+   - `User.Application/Contracts/`: Chứa các Integration Events (ví dụ `SendOtpEmailIntegrationEvent`, `SellerApprovedIntegrationEvent`).
+   - `User.Infrastructure/Consumers/`: Chứa các MassTransit Consumer xử lý sự kiện khi có yêu cầu tiêu thụ message.
+3. **Quản lý Dependency Injection**:
+   - `User.Application/DependencyInjection.cs`: Đăng ký toàn bộ Application Services.
+   - `User.Infrastructure/DependencyInjection.cs`: Đăng ký `AppDbContext`, `RedisOtpService`, `JwtTokenGenerator`, MassTransit Bus.
+4. **Validation**:
+   - Input format validation đặt tại Request DTOs qua Data Annotations (`[Required]`, `[EmailAddress]`...).
+   - Business validation đặt tại Application Services hoặc Domain Exceptions.

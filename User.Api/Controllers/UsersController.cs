@@ -66,34 +66,8 @@ public sealed class UsersController : ControllerBase
         }
 
         _logger.LogInformation("[REST UpdateProfile] Updating profile for UserId: '{UserId}'", userId);
-
-        var firstName = request.FirstName;
-        var lastName = request.LastName;
-
-        if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.DisplayName))
-        {
-            var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            firstName = parts[0];
-            lastName = parts.Length > 1 ? parts[1] : lastName;
-        }
-
-        var dto = new UpdateProfileDto(
-            FirstName: firstName,
-            LastName: lastName,
-            PhoneNumber: request.PhoneNumber,
-            AvatarUrl: request.AvatarUrl
-        );
-
-        var updatedProfile = await _profileService.UpdateProfileAsync(userId, dto, cancellationToken);
+        var updatedProfile = await _profileService.UpdateProfileAsync(userId, request, cancellationToken);
 
         return Ok(updatedProfile);
     }
 }
-
-public sealed record UpdateProfileApiRequest(
-    string? DisplayName = null,
-    string? FirstName = null,
-    string? LastName = null,
-    string? PhoneNumber = null,
-    string? AvatarUrl = null
-);

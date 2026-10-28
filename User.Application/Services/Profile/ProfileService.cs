@@ -65,10 +65,23 @@ public class ProfileService : IProfileService
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
         }
 
-        // 1. Validate FirstName if provided
-        if (dto.FirstName != null)
+        var firstName = dto.FirstName;
+        var lastName = dto.LastName;
+
+        if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(dto.DisplayName))
         {
-            var trimmedFirst = dto.FirstName.Trim();
+            var parts = dto.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            firstName = parts[0];
+            if (parts.Length > 1 && string.IsNullOrWhiteSpace(lastName))
+            {
+                lastName = parts[1];
+            }
+        }
+
+        // 1. Validate FirstName if provided
+        if (firstName != null)
+        {
+            var trimmedFirst = firstName.Trim();
             if (string.IsNullOrWhiteSpace(trimmedFirst) || trimmedFirst.Length > 100)
             {
                 throw new BusinessRuleValidationException("VAL_INVALID_FIRST_NAME", "First name must be between 1 and 100 characters.");
@@ -77,9 +90,9 @@ public class ProfileService : IProfileService
         }
 
         // 2. Validate LastName if provided
-        if (dto.LastName != null)
+        if (lastName != null)
         {
-            var trimmedLast = dto.LastName.Trim();
+            var trimmedLast = lastName.Trim();
             if (string.IsNullOrWhiteSpace(trimmedLast) || trimmedLast.Length > 100)
             {
                 throw new BusinessRuleValidationException("VAL_INVALID_LAST_NAME", "Last name must be between 1 and 100 characters.");

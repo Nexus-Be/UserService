@@ -189,6 +189,49 @@ public class AuthService : IAuthService
         return user;
     }
 
+    public async Task<RegisterApiResponse> RegisterUserAsync(RegisterApiRequest request, CancellationToken cancellationToken = default)
+    {
+        var firstName = request.FirstName;
+        var lastName = request.LastName;
+
+        if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            firstName = parts[0];
+            lastName = parts.Length > 1 ? parts[1] : (string.IsNullOrWhiteSpace(lastName) ? "User" : lastName);
+        }
+        else if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.Username))
+        {
+            firstName = request.Username.Trim();
+            if (string.IsNullOrWhiteSpace(lastName)) lastName = "User";
+        }
+        else if (string.IsNullOrWhiteSpace(lastName))
+        {
+            lastName = "User";
+        }
+
+        var dto = new RegisterDto(
+            Email: request.Email,
+            Password: request.Password,
+            FirstName: firstName ?? "User",
+            LastName: lastName ?? "User",
+            PhoneNumber: request.PhoneNumber,
+            Username: string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim()
+        );
+
+        var user = await RegisterAsync(dto, cancellationToken);
+        var roles = MapUserRoles(user);
+
+        return new RegisterApiResponse(
+            Id: user.Id.ToString(),
+            Email: user.Email,
+            DisplayName: $"{user.FirstName} {user.LastName}".Trim(),
+            Status: user.Status.ToString(),
+            ShopName: user.SellerProfile?.ShopName ?? string.Empty,
+            Roles: roles
+        );
+    }
+
     public async Task<User> VerifyOtpAsync(string email, string otp, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = email?.Trim().ToLowerInvariant();
@@ -252,6 +295,45 @@ public class AuthService : IAuthService
         _logger.LogInformation("[AUTH] User '{Email}' successfully verified OTP. Status changed to Active.", normalizedEmail);
 
         return user;
+    }
+
+    public async Task<VerifyOtpApiResponse> VerifyUserOtpAsync(VerifyOtpApiRequest request, CancellationToken cancellationToken = default)
+    {
+        var otpCode = request.Otp ?? request.ResolvedOtp ?? request.OtpCode;
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(otpCode))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Email and OTP code are required.");
+        }
+
+        var user = await VerifyOtpAsync(request.Email, otpCode, cancellationToken);
+        var roles = MapUserRoles(user);
+
+        return new VerifyOtpApiResponse(
+            Id: user.Id.ToString(),
+            Email: user.Email,
+            DisplayName: $"{user.FirstName} {user.LastName}".Trim(),
+            Status: user.Status.ToString(),
+            ShopName: user.SellerProfile?.ShopName ?? string.Empty,
+            Roles: roles
+        );
+    }
+
+    private static System.Collections.Generic.IReadOnlyList<string> MapUserRoles(User user)
+    {
+        var roles = new System.Collections.Generic.List<string>();
+        if (user.UserRoles != null && user.UserRoles.Count > 0)
+        {
+            foreach (var ur in user.UserRoles)
+            {
+                roles.Add(ur.Role?.RoleName?.ToLowerInvariant() ?? "buyer");
+            }
+        }
+        else
+        {
+            roles.Add("buyer");
+        }
+
+        return roles;
     }
 
     public async Task<bool> ResendOtpAsync(string email, CancellationToken cancellationToken = default)

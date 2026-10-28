@@ -1,7 +1,6 @@
 namespace User.Api.Controllers;
 
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -23,111 +22,30 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(RegisterApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register([FromBody] RegisterApiRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("[REST Register] Incoming request for Email: '{Email}', Username: '{Username}'", request.Email, request.Username);
-
-        var firstName = request.FirstName;
-        var lastName = request.LastName;
-
-        if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.DisplayName))
-        {
-            var parts = request.DisplayName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            firstName = parts[0];
-            lastName = parts.Length > 1 ? parts[1] : (string.IsNullOrWhiteSpace(lastName) ? "User" : lastName);
-        }
-        else if (string.IsNullOrWhiteSpace(firstName) && !string.IsNullOrWhiteSpace(request.Username))
-        {
-            firstName = request.Username.Trim();
-            if (string.IsNullOrWhiteSpace(lastName)) lastName = "User";
-        }
-        else if (string.IsNullOrWhiteSpace(lastName))
-        {
-            lastName = "User";
-        }
-
-        var dto = new RegisterDto(
-            Email: request.Email,
-            Password: request.Password,
-            FirstName: firstName ?? "User",
-            LastName: lastName ?? "User",
-            PhoneNumber: request.PhoneNumber,
-            Username: string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim()
-        );
-
-        var user = await _authService.RegisterAsync(dto, cancellationToken);
-        _logger.LogInformation("[REST Register] Succeeded for '{Email}' -> UserId: {UserId}", user.Email, user.Id);
-
-        var roles = new List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                roles.Add(ur.Role?.RoleName?.ToLowerInvariant() ?? "buyer");
-            }
-        }
-        else
-        {
-            roles.Add("buyer");
-        }
-
-        return Ok(new
-        {
-            id = user.Id.ToString(),
-            email = user.Email,
-            displayName = $"{user.FirstName} {user.LastName}".Trim(),
-            status = user.Status.ToString(),
-            shopName = user.SellerProfile?.ShopName ?? string.Empty,
-            roles
-        });
+        var response = await _authService.RegisterUserAsync(request, cancellationToken);
+        return Ok(response);
     }
 
     [HttpPost("otp/verify")]
     [HttpPost("verify-otp")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(VerifyOtpApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpApiRequest request, CancellationToken cancellationToken)
     {
-        var otpCode = request.Otp ?? request.ResolvedOtp ?? request.OtpCode;
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(otpCode))
-        {
-            return BadRequest(new { title = "Invalid input", detail = "Email and OTP code are required.", errorCode = "VAL_INVALID_INPUT" });
-        }
-
         _logger.LogInformation("[REST VerifyOtp] Incoming request for Email: '{Email}'", request.Email);
-        var user = await _authService.VerifyOtpAsync(request.Email, otpCode, cancellationToken);
-        _logger.LogInformation("[REST VerifyOtp] Succeeded for '{Email}' -> Status: {Status}", user.Email, user.Status);
-
-        var roles = new List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                roles.Add(ur.Role?.RoleName?.ToLowerInvariant() ?? "buyer");
-            }
-        }
-        else
-        {
-            roles.Add("buyer");
-        }
-
-        return Ok(new
-        {
-            id = user.Id.ToString(),
-            email = user.Email,
-            displayName = $"{user.FirstName} {user.LastName}".Trim(),
-            status = user.Status.ToString(),
-            shopName = user.SellerProfile?.ShopName ?? string.Empty,
-            roles
-        });
+        var response = await _authService.VerifyUserOtpAsync(request, cancellationToken);
+        return Ok(response);
     }
 
     [HttpPost("otp/resend")]
     [HttpPost("resend-otp")]
     [HttpPost("otp/send-email")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ResendOtpApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResendOtp([FromBody] ResendOtpApiRequest request, CancellationToken cancellationToken)
     {
@@ -139,16 +57,15 @@ public sealed class AuthController : ControllerBase
         _logger.LogInformation("[REST ResendOtp] Incoming request for Email: '{Email}'", request.Email);
         var success = await _authService.ResendOtpAsync(request.Email, cancellationToken);
 
-        return Ok(new
-        {
-            success,
-            message = "New OTP verification code has been dispatched to your email address.",
-            email = request.Email
-        });
+        return Ok(new ResendOtpApiResponse(
+            Success: success,
+            Message: "New OTP verification code has been dispatched to your email address.",
+            Email: request.Email
+        ));
     }
 
     [HttpPost("login")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(LoginApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginApiRequest request, CancellationToken cancellationToken)
@@ -163,19 +80,18 @@ public sealed class AuthController : ControllerBase
         var dto = new LoginDto(usernameOrEmail, request.Password);
         var result = await _authService.LoginAsync(dto, cancellationToken);
 
-        return Ok(new
-        {
-            accessToken = result.AccessToken,
-            refreshToken = result.RefreshToken ?? string.Empty,
-            expiresAt = result.ExpiresAt,
-            userId = result.UserId,
-            roles = result.Roles
-        });
+        return Ok(new LoginApiResponse(
+            AccessToken: result.AccessToken,
+            RefreshToken: result.RefreshToken ?? string.Empty,
+            ExpiresAt: result.ExpiresAt,
+            UserId: result.UserId,
+            Roles: result.Roles
+        ));
     }
 
     [HttpPost("refresh")]
     [HttpPost("refresh-token")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(RefreshTokenApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenApiRequest request, CancellationToken cancellationToken)
     {
@@ -188,13 +104,12 @@ public sealed class AuthController : ControllerBase
         var dto = new RefreshTokenDto(request.RefreshToken, request.DeviceInfo);
         var result = await _authService.RefreshTokenAsync(dto, cancellationToken);
 
-        return Ok(new
-        {
-            accessToken = result.AccessToken,
-            refreshToken = result.RefreshToken,
-            expiresAt = result.ExpiresAt,
-            userId = result.UserId
-        });
+        return Ok(new RefreshTokenApiResponse(
+            AccessToken: result.AccessToken,
+            RefreshToken: result.RefreshToken,
+            ExpiresAt: result.ExpiresAt,
+            UserId: result.UserId
+        ));
     }
 
     [HttpPost("logout")]
@@ -212,7 +127,7 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("logout-all")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(LogoutAllApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> LogoutAll(CancellationToken cancellationToken)
     {
@@ -225,12 +140,12 @@ public sealed class AuthController : ControllerBase
         _logger.LogInformation("[REST LogoutAll] Revoking all sessions for UserId: '{UserId}'", userId);
         var count = await _authService.LogoutAllAsync(userId, cancellationToken);
 
-        return Ok(new { countRevoked = count });
+        return Ok(new LogoutAllApiResponse(count));
     }
 
     [HttpPost("password/forgot")]
     [HttpPost("forgot-password")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ForgotPasswordApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordApiRequest request, CancellationToken cancellationToken)
     {
@@ -242,13 +157,13 @@ public sealed class AuthController : ControllerBase
         _logger.LogInformation("[REST ForgotPassword] Processing for Email: '{Email}'", request.Email);
         var result = await _authService.ForgotPasswordAsync(new ForgotPasswordDto(request.Email), cancellationToken);
 
-        return Ok(new { email = result.Email });
+        return Ok(new ForgotPasswordApiResponse(result.Email));
     }
 
     [HttpPost("password/reset")]
     [HttpPut("password/reset")]
     [HttpPost("reset-password")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ResetPasswordApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordApiRequest request, CancellationToken cancellationToken)
     {
@@ -261,14 +176,14 @@ public sealed class AuthController : ControllerBase
         var dto = new ResetPasswordDto(request.Email, request.OtpCode, request.NewPassword, request.ConfirmPassword ?? request.NewPassword);
         var result = await _authService.ResetPasswordAsync(dto, cancellationToken);
 
-        return Ok(new { success = result.Success });
+        return Ok(new ResetPasswordApiResponse(result.Success));
     }
 
     [HttpPost("password/change")]
     [HttpPatch("password")]
     [HttpPatch("password/change")]
     [HttpPost("change-password")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ChangePasswordApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordApiRequest request, CancellationToken cancellationToken)
     {
@@ -287,61 +202,6 @@ public sealed class AuthController : ControllerBase
         var dto = new ChangePasswordDto(request.OldPassword, request.NewPassword, request.ConfirmPassword ?? request.NewPassword);
         var result = await _authService.ChangePasswordAsync(userId, dto, cancellationToken);
 
-        return Ok(new { success = result.Success });
+        return Ok(new ChangePasswordApiResponse(result.Success));
     }
 }
-
-public sealed record RegisterApiRequest(
-    string Email,
-    string Password,
-    string? Username = null,
-    string? DisplayName = null,
-    string? FirstName = null,
-    string? LastName = null,
-    string? PhoneNumber = null
-);
-
-public sealed record VerifyOtpApiRequest(
-    string Email,
-    string? Otp = null,
-    string? ResolvedOtp = null,
-    string? OtpCode = null
-);
-
-public sealed record ResendOtpApiRequest(
-    string Email
-);
-
-public sealed record LoginApiRequest(
-    string? Username,
-    string Password,
-    string? Email = null,
-    string? DeviceInfo = null
-);
-
-public sealed record RefreshTokenApiRequest(
-    string RefreshToken,
-    string? DeviceInfo = null
-);
-
-public sealed record LogoutApiRequest(
-    string? RefreshToken = null,
-    string? DeviceInfo = null
-);
-
-public sealed record ForgotPasswordApiRequest(
-    string Email
-);
-
-public sealed record ResetPasswordApiRequest(
-    string Email,
-    string OtpCode,
-    string NewPassword,
-    string? ConfirmPassword = null
-);
-
-public sealed record ChangePasswordApiRequest(
-    string OldPassword,
-    string NewPassword,
-    string? ConfirmPassword = null
-);
