@@ -164,4 +164,53 @@ public sealed class AdminUsersControllerRestTests
         Assert.Equal("detail.user@nexus.local", detail.Email);
         Assert.Equal("Hoang Le", detail.DisplayName);
     }
+
+    [Fact]
+    public async Task UpdateUser_ValidPayload_Returns200OkWithUpdatedData()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "update.controller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Van",
+            LastName = "Nguyen",
+            PhoneNumber = "0901234567",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new UpdateAdminUserDto
+        {
+            FirstName = "Van Updated",
+            LastName = "Nguyen Updated",
+            PhoneNumber = "0909999888",
+            Status = "ACTIVE",
+            Reason = "Admin correction per request"
+        };
+
+        var result = await controller.UpdateUser(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdminUserUpdatedResponseDto>(okResult.Value);
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.Id);
+        Assert.Equal("Van Updated", response.FirstName);
+        Assert.Equal("Nguyen Updated", response.LastName);
+        Assert.Equal("0909999888", response.PhoneNumber);
+        Assert.Equal("ACTIVE", response.Status);
+        Assert.Equal(adminId.ToString(), response.UpdatedBy);
+    }
 }

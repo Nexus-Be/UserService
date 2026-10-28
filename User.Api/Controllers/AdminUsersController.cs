@@ -108,4 +108,26 @@ public sealed class AdminUsersController : ControllerBase
         var result = await _adminUserService.AssignUserRolesAsync(userId, request, adminId, cancellationToken);
         return Ok(result);
     }
+
+    [HttpPut("{userId:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserUpdatedResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateUser(
+        [FromRoute] Guid userId,
+        [FromBody] UpdateAdminUserDto request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST Admin UpdateUser] Incoming request for UserId: '{UserId}'", userId);
+
+        Guid? adminId = null;
+        if (Request.Headers.TryGetValue("x-user-id", out var headerVal) &&
+            Guid.TryParse(headerVal.ToString(), out var parsedAdminId))
+        {
+            adminId = parsedAdminId;
+        }
+
+        var result = await _adminUserService.UpdateUserAsync(userId, request, adminId, cancellationToken);
+        return Ok(result);
+    }
 }
