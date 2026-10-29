@@ -19,7 +19,11 @@ builder.Services.AddControllers();
 
 // 3. Swagger / OpenAPI & JSON Serialization
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
+    options.CustomSchemaIds(type => type.FullName ?? type.Name);
+});
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new User.Api.Common.Converters.PascalCaseJsonStringEnumConverter(allowIntegerValues: false));

@@ -26,7 +26,6 @@ public sealed class SellerController : ControllerBase
     /// SELLER-01: Gửi đơn đăng ký mở Gian hàng Shop (Seller Onboarding).
     /// </summary>
     [HttpPost("registration")]
-    [HttpPost("/api/v1/seller/registration")]
     [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(SellerRegistrationResponseDto))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -58,7 +57,6 @@ public sealed class SellerController : ControllerBase
     /// SELLER-02 / US-SELLER.01: Xem hồ sơ Shop của chính mình (Own Seller Profile).
     /// </summary>
     [HttpGet("profile")]
-    [HttpGet("/api/v1/seller/profile")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(SellerOwnProfileResponseDto))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -86,7 +84,6 @@ public sealed class SellerController : ControllerBase
     /// SELLER-03 / US-SELLER.02: Cập nhật thông tin gian hàng & kho hàng GHN của chính mình.
     /// </summary>
     [HttpPatch("profile")]
-    [HttpPatch("/api/v1/seller/profile")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(SellerOwnProfileUpdatedResponseDto))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
