@@ -100,8 +100,13 @@ public sealed record RegisterApiResponse(
     string DisplayName,
     string Status,
     string ShopName,
-    IReadOnlyList<string> Roles
-);
+    IReadOnlyList<string> Roles,
+    [property: JsonPropertyName("otpExpiresIn")] int OtpExpiresIn = 300
+)
+{
+    [JsonPropertyName("userId")]
+    public string UserId => Id;
+}
 
 public sealed record VerifyOtpApiRequest(
     string Email,
@@ -116,7 +121,8 @@ public sealed record VerifyOtpApiResponse(
     string DisplayName,
     string Status,
     string ShopName,
-    IReadOnlyList<string> Roles
+    IReadOnlyList<string> Roles,
+    [property: JsonPropertyName("isVerified")] bool IsVerified = true
 );
 
 public sealed record ResendOtpApiRequest(
@@ -126,7 +132,8 @@ public sealed record ResendOtpApiRequest(
 public sealed record ResendOtpApiResponse(
     bool Success,
     string Message,
-    string Email
+    string Email,
+    [property: JsonPropertyName("resendCooldown")] int ResendCooldown = 60
 );
 
 public sealed record LoginUserDto(

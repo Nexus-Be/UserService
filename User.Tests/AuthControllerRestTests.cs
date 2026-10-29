@@ -47,7 +47,9 @@ public sealed class AuthControllerRestTests
         var result = await controller.Register(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(okResult.Value);
+        var response = Assert.IsType<RegisterApiResponse>(okResult.Value);
+        Assert.Equal(response.Id, response.UserId);
+        Assert.Equal(300, response.OtpExpiresIn);
     }
 
     [Fact]
@@ -76,7 +78,8 @@ public sealed class AuthControllerRestTests
         var result = await controller.VerifyOtp(verifyRequest, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(okResult.Value);
+        var response = Assert.IsType<VerifyOtpApiResponse>(okResult.Value);
+        Assert.True(response.IsVerified);
     }
 
     [Fact]
@@ -98,7 +101,8 @@ public sealed class AuthControllerRestTests
         var result = await controller.ResendOtp(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(okResult.Value);
+        var response = Assert.IsType<ResendOtpApiResponse>(okResult.Value);
+        Assert.Equal(60, response.ResendCooldown);
     }
 
     [Fact]
