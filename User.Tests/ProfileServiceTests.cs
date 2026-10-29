@@ -412,4 +412,89 @@ public sealed class ProfileServiceTests
 
         Assert.Equal("VAL_INVALID_ADDRESS", ex.ErrorCode);
     }
+
+    [Fact]
+    public async Task GetProfileAsync_maps_admin_and_support_staff_roles_to_standard_names()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+
+        var adminUserId = Guid.NewGuid();
+        var adminRoleId = Guid.NewGuid();
+        var adminRole = new Role
+        {
+            Id = adminRoleId,
+            RoleCode = RoleType.Admin,
+            RoleName = "Administrator",
+            Description = "Administrator Role"
+        };
+        dbContext.Roles.Add(adminRole);
+
+        var adminUser = new Domain.Entities.User
+        {
+            Id = adminUserId,
+            Username = "admin_test",
+            Email = "admin@nexus.local",
+            PasswordHash = "hashed_pw",
+            FirstName = "Admin",
+            LastName = "System",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsDeleted = false
+        };
+        dbContext.Users.Add(adminUser);
+        dbContext.UserRoles.Add(new UserRole
+        {
+            Id = Guid.NewGuid(),
+            UserId = adminUserId,
+            RoleId = adminRoleId,
+            Role = adminRole,
+            AssignedAt = DateTimeOffset.UtcNow
+        });
+
+        var staffUserId = Guid.NewGuid();
+        var staffRoleId = Guid.NewGuid();
+        var staffRole = new Role
+        {
+            Id = staffRoleId,
+            RoleCode = RoleType.SupportStaff,
+            RoleName = "Support Staff",
+            Description = "Support Staff Role"
+        };
+        dbContext.Roles.Add(staffRole);
+
+        var staffUser = new Domain.Entities.User
+        {
+            Id = staffUserId,
+            Username = "staff_test",
+            Email = "staff@nexus.local",
+            PasswordHash = "hashed_pw",
+            FirstName = "Staff",
+            LastName = "Support",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsDeleted = false
+        };
+        dbContext.Users.Add(staffUser);
+        dbContext.UserRoles.Add(new UserRole
+        {
+            Id = Guid.NewGuid(),
+            UserId = staffUserId,
+            RoleId = staffRoleId,
+            Role = staffRole,
+            AssignedAt = DateTimeOffset.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var adminProfile = await profileService.GetProfileAsync(adminUserId);
+        Assert.Contains("admin", adminProfile.Roles);
+        Assert.Contains("administrator", adminProfile.Roles);
+
+        var staffProfile = await profileService.GetProfileAsync(staffUserId);
+        Assert.Contains("staff", staffProfile.Roles);
+        Assert.Contains("support staff", staffProfile.Roles);
+    }
 }

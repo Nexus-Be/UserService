@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using User.Application.Common.Extensions;
 using User.Application.Interfaces;
 using User.Domain.Exceptions;
 
@@ -161,23 +162,7 @@ public class ProfileService : IProfileService
 
     private static UserProfileDto MapToDto(Domain.Entities.User user)
     {
-        var roles = new List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                var roleName = ur.Role?.RoleName?.ToLowerInvariant() ?? ur.Role?.RoleCode.ToString().ToLowerInvariant();
-                if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
-                {
-                    roles.Add(roleName);
-                }
-            }
-        }
-
-        if (roles.Count == 0)
-        {
-            roles.Add("buyer");
-        }
+        var roles = user.ExtractStandardRoles();
 
         var fullName = $"{user.FirstName} {user.LastName}".Trim();
         var displayName = !string.IsNullOrWhiteSpace(fullName)

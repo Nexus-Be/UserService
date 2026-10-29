@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common;
+using User.Application.Common.Extensions;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -320,15 +321,7 @@ public sealed class AdminUserService : IAdminUserService
         // 6. Chuyển đổi sang DTO
         var items = users.Select(u =>
         {
-            var roles = u.UserRoles?
-                .Where(ur => ur.Role != null)
-                .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
-                .ToList() ?? new List<string>();
-
-            if (roles.Count == 0)
-            {
-                roles.Add("buyer");
-            }
+            var roles = u.ExtractStandardRoles();
 
             var displayName = $"{u.FirstName} {u.LastName}".Trim();
             var repScore = u.ReputationScore?.CurrentScore ?? 50;
@@ -382,16 +375,7 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // Roles
-        var roles = user.UserRoles?
-            .Where(ur => ur.Role != null)
-            .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
-            .Distinct()
-            .ToList() ?? new List<string>();
-
-        if (roles.Count == 0)
-        {
-            roles.Add("buyer");
-        }
+        var roles = user.ExtractStandardRoles();
 
         // Permissions
         var permissions = user.UserRoles?

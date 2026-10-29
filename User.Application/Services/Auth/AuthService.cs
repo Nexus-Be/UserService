@@ -8,6 +8,7 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Nexus.Contracts.Events;
+using User.Application.Common.Extensions;
 using User.Application.Interfaces;
 using User.Application.Models;
 using User.Domain.Entities;
@@ -322,20 +323,7 @@ public class AuthService : IAuthService
 
     private static System.Collections.Generic.IReadOnlyList<string> MapUserRoles(User user)
     {
-        var roles = new System.Collections.Generic.List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                roles.Add(ur.Role?.RoleName?.ToLowerInvariant() ?? "buyer");
-            }
-        }
-        else
-        {
-            roles.Add("buyer");
-        }
-
-        return roles;
+        return user.ExtractStandardRoles();
     }
 
     public async Task<bool> ResendOtpAsync(string email, CancellationToken cancellationToken = default)
@@ -930,30 +918,11 @@ public class AuthService : IAuthService
 
     private static void ExtractUserRoles(User user, List<string> roles)
     {
-        if (user.UserRoles == null || user.UserRoles.Count == 0) return;
-
-        foreach (var ur in user.UserRoles)
+        foreach (var r in user.ExtractStandardRoles())
         {
-            if (ur.Role == null) continue;
-
-            var standardRole = ur.Role.RoleCode switch
+            if (!roles.Contains(r))
             {
-                RoleType.Admin => "admin",
-                RoleType.SupportStaff => "staff",
-                RoleType.Seller => "seller",
-                RoleType.Buyer => "buyer",
-                _ => ur.Role.RoleCode.ToString().ToLowerInvariant()
-            };
-
-            if (!roles.Contains(standardRole))
-            {
-                roles.Add(standardRole);
-            }
-
-            var roleName = ur.Role.RoleName?.ToLowerInvariant();
-            if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
-            {
-                roles.Add(roleName);
+                roles.Add(r);
             }
         }
     }

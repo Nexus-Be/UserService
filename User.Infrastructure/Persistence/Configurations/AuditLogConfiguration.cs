@@ -9,6 +9,7 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
     public void Configure(EntityTypeBuilder<AuditLog> builder)
     {
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.Action).HasConversion<string>();
         builder.Property(x => x.ServiceName).HasMaxLength(100).IsRequired();
         builder.Property(x => x.TraceId).HasMaxLength(100);
         builder.Property(x => x.UserId).HasMaxLength(100);

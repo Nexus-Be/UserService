@@ -9,6 +9,7 @@ public class ReputationScoreConfiguration : IEntityTypeConfiguration<ReputationS
     public void Configure(EntityTypeBuilder<ReputationScore> builder)
     {
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.TrustLevel).HasConversion<string>();
 
         builder.HasOne(r => r.User)
             .WithOne(u => u.ReputationScore)

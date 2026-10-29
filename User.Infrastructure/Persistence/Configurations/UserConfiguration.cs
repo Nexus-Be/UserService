@@ -21,6 +21,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.AvatarUrl).HasMaxLength(500);
         builder.Property(x => x.Address).HasMaxLength(1000);
         builder.Property(x => x.BanReason).HasMaxLength(1000);
+        builder.Property(x => x.Status).HasConversion<string>();
+        builder.Property(x => x.Gender).HasConversion<string>();
 
         builder.HasOne(u => u.BannedByUser)
             .WithMany()

@@ -9,6 +9,8 @@ public class UserReportConfiguration : IEntityTypeConfiguration<UserReport>
     public void Configure(EntityTypeBuilder<UserReport> builder)
     {
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.ViolationType).HasConversion<string>();
+        builder.Property(x => x.Status).HasConversion<string>();
         builder.Property(x => x.Description).IsRequired();
         builder.Property(x => x.EvidenceUrls).HasColumnType("text[]");
         builder.Property(x => x.ResolutionNote).HasMaxLength(2000);

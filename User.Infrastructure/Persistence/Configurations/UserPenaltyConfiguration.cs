@@ -9,6 +9,9 @@ public class UserPenaltyConfiguration : IEntityTypeConfiguration<UserPenalty>
     public void Configure(EntityTypeBuilder<UserPenalty> builder)
     {
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.ViolationType).HasConversion<string>();
+        builder.Property(x => x.PenaltyApplied).HasConversion<string>();
+        builder.Property(x => x.Status).HasConversion<string>();
         builder.Property(x => x.Reason).HasMaxLength(500).IsRequired();
 
         builder.HasOne(p => p.User)

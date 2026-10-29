@@ -12,6 +12,7 @@ public class SystemConfigConfiguration : IEntityTypeConfiguration<SystemConfig>
         builder.Property(x => x.ConfigKey).HasMaxLength(100).IsRequired();
         builder.HasIndex(x => x.ConfigKey).IsUnique();
         builder.Property(x => x.ConfigValue).HasMaxLength(1000).IsRequired();
+        builder.Property(x => x.DataType).HasConversion<string>();
         builder.Property(x => x.Description).HasMaxLength(500);
     }
 }
