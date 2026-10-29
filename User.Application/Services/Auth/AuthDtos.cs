@@ -2,6 +2,7 @@ namespace User.Application.Services.Auth;
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 public record RegisterDto(
     string Email,
@@ -27,7 +28,12 @@ public record LoginResultDto(
     string ExpiresAt,
     string UserId,
     IReadOnlyList<string> Roles,
-    string? RefreshToken = null);
+    string? RefreshToken = null,
+    string? Email = null,
+    string? Username = null,
+    string? FirstName = null,
+    string? LastName = null,
+    IReadOnlyList<string>? Permissions = null);
 
 public record RefreshTokenDto(
     string RefreshToken,
@@ -123,19 +129,33 @@ public sealed record ResendOtpApiResponse(
     string Email
 );
 
+public sealed record LoginUserDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("username")] string? Username,
+    [property: JsonPropertyName("firstName")] string FirstName,
+    [property: JsonPropertyName("lastName")] string LastName,
+    [property: JsonPropertyName("roles")] IReadOnlyList<string> Roles,
+    [property: JsonPropertyName("permissions")] IReadOnlyList<string> Permissions
+);
+
 public sealed record LoginApiRequest(
-    string? Username,
-    string Password,
-    string? Email = null,
-    string? DeviceInfo = null
+    [property: JsonPropertyName("username")] string? Username = null,
+    [property: JsonPropertyName("password")] string Password = "",
+    [property: JsonPropertyName("email")] string? Email = null,
+    [property: JsonPropertyName("device_info")] string? DeviceInfo = null,
+    [property: JsonPropertyName("identifier")] string? Identifier = null
 );
 
 public sealed record LoginApiResponse(
-    string AccessToken,
-    string RefreshToken,
-    string ExpiresAt,
-    string UserId,
-    IReadOnlyList<string> Roles
+    [property: JsonPropertyName("accessToken")] string AccessToken,
+    [property: JsonPropertyName("refreshToken")] string RefreshToken,
+    [property: JsonPropertyName("expiresAt")] string ExpiresAt,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("roles")] IReadOnlyList<string> Roles,
+    [property: JsonPropertyName("tokenType")] string TokenType = "Bearer",
+    [property: JsonPropertyName("expiresIn")] int ExpiresIn = 3600,
+    [property: JsonPropertyName("user")] LoginUserDto? User = null
 );
 
 public sealed record RefreshTokenApiRequest(

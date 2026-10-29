@@ -70,7 +70,7 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginApiRequest request, CancellationToken cancellationToken)
     {
-        var usernameOrEmail = request.Username ?? request.Email;
+        var usernameOrEmail = request.Identifier ?? request.Username ?? request.Email;
         if (string.IsNullOrWhiteSpace(usernameOrEmail) || string.IsNullOrWhiteSpace(request.Password))
         {
             return BadRequest(new { title = "Invalid input", detail = "Username and password are required.", errorCode = "VAL_INVALID_INPUT" });
@@ -85,7 +85,18 @@ public sealed class AuthController : ControllerBase
             RefreshToken: result.RefreshToken ?? string.Empty,
             ExpiresAt: result.ExpiresAt,
             UserId: result.UserId,
-            Roles: result.Roles
+            Roles: result.Roles,
+            TokenType: "Bearer",
+            ExpiresIn: 3600,
+            User: new LoginUserDto(
+                Id: result.UserId,
+                Email: result.Email ?? string.Empty,
+                Username: result.Username,
+                FirstName: result.FirstName ?? string.Empty,
+                LastName: result.LastName ?? string.Empty,
+                Roles: result.Roles,
+                Permissions: result.Permissions ?? Array.Empty<string>()
+            )
         ));
     }
 

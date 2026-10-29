@@ -129,6 +129,79 @@ public sealed class AuthControllerRestTests
         Assert.IsType<NoContentResult>(result);
     }
 
+    [Fact]
+    public async Task Login_With_Identifier_Returns_Ok_With_User_And_Roles()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Username = "staff_member",
+            Email = "staff.member@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
+            FirstName = "Staff",
+            LastName = "Support",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            RoleCode = RoleType.SupportStaff,
+            RoleName = "Support Staff",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var userRole = new UserRole
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            RoleId = role.Id,
+            Role = role,
+            AssignedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        user.UserRoles = new List<UserRole> { userRole };
+
+        dbContext.Users.Add(user);
+        dbContext.Roles.Add(role);
+        dbContext.UserRoles.Add(userRole);
+        await dbContext.SaveChangesAsync();
+
+        // Login using Identifier
+        var loginRequest = new LoginApiRequest(
+            Identifier: "staff_member",
+            Password: "Password123!"
+        );
+
+        var result = await controller.Login(loginRequest, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<LoginApiResponse>(okResult.Value);
+        Assert.NotNull(response.User);
+        Assert.Equal("staff_member", response.User.Username);
+        Assert.Contains("staff", response.User.Roles);
+        Assert.Contains("staff", response.Roles);
+        Assert.Equal("Bearer", response.TokenType);
+        Assert.Equal(3600, response.ExpiresIn);
+    }
+
+    private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
+    {
+        public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)
+        {
+            expiresAt = DateTime.UtcNow.AddMinutes(120);
+            return "mock-jwt-access-token-xyz";
+        }
+    }
+
     private sealed class TestRedisOtpService : IRedisOtpService
     {
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);

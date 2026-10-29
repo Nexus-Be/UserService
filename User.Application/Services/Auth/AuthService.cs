@@ -247,7 +247,9 @@ public class AuthService : IAuthService
 
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
+            .ThenInclude(ur => ur.Role!)
+                .ThenInclude(r => r.RolePermissions)
+                    .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
 
         if (user == null)
@@ -399,7 +401,9 @@ public class AuthService : IAuthService
 
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
+            .ThenInclude(ur => ur.Role!)
+                .ThenInclude(r => r.RolePermissions)
+                    .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(u => u.Email == normalizedIdentifier || u.Email == identifier || (u.Username != null && u.Username.ToLower() == normalizedIdentifier), cancellationToken);
 
         if (user == null || user.IsDeleted)
@@ -472,12 +476,26 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("[AUTH] User '{Email}' logged in successfully. UserId: {UserId} | Roles: [{Roles}]. JWT & RefreshToken issued.", user.Email, user.Id, string.Join(", ", roles));
 
+        var permissions = user.UserRoles?
+            .Where(ur => ur.Role != null && ur.Role.RolePermissions != null)
+            .SelectMany(ur => ur.Role!.RolePermissions)
+            .Where(rp => rp.Permission != null && !rp.IsDeleted)
+            .Select(rp => rp.Permission!.PermissionCode)
+            .Distinct()
+            .OrderBy(p => p)
+            .ToList() ?? new List<string>();
+
         return new LoginResultDto(
             AccessToken: token,
             ExpiresAt: expiresAt.ToString("o"),
             UserId: user.Id.ToString(),
             Roles: roles,
-            RefreshToken: rawRefreshToken);
+            RefreshToken: rawRefreshToken,
+            Email: user.Email,
+            Username: user.Username,
+            FirstName: user.FirstName,
+            LastName: user.LastName,
+            Permissions: permissions);
     }
 
     public async Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default)
@@ -493,7 +511,9 @@ public class AuthService : IAuthService
         var tokenEntity = await _dbContext.RefreshTokens
             .Include(t => t.User)
                 .ThenInclude(u => u!.UserRoles)
-                    .ThenInclude(ur => ur.Role)
+                    .ThenInclude(ur => ur.Role!)
+                .ThenInclude(r => r.RolePermissions)
+                    .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
         if (tokenEntity == null)

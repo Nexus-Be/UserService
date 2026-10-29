@@ -124,4 +124,50 @@ public sealed class UsersControllerRestTests
         Assert.Equal("TheGreat", profile.LastName);
         Assert.Equal("0999888777", profile.PhoneNumber);
     }
+
+    [Fact]
+    public void UpdateProfileApiRequest_Deserializes_Object_Address_Correctly()
+    {
+        var json = """
+        {
+            "displayName": "Test User",
+            "address": {
+                "streetAddress": "123 Le Loi",
+                "wardCode": "001",
+                "districtId": 2,
+                "provinceId": 1
+            }
+        }
+        """;
+
+        var request = System.Text.Json.JsonSerializer.Deserialize<UpdateProfileApiRequest>(json, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        Assert.NotNull(request);
+        Assert.Equal("Test User", request.DisplayName);
+        Assert.NotNull(request.Address);
+        Assert.Contains("123 Le Loi", request.Address);
+        Assert.Contains("001", request.Address);
+    }
+
+    [Fact]
+    public void UpdateProfileApiRequest_Deserializes_String_Address_Correctly()
+    {
+        var json = """
+        {
+            "displayName": "Test User",
+            "address": "456 Nguyen Trai, Ha Noi"
+        }
+        """;
+
+        var request = System.Text.Json.JsonSerializer.Deserialize<UpdateProfileApiRequest>(json, new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        Assert.NotNull(request);
+        Assert.Equal("456 Nguyen Trai, Ha Noi", request.Address);
+    }
 }
