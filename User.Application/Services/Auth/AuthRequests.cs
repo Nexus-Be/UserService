@@ -3,9 +3,9 @@ namespace User.Application.Services.Auth;
 public sealed record RegisterApiRequest(
     string Email,
     string Password,
-    string FirstName,
-    string LastName,
-    string PhoneNumber,
+    string? FirstName = null,
+    string? LastName = null,
+    string? PhoneNumber = null,
     string? Username = null
 );
 

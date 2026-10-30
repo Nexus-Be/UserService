@@ -59,9 +59,29 @@ public sealed class PascalCaseJsonStringEnumConverter : JsonConverterFactory
                     throw new JsonException($"Enum value for '{typeof(T).Name}' cannot be empty. Valid values are: {string.Join(", ", Enum.GetNames<T>())}.");
                 }
 
-                if (Enum.TryParse<T>(stringValue, ignoreCase: true, out var result))
+                if (!_allowIntegerValues && long.TryParse(stringValue, out _))
+                {
+                    throw new JsonException($"Invalid value '{stringValue}' for enum '{typeof(T).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<T>())}.");
+                }
+
+                if (stringValue.Contains(',') && !typeof(T).IsDefined(typeof(FlagsAttribute), false))
+                {
+                    throw new JsonException($"Invalid value '{stringValue}' for enum '{typeof(T).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<T>())}.");
+                }
+
+                var trimmed = stringValue.Trim();
+                if (Enum.TryParse<T>(trimmed, ignoreCase: true, out var result) && Enum.IsDefined(typeof(T), result))
                 {
                     return result;
+                }
+
+                if (trimmed.Contains('_'))
+                {
+                    var withoutUnderscore = trimmed.Replace("_", "");
+                    if (Enum.TryParse<T>(withoutUnderscore, ignoreCase: true, out var resultWithoutUnderscore) && Enum.IsDefined(typeof(T), resultWithoutUnderscore))
+                    {
+                        return resultWithoutUnderscore;
+                    }
                 }
 
                 throw new JsonException($"Invalid value '{stringValue}' for enum '{typeof(T).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<T>())}.");

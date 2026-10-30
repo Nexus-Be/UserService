@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common;
+using User.Application.Common.Extensions;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -35,7 +36,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User creation payload is required.");
         }
 
-        // 1. Kiểm tra Email
+        // 1. Validate email
         if (string.IsNullOrWhiteSpace(dto.Email))
         {
             throw new BusinessRuleValidationException("VAL_INVALID_EMAIL", "Valid email address is required.");
@@ -56,7 +57,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.");
         }
 
-        // 2. Kiểm tra Mật khẩu (8 - 72 ký tự theo chuẩn an toàn của BCrypt)
+        // 2. Validate password (8 - 72 characters for BCrypt)
         if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 8)
         {
             throw new BusinessRuleValidationException("VAL_INVALID_PASSWORD", "Password must be at least 8 characters.");
@@ -67,7 +68,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("VAL_INVALID_PASSWORD", "Password cannot exceed 72 characters.");
         }
 
-        // 3. Kiểm tra Họ và Tên
+        // 3. Validate first and last name
         if (string.IsNullOrWhiteSpace(dto.FirstName))
         {
             throw new BusinessRuleValidationException("VAL_INVALID_FIRST_NAME", "First name is required.");
@@ -78,7 +79,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("VAL_INVALID_LAST_NAME", "Last name is required.");
         }
 
-        // 4. Kiểm tra Username (nếu có cung cấp)
+        // 4. Validate username if provided
         string? username = null;
         if (!string.IsNullOrWhiteSpace(dto.Username))
         {
@@ -99,7 +100,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Phân giải danh sách vai trò (RoleCodes)
+        // 5. Resolve role list (RoleCodes)
         var requestedRoles = new HashSet<RoleType>();
         if (dto.RoleCodes != null && dto.RoleCodes.Count > 0)
         {
@@ -130,16 +131,16 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // Nếu Admin không chọn vai trò cụ thể, mặc định cấp SupportStaff cho nhân sự nội bộ
+        // If no role specified, default to SupportStaff
         if (requestedRoles.Count == 0)
         {
             requestedRoles.Add(RoleType.SupportStaff);
         }
 
-        // 6. Băm mật khẩu bằng BCrypt có Salt
+        // 6. Hash password with BCrypt
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
-        // 7. Tạo bản ghi User mới
+        // 7. Create new User entity
         var newUser = new Domain.Entities.User
         {
             Id = Guid.NewGuid(),
@@ -158,7 +159,7 @@ public sealed class AdminUserService : IAdminUserService
 
         _dbContext.Users.Add(newUser);
 
-        // 8. Gán các vai trò vào bảng UserRoles
+        // 8. Assign roles in UserRoles table
         var assignedRoleNames = new List<string>();
         foreach (var roleType in requestedRoles)
         {
@@ -167,7 +168,7 @@ public sealed class AdminUserService : IAdminUserService
 
             if (roleEntity == null)
             {
-                // Fallback nếu role chưa có trong DB (ví dụ môi trường test in-memory)
+                // Fallback if role is not seeded in DB
                 roleEntity = new Role
                 {
                     Id = Guid.NewGuid(),
@@ -193,7 +194,7 @@ public sealed class AdminUserService : IAdminUserService
             assignedRoleNames.Add(roleEntity.RoleName.ToLowerInvariant());
         }
 
-        // 9. Khởi tạo điểm uy tín ban đầu (ReputationScore = 50 - Standard)
+        // 9. Initialize default reputation score (50 - Standard)
         _dbContext.ReputationScores.Add(new ReputationScore
         {
             Id = Guid.NewGuid(),
@@ -207,7 +208,7 @@ public sealed class AdminUserService : IAdminUserService
             UpdatedAt = DateTimeOffset.UtcNow
         });
 
-        // 10. Ghi nhật ký kiểm toán (AuditLog) theo đúng enum RoleAssign của Lead
+        // 10. Record audit log
         _dbContext.AuditLogs.Add(new AuditLog
         {
             ServiceName = "UserService",
@@ -228,7 +229,7 @@ public sealed class AdminUserService : IAdminUserService
             CreatedAt = DateTimeOffset.UtcNow
         });
 
-        // 11. Lưu vào CSDL
+        // 11. Commit to database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
@@ -262,7 +263,7 @@ public sealed class AdminUserService : IAdminUserService
             .Include(u => u.SellerProfile)
             .AsQueryable();
 
-        // 1. Tìm kiếm theo từ khóa (keyword)
+        // 1. Keyword search
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var trimmedKeyword = keyword.Trim().ToLower();
@@ -274,21 +275,20 @@ public sealed class AdminUserService : IAdminUserService
                 (u.PhoneNumber != null && u.PhoneNumber.Contains(trimmedKeyword)));
         }
 
-        // 2. Lọc theo trạng thái (status)
+        // 2. Status filter
         if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
         {
-            var normalizedStatus = status.Trim().ToLowerInvariant().Replace("_", "");
-            if (Enum.TryParse<UserStatus>(normalizedStatus, true, out var parsedStatus))
+            if (status.TryToEnum<UserStatus>(out var parsedStatus))
             {
                 query = query.Where(u => u.Status == parsedStatus);
             }
-            else if (string.Equals(normalizedStatus, "pending", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(status.Trim(), "pending", StringComparison.OrdinalIgnoreCase))
             {
                 query = query.Where(u => u.Status == UserStatus.PendingVerification);
             }
         }
 
-        // 3. Lọc theo vai trò (role)
+        // 3. Role filter
         if (!string.IsNullOrWhiteSpace(role) && !string.Equals(role, "all", StringComparison.OrdinalIgnoreCase))
         {
             var normalizedRole = role.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
@@ -307,17 +307,17 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 4. Đếm tổng số bản ghi (Count)
+        // 4. Count total records
         var total = await query.CountAsync(cancellationToken);
 
-        // 5. Phân trang (Skip & Take)
+        // 5. Apply pagination (Skip & Take)
         var users = await query
             .OrderByDescending(u => u.CreatedAt)
             .Skip((safePage - 1) * safeLimit)
             .Take(safeLimit)
             .ToListAsync(cancellationToken);
 
-        // 6. Chuyển đổi sang DTO
+        // 6. Map to DTOs
         var items = users.Select(u =>
         {
             var roles = u.UserRoles?
@@ -523,7 +523,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for role assignment is required.");
         }
 
-        // 1. Kiểm tra User tồn tại
+        // 1. Validate user exists
         var targetUser = await _dbContext.Users
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
@@ -534,7 +534,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
         }
 
-        // 2. Phân giải danh sách vai trò yêu cầu
+        // 2. Resolve requested role list
         var requestedRoles = new HashSet<RoleType>();
         if (dto.RoleCodes != null && dto.RoleCodes.Count > 0)
         {
@@ -563,7 +563,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // Nếu truyền RoleIds dạng int hoặc string
+        // Handle RoleIds if passed as int or string
         if (dto.RoleIds != null && dto.RoleIds.Count > 0)
         {
             foreach (var rId in dto.RoleIds)
@@ -575,19 +575,19 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // Nếu không có role nào được truyền, mặc định giữ Buyer
+        // If no role passed, default to Buyer
         if (requestedRoles.Count == 0)
         {
             requestedRoles.Add(RoleType.Buyer);
         }
 
-        // 3. Quy tắc SoD: Không được đồng thời là Admin và SupportStaff
+        // 3. Segregation of Duties (SoD): Cannot combine Admin and SupportStaff
         if (requestedRoles.Contains(RoleType.Admin) && requestedRoles.Contains(RoleType.SupportStaff))
         {
             throw new BusinessRuleValidationException("ERR_SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
         }
 
-        // 4. Quy tắc Demotion Guard: Không được tước role Admin của Admin duy nhất còn lại
+        // 4. Demotion Guard: Cannot demote the last active Administrator
         var currentRoles = targetUser.UserRoles
             .Where(ur => !ur.IsDeleted && ur.Role != null)
             .Select(ur => ur.Role!.RoleCode)
@@ -609,7 +609,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Cập nhật UserRoles
+        // 5. Update UserRoles
         var allDbRoles = await _dbContext.Roles
             .Where(r => !r.IsDeleted)
             .ToListAsync(cancellationToken);
@@ -619,7 +619,7 @@ public sealed class AdminUserService : IAdminUserService
             .Select(ur => ur.Role!.RoleCode.ToString())
             .ToList();
 
-        // Đánh dấu xóa các role không còn trong requestedRoles
+        // Mark removed roles as deleted
         foreach (var existingUr in targetUser.UserRoles.Where(ur => !ur.IsDeleted).ToList())
         {
             if (existingUr.Role == null || !requestedRoles.Contains(existingUr.Role.RoleCode))
@@ -630,7 +630,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // Thêm các role mới
+        // Add new roles
         foreach (var reqRole in requestedRoles)
         {
             var alreadyHas = targetUser.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == reqRole);
@@ -703,7 +703,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for updating user is required.");
         }
 
-        // 1. Tìm user trong DB (bao gồm cả trường hợp bị soft-delete nếu cần xem xét khôi phục)
+        // 1. Find user in DB (including soft-deleted for restoration)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
@@ -714,7 +714,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
         }
 
-        // 2. Thu thập OldValues
+        // 2. Collect OldValues
         var oldValues = new Dictionary<string, object?>
         {
             ["FirstName"] = user.FirstName,
@@ -725,7 +725,7 @@ public sealed class AdminUserService : IAdminUserService
 
         var changedColumns = new List<string>();
 
-        // 3. Cập nhật Họ & Tên
+        // 3. Update name fields
         if (dto.FirstName != null)
         {
             var trimmedFirst = dto.FirstName.Trim();
@@ -754,7 +754,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 4. Cập nhật Số điện thoại
+        // 4. Update phone number
         if (dto.PhoneNumber != null)
         {
             var trimmedPhone = dto.PhoneNumber.Trim();
@@ -770,7 +770,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Cập nhật Trạng thái (Status)
+        // 5. Update Status
         if (!string.IsNullOrWhiteSpace(dto.Status))
         {
             var normalizedStatus = dto.Status.Trim().ToLowerInvariant();
@@ -801,7 +801,7 @@ public sealed class AdminUserService : IAdminUserService
                 user.Status = parsedStatus;
                 changedColumns.Add("Status");
 
-                // Nếu chuyển sang Banned
+                // If transitioning to Banned
                 if (parsedStatus == UserStatus.Banned)
                 {
                     user.BannedAt = DateTimeOffset.UtcNow;
@@ -811,7 +811,7 @@ public sealed class AdminUserService : IAdminUserService
                     changedColumns.Add("BannedBy");
                     changedColumns.Add("BanReason");
                 }
-                // Nếu gỡ Banned
+                // If unbanning
                 else if (previousStatus == UserStatus.Banned)
                 {
                     user.BannedAt = null;
@@ -822,7 +822,7 @@ public sealed class AdminUserService : IAdminUserService
                     changedColumns.Add("BanReason");
                 }
 
-                // Nếu chuyển sang Deleted
+                // If transitioning to Deleted
                 if (parsedStatus == UserStatus.Deleted)
                 {
                     user.IsDeleted = true;
@@ -840,14 +840,14 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 6. Cập nhật Metadata Audit
+        // 6. Update audit metadata
         user.UpdatedAt = DateTimeOffset.UtcNow;
         if (adminId.HasValue)
         {
             user.UpdatedBy = adminId.Value;
         }
 
-        // Thu thập NewValues
+        // Collect NewValues
         var newValues = new Dictionary<string, object?>
         {
             ["FirstName"] = user.FirstName,
@@ -905,7 +905,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for deleting user is required.");
         }
 
-        // 1. Tìm user trong DB (bao gồm cả trường hợp query filter nếu có)
+        // 1. Find user in DB (including query filter scope)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
             .Include(u => u.UserRoles)
@@ -924,7 +924,7 @@ public sealed class AdminUserService : IAdminUserService
             throw new DomainException("USER_ALREADY_DELETED", "User has already been deleted.");
         }
 
-        // 2. Rào chắn bảo vệ Admin cuối cùng (Demotion/Delete Guard)
+        // 2. Demotion/Delete Guard for last active Admin
         var isTargetAdmin = user.UserRoles
             .Any(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RoleCode == RoleType.Admin);
 
@@ -951,7 +951,7 @@ public sealed class AdminUserService : IAdminUserService
             ["Status"] = user.Status.ToString().ToUpperInvariant()
         };
 
-        // 3. Thực hiện xóa mềm
+        // 3. Perform soft delete
         user.IsDeleted = true;
         user.DeletedAt = now;
         user.Status = UserStatus.Deleted;
@@ -961,7 +961,7 @@ public sealed class AdminUserService : IAdminUserService
             user.UpdatedBy = adminId.Value;
         }
 
-        // 4. Tự động hủy bỏ mọi phiên đăng nhập (Revoke All Refresh Tokens)
+        // 4. Revoke all active refresh tokens
         var activeTokens = await _dbContext.RefreshTokens
             .Where(t => t.UserId == targetUserId && !t.IsRevoked)
             .ToListAsync(cancellationToken);
@@ -976,7 +976,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Ghi nhật ký kiểm toán (AuditLog)
+        // 5. Record audit log
         var newValues = new Dictionary<string, object?>
         {
             ["IsDeleted"] = true,

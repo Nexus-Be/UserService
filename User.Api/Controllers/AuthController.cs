@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using User.Api.Extensions;
 using User.Application.Services.Auth;
 
 [ApiController]
@@ -32,7 +33,6 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("otp/verify")]
-    [HttpPost("verify-otp")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(VerifyOtpApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpApiRequest request, CancellationToken cancellationToken)
@@ -43,8 +43,6 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("otp/resend")]
-    [HttpPost("resend-otp")]
-    [HttpPost("otp/send-email")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ResendOtpApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResendOtp([FromBody] ResendOtpApiRequest request, CancellationToken cancellationToken)
@@ -90,7 +88,6 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
-    [HttpPost("refresh-token")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(RefreshTokenApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenApiRequest request, CancellationToken cancellationToken)
@@ -130,20 +127,19 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> LogoutAll(CancellationToken cancellationToken)
     {
-        var userIdHeader = Request.Headers["x-user-id"].ToString();
-        if (!Guid.TryParse(userIdHeader, out var userId))
+        var userId = this.GetUserId();
+        if (userId == null)
         {
             return BadRequest(new { title = "Invalid user identifier", detail = "Missing or invalid x-user-id header.", errorCode = "VAL_INVALID_USER_ID" });
         }
 
         _logger.LogInformation("[REST LogoutAll] Revoking all sessions for UserId: '{UserId}'", userId);
-        var count = await _authService.LogoutAllAsync(userId, cancellationToken);
+        var count = await _authService.LogoutAllAsync(userId.Value, cancellationToken);
 
         return Ok(new LogoutAllApiResponse(count));
     }
 
     [HttpPost("password/forgot")]
-    [HttpPost("forgot-password")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ForgotPasswordApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordApiRequest request, CancellationToken cancellationToken)
@@ -159,9 +155,7 @@ public sealed class AuthController : ControllerBase
         return Ok(new ForgotPasswordApiResponse(result.Email));
     }
 
-    [HttpPost("password/reset")]
     [HttpPut("password/reset")]
-    [HttpPost("reset-password")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ResetPasswordApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordApiRequest request, CancellationToken cancellationToken)
@@ -178,16 +172,13 @@ public sealed class AuthController : ControllerBase
         return Ok(new ResetPasswordApiResponse(result.Success));
     }
 
-    [HttpPost("password/change")]
     [HttpPatch("password")]
-    [HttpPatch("password/change")]
-    [HttpPost("change-password")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ChangePasswordApiResponse))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordApiRequest request, CancellationToken cancellationToken)
     {
-        var userIdHeader = Request.Headers["x-user-id"].ToString();
-        if (!Guid.TryParse(userIdHeader, out var userId))
+        var userId = this.GetUserId();
+        if (userId == null)
         {
             return BadRequest(new { title = "Invalid user identifier", detail = "Missing or invalid x-user-id header.", errorCode = "VAL_INVALID_USER_ID" });
         }
@@ -199,7 +190,7 @@ public sealed class AuthController : ControllerBase
 
         _logger.LogInformation("[REST ChangePassword] Changing password for UserId: '{UserId}'", userId);
         var dto = new ChangePasswordDto(request.OldPassword, request.NewPassword, request.ConfirmPassword ?? request.NewPassword);
-        var result = await _authService.ChangePasswordAsync(userId, dto, cancellationToken);
+        var result = await _authService.ChangePasswordAsync(userId.Value, dto, cancellationToken);
 
         return Ok(new ChangePasswordApiResponse(result.Success));
     }

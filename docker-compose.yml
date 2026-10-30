@@ -3,7 +3,7 @@
 # =============================================================================
 # Khởi chạy độc lập User Service:
 #   CSDL chính lưu trên Neon Cloud (PostgreSQL)
-#   Hạ tầng phụ trợ (RabbitMQ, Redis) kết nối qua nexus-network
+#   Hạ tầng phụ trợ (Redis, Tempo, Prometheus, Grafana) kết nối qua nexus-network
 #   docker compose up -d
 # =============================================================================
 
@@ -22,10 +22,6 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Development}
       - ConnectionStrings__DefaultConnection=${USER_CONNECTION_STRING:-${CONNECTION_STRING}}
-      - RabbitMq__Host=${RABBITMQ_HOST:-rabbitmq}
-      - RabbitMq__Port=${RABBITMQ_PORT:-5672}
-      - RabbitMq__User=${RABBITMQ_USER:-guest}
-      - RabbitMq__Password=${RABBITMQ_PASSWORD:-guest}
       - Redis__ConnectionString=${REDIS_CONNECTION_STRING:-redis:6379}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
     restart: unless-stopped

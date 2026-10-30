@@ -23,174 +23,6 @@ namespace User.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.InboxState", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime?>("Consumed")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ConsumerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("Delivered")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("ExpirationTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long?>("LastSequenceNumber")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("LockId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MessageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ReceiveCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("Received")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("bytea");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Delivered");
-
-                    b.ToTable("InboxState");
-                });
-
-            modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxMessage", b =>
-                {
-                    b.Property<long>("SequenceNumber")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("SequenceNumber"));
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<Guid?>("ConversationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("CorrelationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DestinationAddress")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTime?>("EnqueueTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("ExpirationTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FaultAddress")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("Headers")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("InboxConsumerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("InboxMessageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("InitiatorId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MessageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("MessageType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("OutboxId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Properties")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("RequestId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResponseAddress")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTime>("SentTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SourceAddress")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.HasKey("SequenceNumber");
-
-                    b.HasIndex("EnqueueTime");
-
-                    b.HasIndex("ExpirationTime");
-
-                    b.HasIndex("OutboxId", "SequenceNumber")
-                        .IsUnique();
-
-                    b.HasIndex("InboxMessageId", "InboxConsumerId", "SequenceNumber")
-                        .IsUnique();
-
-                    b.ToTable("OutboxMessage");
-                });
-
-            modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxState", b =>
-                {
-                    b.Property<Guid>("OutboxId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("Created")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("Delivered")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long?>("LastSequenceNumber")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("LockId")
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("bytea");
-
-                    b.HasKey("OutboxId");
-
-                    b.HasIndex("Created");
-
-                    b.ToTable("OutboxState");
-                });
-
             modelBuilder.Entity("User.Domain.Entities.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -253,6 +85,26 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AuditLogs");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("70000000-aaaa-bbbb-cccc-000000000001"),
+                            Action = 3,
+                            ChangedColumns = "[\"Status\"]",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            EntityId = "cccccccc-3333-3333-3333-333333333334",
+                            EntityName = "SellerProfile",
+                            IpAddress = "127.0.0.1",
+                            IsSynced = true,
+                            NewValues = "{\"Status\": \"Approved\"}",
+                            OldValues = "{\"Status\": \"Pending\"}",
+                            ServiceName = "User",
+                            TraceId = "trace-seed-user-001",
+                            UserAgent = "NexusAdminPortal/1.0",
+                            UserId = "aaaaaaaa-1111-1111-1111-111111111111",
+                            UserName = "admin@nexus.com"
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.Permission", b =>
@@ -301,6 +153,60 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Permissions");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("10000000-aaaa-bbbb-cccc-000000000001"),
+                            Category = "User",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Description = "Quyền truy cập thông tin người dùng",
+                            IsDeleted = false,
+                            PermissionCode = "PERM_USER_READ",
+                            PermissionName = "Xem Danh Sách & Hồ Sơ Người Dùng",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-aaaa-bbbb-cccc-000000000002"),
+                            Category = "User",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Description = "Quyền quản trị và cập nhật người dùng",
+                            IsDeleted = false,
+                            PermissionCode = "PERM_USER_WRITE",
+                            PermissionName = "Chỉnh Sửa Thông Tin Người Dùng",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-aaaa-bbbb-cccc-000000000003"),
+                            Category = "Seller",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Description = "Quyền xét duyệt đăng ký bán hàng",
+                            IsDeleted = false,
+                            PermissionCode = "PERM_SELLER_APPROVE",
+                            PermissionName = "Phê Duyệt Hồ Sơ Người Bán",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-aaaa-bbbb-cccc-000000000004"),
+                            Category = "Auction",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Description = "Quyền kiểm duyệt và điều hành đấu giá",
+                            IsDeleted = false,
+                            PermissionCode = "PERM_AUCTION_MANAGE",
+                            PermissionName = "Quản Trị Phiên Đấu Giá",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000")
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.RefreshToken", b =>
@@ -402,6 +308,34 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("ReputationLogs");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("30000000-aaaa-bbbb-cccc-000000000001"),
+                            ChangeAmount = 50,
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            IsDeleted = false,
+                            Reason = 2,
+                            ReferenceId = "02000000-0000-0000-0000-000000000001",
+                            ReferenceType = 0,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UserId = new Guid("cccccccc-3333-3333-3333-333333333333")
+                        },
+                        new
+                        {
+                            Id = new Guid("30000000-aaaa-bbbb-cccc-000000000002"),
+                            ChangeAmount = 10,
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("cccccccc-3333-3333-3333-333333333333"),
+                            IsDeleted = false,
+                            Reason = 0,
+                            ReferenceId = "02000000-0000-0000-0000-000000000001",
+                            ReferenceType = 0,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.ReputationScore", b =>
@@ -647,6 +581,74 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("RolePermissions");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("20000000-aaaa-bbbb-cccc-000000000001"),
+                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            AssignedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            PermissionId = new Guid("10000000-aaaa-bbbb-cccc-000000000001"),
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-aaaa-bbbb-cccc-000000000002"),
+                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            AssignedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            PermissionId = new Guid("10000000-aaaa-bbbb-cccc-000000000002"),
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-aaaa-bbbb-cccc-000000000003"),
+                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            AssignedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            PermissionId = new Guid("10000000-aaaa-bbbb-cccc-000000000003"),
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-aaaa-bbbb-cccc-000000000004"),
+                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            AssignedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            PermissionId = new Guid("10000000-aaaa-bbbb-cccc-000000000004"),
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-aaaa-bbbb-cccc-000000000005"),
+                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            AssignedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            PermissionId = new Guid("10000000-aaaa-bbbb-cccc-000000000001"),
+                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-aaaa-bbbb-cccc-000000000006"),
+                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            AssignedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            PermissionId = new Guid("10000000-aaaa-bbbb-cccc-000000000003"),
+                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.SellerProfile", b =>
@@ -1061,6 +1063,24 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("UserPenalties");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("60000000-aaaa-bbbb-cccc-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            ExpiresAt = new DateTimeOffset(new DateTime(2026, 1, 31, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            IssuedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            PenaltyApplied = 0,
+                            PointsDeducted = 5,
+                            Reason = "Quá hạn thanh toán thử nghiệm trong môi trường sandbox",
+                            Status = 1,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            UserId = new Guid("dddddddd-4444-4444-4444-444444444444"),
+                            ViolationType = 0
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserReport", b =>
@@ -1117,6 +1137,23 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("ResolvedBy");
 
                     b.ToTable("UserReports");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("50000000-aaaa-bbbb-cccc-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Description = "Yêu cầu cung cấp thêm hoá đơn VAT cho đơn hàng",
+                            EvidenceUrls = new List<string> { "https://images.nexus.local/reports/invoice-request.png" },
+                            IsDeleted = false,
+                            ReportedUserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
+                            ReporterId = new Guid("dddddddd-4444-4444-4444-444444444444"),
+                            ResolutionNote = "Người bán đã xuất hoá đơn điện tử gửi qua email.",
+                            ResolvedBy = new Guid("bbbbbbbb-2222-2222-2222-222222222222"),
+                            Status = 2,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            ViolationType = 4
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserReview", b =>
@@ -1178,6 +1215,25 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReviewerId");
 
                     b.ToTable("UserReviews");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("40000000-aaaa-bbbb-cccc-000000000001"),
+                            Comment = "Người bán phản hồi nhanh, hàng chuẩn chính hãng đóng gói kỹ lưỡng.",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            IsDeleted = false,
+                            IsDisabled = false,
+                            IsDisputed = false,
+                            MediaUrls = new List<string> { "https://images.nexus.local/reviews/user-review-01.png" },
+                            Rating = 5,
+                            ReferenceId = "02000000-0000-0000-0000-000000000001",
+                            ReferenceType = 0,
+                            RevieweeId = new Guid("cccccccc-3333-3333-3333-333333333333"),
+                            ReviewerId = new Guid("dddddddd-4444-4444-4444-444444444444"),
+                            ReviewerRole = 0,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        });
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserRole", b =>
@@ -1260,18 +1316,6 @@ namespace User.Infrastructure.Persistence.Migrations
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
                         });
-                });
-
-            modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.OutboxMessage", b =>
-                {
-                    b.HasOne("MassTransit.EntityFrameworkCoreIntegration.OutboxState", null)
-                        .WithMany()
-                        .HasForeignKey("OutboxId");
-
-                    b.HasOne("MassTransit.EntityFrameworkCoreIntegration.InboxState", null)
-                        .WithMany()
-                        .HasForeignKey("InboxMessageId", "InboxConsumerId")
-                        .HasPrincipalKey("MessageId", "ConsumerId");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.RefreshToken", b =>

@@ -3,10 +3,9 @@ namespace User.Application.Services.Seller;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Nexus.Contracts.Events;
+using User.Application.Common.Extensions;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -16,18 +15,18 @@ public sealed class SellerService : ISellerService
 {
     private readonly IUserDbContext _dbContext;
     private readonly IRedisOtpService _otpService;
-    private readonly IPublishEndpoint? _publishEndpoint;
+    private readonly IEmailNotificationClient? _emailNotificationClient;
     private readonly ILogger<SellerService> _logger;
 
     public SellerService(
         IUserDbContext dbContext,
         IRedisOtpService otpService,
-        IPublishEndpoint? publishEndpoint,
+        IEmailNotificationClient? emailNotificationClient,
         ILogger<SellerService> logger)
     {
         _dbContext = dbContext;
         _otpService = otpService;
-        _publishEndpoint = publishEndpoint;
+        _emailNotificationClient = emailNotificationClient;
         _logger = logger;
     }
 
@@ -69,7 +68,7 @@ public sealed class SellerService : ISellerService
         var normalizedShopName = dto.ShopName.Trim();
         var normalizedEmail = dto.BusinessEmail.Trim().ToLowerInvariant();
 
-        // 1. Kiểm tra tài khoản người dùng
+        // 1. Validate user account
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
@@ -95,7 +94,7 @@ public sealed class SellerService : ISellerService
             throw new DomainException("USER_NOT_ACTIVE", "User account must be active to register as a seller.");
         }
 
-        // 2. Kiểm tra nếu đã là Seller
+        // 2. Check if already a Seller
         var hasSellerRole = user.UserRoles.Any(ur => ur.Role?.RoleCode == RoleType.Seller);
         var hasApprovedProfile = user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved;
         if (hasSellerRole || hasApprovedProfile)
@@ -104,21 +103,21 @@ public sealed class SellerService : ISellerService
             throw new DomainException("ALREADY_SELLER", "User is already registered as a seller.");
         }
 
-        // 3. Kiểm tra hồ sơ chờ duyệt
+        // 3. Check for pending registration
         if (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Pending)
         {
             _logger.LogWarning("[SELLER ONBOARDING] User '{UserId}' already has a pending registration.", userId);
             throw new DomainException("REQUEST_ALREADY_PENDING", "You already have a pending seller registration request.");
         }
 
-        // 4. Rào chắn điểm uy tín (>= 50)
+        // 4. Check reputation threshold (>= 50)
         if (user.ReputationScore != null && user.ReputationScore.CurrentScore < 50)
         {
             _logger.LogWarning("[SELLER ONBOARDING] User '{UserId}' reputation score ({Score}) is below 50.", userId, user.ReputationScore.CurrentScore);
             throw new DomainException("REPUTATION_TOO_LOW", "User reputation score must be at least 50 to register as a seller.");
         }
 
-        // 5. Kiểm tra trùng tên Shop
+        // 5. Check duplicate shop name
         var isShopNameTaken = await _dbContext.SellerProfiles
             .AnyAsync(s => s.ShopName.ToLower() == normalizedShopName.ToLower() && s.UserId != userId, cancellationToken);
 
@@ -128,7 +127,7 @@ public sealed class SellerService : ISellerService
             throw new DomainException("SHOP_NAME_TAKEN", "Shop name is already taken.");
         }
 
-        // 6. Xử lý địa chỉ kho lấy hàng GHN
+        // 6. Resolve warehouse pickup address
         var pickupAddress = !string.IsNullOrWhiteSpace(dto.PickupAddress)
             ? dto.PickupAddress.Trim()
             : !string.IsNullOrWhiteSpace(dto.StreetAddress)
@@ -151,14 +150,14 @@ public sealed class SellerService : ISellerService
                 ? dto.WarehouseAddress.WardCode.Trim()
                 : "00000";
 
-        // Đồng bộ số CCCD vào user nếu chưa có
+        // Sync identity card number to user if missing
         if (string.IsNullOrWhiteSpace(user.IdentifyNumber))
         {
             user.IdentifyNumber = dto.IdentityCardNumber.Trim();
             user.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
-        // 7. Tạo hoặc tái sử dụng bản ghi SellerProfile (tránh vi phạm Unique Index IX_SellerProfiles_UserId nếu trước đó bị Rejected)
+        // 7. Create or reuse SellerProfile entity to avoid unique index violation
         SellerProfile sellerProfile;
         if (user.SellerProfile != null)
         {
@@ -196,7 +195,7 @@ public sealed class SellerService : ISellerService
             _dbContext.SellerProfiles.Add(sellerProfile);
         }
 
-        // 8. Sinh mã OTP xác minh email doanh nghiệp
+        // 8. Generate business email verification OTP
         var otpCode = Random.Shared.Next(100000, 999999).ToString();
         await _otpService.SaveOtpAsync(
             normalizedEmail,
@@ -208,28 +207,28 @@ public sealed class SellerService : ISellerService
 
         _logger.LogInformation("[SELLER OTP] BusinessEmail: '{Email}' | CODE: >>> {OtpCode} <<< | Valid: 5 mins", normalizedEmail, otpCode);
 
-        // 9. Bắn sự kiện SendOtpEmailIntegrationEvent vào Outbox (Publish trước SaveChangesAsync)
-        if (_publishEndpoint != null)
+        // 9. Dispatch OTP email via Notification Service REST client
+        if (_emailNotificationClient != null)
         {
             try
             {
                 var fullName = $"{user.FirstName} {user.LastName}".Trim();
-                await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(
+                await _emailNotificationClient.SendOtpEmailAsync(
                     normalizedEmail,
                     fullName,
                     otpCode,
-                    5
-                ), cancellationToken);
+                    5,
+                    cancellationToken);
 
-                _logger.LogInformation("Enqueued SendOtpEmailIntegrationEvent for seller business email '{Email}'.", normalizedEmail);
+                _logger.LogInformation("Dispatched OTP email via REST client for seller business email '{Email}'.", normalizedEmail);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to enqueue SendOtpEmailIntegrationEvent for seller registration. OTP: {Otp}", otpCode);
+                _logger.LogWarning(ex, "Failed to dispatch OTP email for seller registration. OTP: {Otp}", otpCode);
             }
         }
 
-        // 10. Commit vào CSDL PostgreSQL
+        // 10. Commit to database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[SELLER ONBOARDING] Successfully created seller registration for User '{UserId}', Shop '{ShopName}'.", userId, normalizedShopName);
@@ -258,7 +257,7 @@ public sealed class SellerService : ISellerService
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            if (Enum.TryParse<SellerProfileStatus>(status.Trim(), true, out var parsedStatus))
+            if (status.TryToEnum<SellerProfileStatus>(out var parsedStatus))
             {
                 query = query.Where(s => s.Status == parsedStatus);
             }
@@ -323,7 +322,7 @@ public sealed class SellerService : ISellerService
             throw new DomainException("ALREADY_APPROVED", "Seller registration has already been approved.");
         }
 
-        // 1. Tự động cấp Role SELLER cho User (vẫn giữ role Buyer)
+        // 1. Assign Seller role to user
         var sellerRole = await _dbContext.Roles
             .FirstOrDefaultAsync(r => r.RoleCode == RoleType.Seller, cancellationToken);
 
@@ -346,13 +345,13 @@ public sealed class SellerService : ISellerService
             }
         }
 
-        // 2. Cập nhật hồ sơ SellerProfile
+        // 2. Update SellerProfile status
         sellerProfile.Status = SellerProfileStatus.Approved;
         sellerProfile.ReviewedBy = reviewerId;
         sellerProfile.ReviewedAt = DateTimeOffset.UtcNow;
         sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // 3. Ghi vết kiểm toán (AuditLog)
+        // 3. Record audit log
         _dbContext.AuditLogs.Add(new AuditLog
         {
             ServiceName = "UserService",
@@ -364,33 +363,7 @@ public sealed class SellerService : ISellerService
             CreatedAt = DateTimeOffset.UtcNow
         });
 
-        // 4. Bắn sự kiện SellerApprovedIntegrationEvent vào Outbox (Publish trước SaveChangesAsync)
-        if (_publishEndpoint != null)
-        {
-            try
-            {
-                await _publishEndpoint.Publish(new SellerApprovedIntegrationEvent(
-                    sellerProfile.Id,
-                    sellerProfile.UserId,
-                    sellerProfile.ShopName,
-                    sellerProfile.BusinessEmail,
-                    sellerProfile.Hotline,
-                    sellerProfile.PickupAddress,
-                    sellerProfile.ProvinceId,
-                    sellerProfile.DistrictId,
-                    sellerProfile.WardCode,
-                    DateTimeOffset.UtcNow
-                ), cancellationToken);
-
-                _logger.LogInformation("Enqueued SellerApprovedIntegrationEvent to Outbox for seller '{SellerId}'.", sellerProfile.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to enqueue SellerApprovedIntegrationEvent for seller '{SellerId}'.", sellerProfile.Id);
-            }
-        }
-
-        // 5. Commit vào PostgreSQL
+        // 4. Commit to database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[SELLER APPROVAL] Successfully approved seller '{SellerId}' by Reviewer '{ReviewerId}'.", sellerProfile.Id, reviewerId);
@@ -551,7 +524,7 @@ public sealed class SellerService : ISellerService
             throw new DomainException("USER_BANNED", "User account has been banned.");
         }
 
-        // 1. Cập nhật ShopName (nếu có truyền)
+        // 1. Update ShopName if provided
         if (!string.IsNullOrWhiteSpace(dto.ShopName))
         {
             var trimmedShopName = dto.ShopName.Trim();
@@ -575,19 +548,19 @@ public sealed class SellerService : ISellerService
             }
         }
 
-        // 2. Cập nhật Hotline (nếu có truyền)
+        // 2. Update Hotline if provided
         if (!string.IsNullOrWhiteSpace(dto.Hotline))
         {
             sellerProfile.Hotline = dto.Hotline.Trim();
         }
 
-        // 3. Cập nhật AvatarUrl (nếu có truyền)
+        // 3. Update AvatarUrl if provided
         if (!string.IsNullOrWhiteSpace(dto.AvatarUrl))
         {
             sellerProfile.AvatarUrl = dto.AvatarUrl.Trim();
         }
 
-        // 4. Cập nhật BusinessEmail (nếu có truyền)
+        // 4. Update BusinessEmail if provided
         if (!string.IsNullOrWhiteSpace(dto.BusinessEmail))
         {
             var normalizedEmail = dto.BusinessEmail.Trim().ToLowerInvariant();
@@ -598,7 +571,7 @@ public sealed class SellerService : ISellerService
             sellerProfile.BusinessEmail = normalizedEmail;
         }
 
-        // 5. Cập nhật địa chỉ kho lấy hàng GHN (PickupAddress / StreetAddress / Province / District / Ward)
+        // 5. Update warehouse pickup address fields (PickupAddress / StreetAddress / Province / District / Ward)
         var newAddress = !string.IsNullOrWhiteSpace(dto.PickupAddress)
             ? dto.PickupAddress.Trim()
             : !string.IsNullOrWhiteSpace(dto.StreetAddress)
@@ -627,7 +600,7 @@ public sealed class SellerService : ISellerService
 
         sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // 6. Ghi AuditLog (sử dụng AuditAction.UserUpdate sẵn có, không sửa Domain enum!)
+        // 6. Record audit log
         _dbContext.AuditLogs.Add(new AuditLog
         {
             ServiceName = "UserService",

@@ -19,7 +19,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         _configuration = configuration;
     }
 
-    public string GenerateToken(User user, IEnumerable<string> roles, out DateTime expiresAt)
+    public string GenerateToken(User user, IEnumerable<string> roles, IEnumerable<string>? permissions, out DateTime expiresAt)
     {
         var issuer = _configuration["Jwt:Issuer"] ?? "http://localhost:8001";
         var audience = _configuration["Jwt:Audience"] ?? "shoppingcart-api";
@@ -58,6 +58,20 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             }
         }
 
+        if (permissions != null)
+        {
+            var cleanPermissions = permissions
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p.Trim().ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var cleanPermission in cleanPermissions)
+            {
+                claims.Add(new Claim("permission", cleanPermission));
+                claims.Add(new Claim("permissions", cleanPermission));
+            }
+        }
+
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -71,4 +85,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
 
         return new JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
     }
+
+    public string GenerateToken(User user, IEnumerable<string> roles, out DateTime expiresAt) =>
+        GenerateToken(user, roles, null, out expiresAt);
 }

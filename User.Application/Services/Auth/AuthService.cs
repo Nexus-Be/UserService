@@ -4,10 +4,8 @@ using System;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Nexus.Contracts.Events;
 using User.Application.Interfaces;
 using User.Application.Models;
 using User.Domain.Entities;
@@ -19,7 +17,7 @@ public class AuthService : IAuthService
     private readonly IUserDbContext _dbContext;
     private readonly IRedisOtpService _otpService;
     private readonly IJwtTokenGenerator? _jwtTokenGenerator;
-    private readonly IPublishEndpoint? _publishEndpoint;
+    private readonly IEmailNotificationClient? _emailNotificationClient;
     private readonly ILogger<AuthService> _logger;
 
     private static readonly Guid BuyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -29,13 +27,13 @@ public class AuthService : IAuthService
         IRedisOtpService otpService,
         ILogger<AuthService> logger,
         IJwtTokenGenerator? jwtTokenGenerator = null,
-        IPublishEndpoint? publishEndpoint = null)
+        IEmailNotificationClient? emailNotificationClient = null)
     {
         _dbContext = dbContext;
         _otpService = otpService;
         _logger = logger;
         _jwtTokenGenerator = jwtTokenGenerator;
-        _publishEndpoint = publishEndpoint;
+        _emailNotificationClient = emailNotificationClient;
     }
 
     public async Task<User> RegisterAsync(RegisterDto dto, CancellationToken cancellationToken = default)
@@ -94,7 +92,7 @@ public class AuthService : IAuthService
                 throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.");
             }
 
-            // Trường hợp đăng ký lại khi tài khoản chưa xác nhận (PendingVerification):
+            // Re-registration for unverified account (PendingVerification):
             existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
             existingUser.FirstName = dto.FirstName.Trim();
             existingUser.LastName = dto.LastName.Trim();
@@ -113,7 +111,7 @@ public class AuthService : IAuthService
         }
         else
         {
-            // Tạo mới User với trạng thái PendingVerification
+            // Create new User with PendingVerification status
             var userId = Guid.NewGuid();
             user = new User
             {
@@ -133,7 +131,7 @@ public class AuthService : IAuthService
 
             _dbContext.Users.Add(user);
 
-            // Gán role mặc định: Buyer
+            // Assign default role: Buyer
             var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
             var roleId = buyerRole?.Id ?? BuyerRoleId;
 
@@ -145,7 +143,7 @@ public class AuthService : IAuthService
                 AssignedAt = DateTimeOffset.UtcNow
             });
 
-            // Tạo bảng điểm uy tín mặc định (Standard: 50 điểm)
+            // Initialize default reputation score (Standard: 50 points)
             _dbContext.ReputationScores.Add(new ReputationScore
             {
                 Id = Guid.NewGuid(),
@@ -157,33 +155,33 @@ public class AuthService : IAuthService
             _logger.LogInformation("New user registration initiated for '{Email}' with PendingVerification status and Buyer role.", email);
         }
 
-        // Sinh mã OTP 6 số ngẫu nhiên
+        // Generate random 6-digit OTP code
         var otpCode = Random.Shared.Next(100000, 999999).ToString();
         _logger.LogInformation("[OTP DISPATCH] Email: '{Email}' | CODE: >>> {OtpCode} <<< | Valid: 5 mins", email, otpCode);
 
-        // Lưu vào Redis: Hiệu lực 5 phút, lưu trữ tối đa 15 phút
+        // Store in Redis: Valid for 5 minutes, stored up to 15 minutes
         await _otpService.SaveOtpAsync(email, otpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
 
-        // Bắn sự kiện lên RabbitMQ cho Worker gửi mail bất đồng bộ (ghi nhận vào Outbox của DbContext)
-        if (_publishEndpoint != null)
+        // Send OTP verification email via Notification Service REST API
+        if (_emailNotificationClient != null)
         {
-            try
+            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+            var sent = await _emailNotificationClient.SendOtpEmailAsync(user.Email, fullName, otpCode, 5, cancellationToken);
+            if (sent)
             {
-                var fullName = $"{user.FirstName} {user.LastName}".Trim();
-                await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(user.Email, fullName, otpCode, 5), cancellationToken);
-                _logger.LogInformation("Enqueued SendOtpEmailIntegrationEvent to Outbox for recipient '{Email}'.", email);
+                _logger.LogInformation("Dispatched OTP email via REST Notification client for recipient '{Email}'.", email);
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogWarning(ex, "Failed to enqueue SendOtpEmailIntegrationEvent to Outbox. OTP simulation code: {Otp}", otpCode);
+                _logger.LogWarning("Failed to dispatch OTP email via REST Notification client. OTP fallback code: {Otp}", otpCode);
             }
         }
         else
         {
-            _logger.LogWarning("[MESSAGE BUS OFFLINE] Simulated sending OTP email to '{Email}'. OTP: {Otp}", email, otpCode);
+            _logger.LogWarning("[NOTIFICATION CLIENT OFFLINE] Simulated sending OTP email to '{Email}'. OTP: {Otp}", email, otpCode);
         }
 
-        // Lưu CSDL: Commit cả dữ liệu người dùng lẫn OutboxMessage trong cùng một Transaction
+        // Commit changes to database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return user;
@@ -194,8 +192,8 @@ public class AuthService : IAuthService
         var dto = new RegisterDto(
             Email: request.Email,
             Password: request.Password,
-            FirstName: request.FirstName.Trim(),
-            LastName: request.LastName.Trim(),
+            FirstName: request.FirstName?.Trim() ?? string.Empty,
+            LastName: request.LastName?.Trim() ?? string.Empty,
             PhoneNumber: request.PhoneNumber?.Trim(),
             Username: string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim()
         );
@@ -334,25 +332,25 @@ public class AuthService : IAuthService
         _logger.LogInformation("[OTP RESEND] Email: '{Email}' | NEW CODE: >>> {OtpCode} <<< | Valid: 5 mins", normalizedEmail, newOtpCode);
         await _otpService.SaveOtpAsync(normalizedEmail, newOtpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
 
-        if (_publishEndpoint != null)
+        if (_emailNotificationClient != null)
         {
-            try
+            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+            var sent = await _emailNotificationClient.SendOtpEmailAsync(user.Email, fullName, newOtpCode, 5, cancellationToken);
+            if (sent)
             {
-                var fullName = $"{user.FirstName} {user.LastName}".Trim();
-                await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(user.Email, fullName, newOtpCode, 5), cancellationToken);
-                _logger.LogInformation("Enqueued resend SendOtpEmailIntegrationEvent to Outbox for '{Email}'.", normalizedEmail);
+                _logger.LogInformation("Dispatched resend OTP email via REST Notification client for '{Email}'.", normalizedEmail);
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogWarning(ex, "Failed to enqueue resend SendOtpEmailIntegrationEvent to Outbox. OTP simulation code: {Otp}", newOtpCode);
+                _logger.LogWarning("Failed to dispatch resend OTP email via REST Notification client. OTP fallback code: {Otp}", newOtpCode);
             }
         }
         else
         {
-            _logger.LogWarning("[MESSAGE BUS OFFLINE] Simulated resending OTP email to '{Email}'. New OTP: {Otp}", normalizedEmail, newOtpCode);
+            _logger.LogWarning("[NOTIFICATION CLIENT OFFLINE] Simulated resending OTP email to '{Email}'. New OTP: {Otp}", normalizedEmail, newOtpCode);
         }
 
-        // Lưu CSDL: Commit OutboxMessage vào CSDL để MassTransit quét và gửi sang RabbitMQ
+        // Commit changes to database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return true;
@@ -446,11 +444,11 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
-        var token = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
+        var token = _jwtTokenGenerator.GenerateToken(user, roles, permissions, out var expiresAt);
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
         if (expiresIn == 0) expiresIn = 3600;
 
-        // Sinh Refresh Token an toàn và lưu bản băm SHA-256 vào Database (TTL: 7 ngày)
+        // Generate secure Refresh Token and store SHA-256 hash in database (TTL: 7 days)
         var rawRefreshToken = GenerateSecureToken();
         var tokenHash = ComputeSha256Hash(rawRefreshToken);
 
@@ -502,6 +500,8 @@ public class AuthService : IAuthService
             .Include(t => t.User)
                 .ThenInclude(u => u!.UserRoles)
                     .ThenInclude(ur => ur.Role)
+                        .ThenInclude(r => r!.RolePermissions)
+                            .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
         if (tokenEntity == null)
@@ -540,12 +540,12 @@ public class AuthService : IAuthService
         }
 
         // --- Refresh Token Rotation (RTR) ---
-        // 1. Thu hồi refresh token hiện tại
+        // 1. Revoke current refresh token
         tokenEntity.IsRevoked = true;
         tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
         tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // 2. Sinh refresh token mới và lưu vào Database
+        // 2. Generate new refresh token and persist to database
         var newRawRefreshToken = GenerateSecureToken();
         var newTokenHash = ComputeSha256Hash(newRawRefreshToken);
 
@@ -564,7 +564,7 @@ public class AuthService : IAuthService
 
         _dbContext.RefreshTokens.Add(newRefreshTokenEntity);
 
-        // 3. Trích xuất vai trò hiện tại (Roles) mới nhất từ DB
+        // 3. Extract latest active roles from DB
         var roles = new List<string>();
         ExtractUserRoles(user, roles);
 
@@ -573,13 +573,16 @@ public class AuthService : IAuthService
             roles.Add("buyer");
         }
 
+        var permissions = new List<string>();
+        ExtractUserPermissions(user, roles, permissions);
+
         if (_jwtTokenGenerator == null)
         {
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
-        // 4. Phát hành Access Token mới mang quyền hạn cập nhật
-        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, out var expiresAt);
+        // 4. Issue new access token with updated claims
+        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, permissions, out var expiresAt);
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
         if (expiresIn == 0) expiresIn = 3600;
 
@@ -688,18 +691,29 @@ public class AuthService : IAuthService
         await _otpService.InvalidateExistingOtpsAsync(normalizedEmail, purpose: "password_reset");
         await _otpService.SaveOtpAsync(normalizedEmail, otpCode, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
 
-        if (_publishEndpoint != null)
+        if (_emailNotificationClient != null)
         {
             try
             {
                 var fullName = $"{user.FirstName} {user.LastName}".Trim();
-                await _publishEndpoint.Publish(new SendOtpEmailIntegrationEvent(user.Email, fullName, otpCode, 10), cancellationToken);
-                _logger.LogInformation("[FORGOT PASSWORD] Password reset OTP event dispatched to RabbitMQ for '{Email}'", normalizedEmail);
+                var sent = await _emailNotificationClient.SendOtpEmailAsync(user.Email, fullName, otpCode, 10, cancellationToken);
+                if (sent)
+                {
+                    _logger.LogInformation("[FORGOT PASSWORD] Password reset OTP email dispatched via REST client for '{Email}'", normalizedEmail);
+                }
+                else
+                {
+                    _logger.LogWarning("[FORGOT PASSWORD] Failed to dispatch OTP email for '{Email}'. Fallback to log. CODE: >>> {OtpCode} <<<", normalizedEmail, otpCode);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[FORGOT PASSWORD BUS OFFLINE] Could not publish SendOtpEmailIntegrationEvent for '{Email}'. Fallback to log. CODE: >>> {OtpCode} <<<", normalizedEmail, otpCode);
+                _logger.LogWarning(ex, "[FORGOT PASSWORD CLIENT ERROR] Could not dispatch OTP email for '{Email}'. Fallback to log. CODE: >>> {OtpCode} <<<", normalizedEmail, otpCode);
             }
+        }
+        else
+        {
+            _logger.LogWarning("[FORGOT PASSWORD CLIENT OFFLINE] Simulated sending reset OTP email to '{Email}'. CODE: >>> {OtpCode} <<<", normalizedEmail, otpCode);
         }
 
         return new ForgotPasswordResultDto(normalizedEmail, genericMessage, otpExpiresInSeconds);
@@ -957,8 +971,8 @@ public class AuthService : IAuthService
                 {
                     if (rp.Permission != null && !string.IsNullOrWhiteSpace(rp.Permission.PermissionCode))
                     {
-                        var code = rp.Permission.PermissionCode.ToUpperInvariant();
-                        if (!permissions.Contains(code))
+                        var code = rp.Permission.PermissionCode.Trim().ToUpperInvariant();
+                        if (!permissions.Contains(code, StringComparer.OrdinalIgnoreCase))
                         {
                             permissions.Add(code);
                         }

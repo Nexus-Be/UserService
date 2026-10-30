@@ -6,10 +6,10 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using User.Api.Extensions;
 using User.Application.Services.Admin;
 
 [ApiController]
-[Route("api/v1/admin/users")]
 [Route("api/v1/admin/user")]
 public sealed class AdminUsersController : ControllerBase
 {
@@ -34,13 +34,7 @@ public sealed class AdminUsersController : ControllerBase
     {
         _logger.LogInformation("[REST Admin CreateUser] Incoming request for Email: '{Email}'", request?.Email);
 
-        Guid? adminId = null;
-        if (Request.Headers.TryGetValue("x-user-id", out var headerVal) &&
-            Guid.TryParse(headerVal.ToString(), out var parsedAdminId))
-        {
-            adminId = parsedAdminId;
-        }
-
+        var adminId = this.GetUserId();
         var result = await _adminUserService.CreateUserAsync(request!, adminId, cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, result);
@@ -98,13 +92,7 @@ public sealed class AdminUsersController : ControllerBase
     {
         _logger.LogInformation("[REST Admin AssignRoles] Incoming request for UserId: '{UserId}'", userId);
 
-        Guid? adminId = null;
-        if (Request.Headers.TryGetValue("x-user-id", out var headerVal) &&
-            Guid.TryParse(headerVal.ToString(), out var parsedAdminId))
-        {
-            adminId = parsedAdminId;
-        }
-
+        var adminId = this.GetUserId();
         var result = await _adminUserService.AssignUserRolesAsync(userId, request, adminId, cancellationToken);
         return Ok(result);
     }
@@ -120,13 +108,7 @@ public sealed class AdminUsersController : ControllerBase
     {
         _logger.LogInformation("[REST Admin UpdateUser] Incoming request for UserId: '{UserId}'", userId);
 
-        Guid? adminId = null;
-        if (Request.Headers.TryGetValue("x-user-id", out var headerVal) &&
-            Guid.TryParse(headerVal.ToString(), out var parsedAdminId))
-        {
-            adminId = parsedAdminId;
-        }
-
+        var adminId = this.GetUserId();
         var result = await _adminUserService.UpdateUserAsync(userId, request, adminId, cancellationToken);
         return Ok(result);
     }
@@ -142,13 +124,7 @@ public sealed class AdminUsersController : ControllerBase
     {
         _logger.LogInformation("[REST Admin DeleteUser] Incoming request for UserId: '{UserId}'", userId);
 
-        Guid? adminId = null;
-        if (Request.Headers.TryGetValue("x-user-id", out var headerVal) &&
-            Guid.TryParse(headerVal.ToString(), out var parsedAdminId))
-        {
-            adminId = parsedAdminId;
-        }
-
+        var adminId = this.GetUserId();
         await _adminUserService.DeleteUserAsync(userId, request, adminId, cancellationToken);
         return NoContent();
     }

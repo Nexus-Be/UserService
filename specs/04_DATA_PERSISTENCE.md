@@ -1,7 +1,7 @@
 # 04 — MÔ HÌNH THỰC THỂ & CƠ SỞ DỮ LIỆU (USER SERVICE DATA PERSISTENCE - V2)
-> **Trạng thái triển khai (2026-10-25):** ⚠️ Một phần — **14/14** entity + **14/14** DbSet + **14/14** bảng `dbml/service/user.dbml` ✅; **2 migration** (`InitialUserSchema` và `AddUsernameToUser`) tạo **17 bảng** (14 nghiệp vụ + 3 bảng MassTransit Outbox/Inbox). Bổ sung cột `Username` (`character varying(100)`) kèm Filtered Unique Index `IX_Users_Username`. **Mọi khóa chính là `Guid`** (không phải `int identity` như đặc tả V2 cũ).
-> **Nguồn sự thật:** code trong repo này (`file:line` ghi kèm trong từng bảng).
-> **Cập nhật lần cuối:** 2026-10-25.
+> **Trạng thái triển khai (2026-10-30):** ✅ ĐÃ CHUẨN HÓA VÀ LÀM SẠCH SCHEMA — **14/14** entity + **14/14** DbSet + **14/14** bảng nghiệp vụ trong PostgreSQL. Migration `InitialCreate` mới đã loại bỏ hoàn toàn 3 bảng MassTransit (`InboxState`, `OutboxMessage`, `OutboxState`). Toàn bộ khóa chính là `Guid`.
+> **Nguồn sự thật:** code (`User.Infrastructure/Persistence/AppDbContext.cs`, `User.Infrastructure/Persistence/Migrations/*_InitialCreate.cs`).
+> **Cập nhật lần cuối:** 2026-10-30.
 ---
 ## 1. MÔ HÌNH THỰC THỂ CHÍNH (DOMAIN ENTITIES)
 ### 1.0 Bảng tổng hợp trạng thái 14 thực thể
@@ -26,7 +26,7 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
 - Kế thừa `BaseEntity<TKey>` hoặc `AuditableEntity<TKey>` (`User.Domain/Base/BaseEntity.cs`), gồm: `Id`, `CreatedAt`, `UpdatedAt`, `IsDeleted`, `DeletedAt`.
 - **Khóa chính kiểu `Guid`** — không entity nào dùng `int identity`.
 - Id do code gán `Guid.NewGuid()` khi tạo mới (vd. `AuthService.cs:91,112,121`), **không** dùng `Guid.CreateVersion7()` và **không** có giá trị mặc định ở DB.
-- Enum lưu dạng **chuỗi** qua `HasConversion<string>()` (vd. `UserConfiguration.cs:19-20`).
+- Enum lưu dạng **số nguyên (integer)** trong database (chuẩn hiệu năng và nhất quán).
 ---
 1. **`User` (Định danh người dùng toàn sàn)**:
    - `Id`: `Guid` (Primary Key).
@@ -37,7 +37,7 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
    - `PhoneNumber`: `string?` (**Max 50** chars — đặc tả cũ ghi 20 là sai).
    - `IdentifyNumber`: `string?` (Max 50 chars).
    - `AvatarUrl`: `string?` (Max 500 chars).
-   - `Gender`: `Gender` (`Unspecified = 0`, `Male = 1`, `Female = 2`, `Other = 3`), lưu dạng chuỗi.
+   - `Gender`: `Gender` (`Unspecified = 0`, `Male = 1`, `Female = 2`, `Other = 3`), lưu dạng integer trong DB.
    - `DateOfBirth`: `DateTimeOffset?`.
    - `Address`: `string?` (Max 1000 chars).
    - `Status`: `UserStatus` (`PendingVerification = 0`, `Active = 1`, `Banned = 2`, `Deleted = 3`); entity mặc định `Active`, nhưng `RegisterAsync` **luôn gán** `PendingVerification` (`AuthService.cs:99`).
@@ -56,7 +56,7 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
    - ⚠️ **Chưa có code nào tạo/đọc/thu hồi refresh token** — đây là bảng chờ cho tính năng JWT chưa triển khai.
 3. **`Role` (Vai trò cốt lõi & mở rộng)**:
    - `Id`: **`Guid`** (đặc tả cũ ghi `int Identity` là **sai** — `Role : AuditableEntity<Guid>`).
-   - `RoleCode`: `RoleType` (`Buyer = 0`, `Seller = 1`, `SupportStaff = 2`, `Admin = 3`), unique theo `dbml`, lưu dạng chuỗi.
+   - `RoleCode`: `RoleType` (`Buyer = 0`, `Seller = 1`, `SupportStaff = 2`, `Admin = 3`), unique theo `dbml`, lưu dạng integer trong DB.
    - `RoleName`: `string` (Max 150 chars).
    - `Description`: `string?` (Max 500 chars).
    - `IsActive`: `bool` (không có default ở config).
@@ -163,7 +163,7 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
 - Database: **`usermanagement_db`** — ⚠️ đặc tả cũ ghi `user_db` là **sai**. Nguồn: `User.Api/appsettings.json` (`ConnectionStrings:DefaultConnection`), `docker-compose.yml` (`POSTGRES_DB: usermanagement_db`), `User.Infrastructure/DependencyInjection.cs:19-24` (fallback hardcode cùng tên).
 - Tên bảng: PascalCase mặc định theo tên Entity — ✅ đúng, **không** có lời gọi `builder.ToTable(...)` nào trong 14 configuration (grep = 0).
 - Đăng ký DI: `AddDbContext<AppDbContext>` + `AddScoped<IUserDbContext>(sp => sp.GetRequiredService<AppDbContext>())` (`DependencyInjection.cs:19-24`).
-- Enum mapping: `HasConversion<string>()` ✅ (áp dụng cho `User.Status`, `User.Gender`, `Role.RoleCode`, `SellerProfile.Status`, `UserReview.ReviewerRole`/`ReferenceType`, `UserReport.ViolationType`/`Status`, `UserPenalty.ViolationType`/`PenaltyApplied`/`Status`, `ReputationLog.Reason`/`ReferenceType`, `ReputationScore.TrustLevel`, `SystemConfig.DataType`, `AuditLog.Action`).
+- Enum mapping: Lưu số nguyên `integer` trong PostgreSQL (áp dụng cho `User.Status`, `User.Gender`, `Role.RoleCode`, `SellerProfile.Status`, `UserReview.ReviewerRole`/`ReferenceType`, `UserReport.ViolationType`/`Status`, `UserPenalty.ViolationType`/`PenaltyApplied`/`Status`, `ReputationLog.Reason`/`ReferenceType`, `ReputationScore.TrustLevel`, `SystemConfig.DataType`, `AuditLog.Action`).
 - Mảng URL: `List<string>` cấu hình `.HasColumnType("text[]")` ✅ (`UserReview.MediaUrls`, `UserReport.EvidenceUrls`).
 - Khóa ngoại và chống cascade cycle ✅:
   - `Restrict`: `UserReview.ReviewerId`/`RevieweeId`, `UserReport.ReporterId`/`ReportedUserId`.

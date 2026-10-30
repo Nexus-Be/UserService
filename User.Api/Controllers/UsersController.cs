@@ -6,10 +6,11 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using User.Api.Extensions;
 using User.Application.Services.Profile;
 
 [ApiController]
-[Route("api/v1/users")]
+[Route("api/v1/user")]
 public sealed class UsersController : ControllerBase
 {
     private readonly IProfileService _profileService;
@@ -21,27 +22,25 @@ public sealed class UsersController : ControllerBase
         _logger = logger;
     }
 
-    [HttpGet("me")]
     [HttpGet("/api/v1/me")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserProfileDto))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetCurrentUserProfile(CancellationToken cancellationToken)
     {
-        var userIdHeader = Request.Headers["x-user-id"].ToString();
-        if (!Guid.TryParse(userIdHeader, out var userId))
+        var userId = this.GetUserId();
+        if (userId == null)
         {
             return BadRequest(new { title = "Invalid user identifier", detail = "Missing or invalid x-user-id header.", errorCode = "VAL_INVALID_USER_ID" });
         }
 
         _logger.LogInformation("[REST GetProfile] Loading profile for UserId: '{UserId}'", userId);
-        var profile = await _profileService.GetProfileAsync(userId, cancellationToken);
+        var profile = await _profileService.GetProfileAsync(userId.Value, cancellationToken);
 
         return Ok(profile);
     }
 
     [HttpGet("{id:guid}")]
-    [HttpGet("/api/v1/user/{id:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PublicUserProfileDto))]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetUserProfileById([FromRoute] Guid id, CancellationToken cancellationToken)
@@ -52,21 +51,20 @@ public sealed class UsersController : ControllerBase
         return Ok(profile);
     }
 
-    [HttpPatch("me")]
     [HttpPatch("/api/v1/me")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserProfileDto))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateCurrentUserProfile([FromBody] UpdateProfileApiRequest request, CancellationToken cancellationToken)
     {
-        var userIdHeader = Request.Headers["x-user-id"].ToString();
-        if (!Guid.TryParse(userIdHeader, out var userId))
+        var userId = this.GetUserId();
+        if (userId == null)
         {
             return BadRequest(new { title = "Invalid user identifier", detail = "Missing or invalid x-user-id header.", errorCode = "VAL_INVALID_USER_ID" });
         }
 
         _logger.LogInformation("[REST UpdateProfile] Updating profile for UserId: '{UserId}'", userId);
-        var updatedProfile = await _profileService.UpdateProfileAsync(userId, request, cancellationToken);
+        var updatedProfile = await _profileService.UpdateProfileAsync(userId.Value, request, cancellationToken);
 
         return Ok(updatedProfile);
     }

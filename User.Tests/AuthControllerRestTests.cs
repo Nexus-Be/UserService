@@ -166,9 +166,208 @@ public sealed class AuthControllerRestTests
         Assert.True(response.Success);
     }
 
+    [Fact]
+    public async Task RefreshToken_Returns_Ok_With_New_Tokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var rawToken = "initial-refresh-token-xyz";
+        var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawToken))).ToLowerInvariant();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "refresh_user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "First",
+            LastName = "Last",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        dbContext.RefreshTokens.Add(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            IsRevoked = false
+        });
+        await dbContext.SaveChangesAsync();
+
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var request = new RefreshTokenApiRequest(RefreshToken: rawToken);
+        var result = await controller.RefreshToken(request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<RefreshTokenApiResponse>(okResult.Value);
+        Assert.Equal("mock-jwt-access-token-xyz", resp.AccessToken);
+        Assert.False(string.IsNullOrWhiteSpace(resp.RefreshToken));
+    }
+
+    [Fact]
+    public async Task ForgotPassword_Returns_Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "forgot_user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "First",
+            LastName = "Last",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var request = new ForgotPasswordApiRequest(Email: "forgot_user@nexus.local");
+        var result = await controller.ForgotPassword(request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<ForgotPasswordApiResponse>(okResult.Value);
+        Assert.Equal("forgot_user@nexus.local", resp.Email);
+    }
+
+    [Fact]
+    public async Task ResetPassword_Returns_Ok_When_Otp_Matches()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "reset_user@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("OldPassword123!"),
+            FirstName = "First",
+            LastName = "Last",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var otpService = new TestRedisOtpService();
+        await otpService.SaveOtpAsync("reset_user@nexus.local", "654321", TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), "password_reset");
+
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var request = new ResetPasswordApiRequest(
+            Email: "reset_user@nexus.local",
+            OtpCode: "654321",
+            NewPassword: "NewSecurePassword123!",
+            ConfirmPassword: "NewSecurePassword123!"
+        );
+        var result = await controller.ResetPassword(request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<ResetPasswordApiResponse>(okResult.Value);
+        Assert.True(resp.Success);
+    }
+
+    [Fact]
+    public async Task ChangePassword_Returns_Ok_When_Credentials_Valid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "change_user@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("OldPassword123!"),
+            FirstName = "First",
+            LastName = "Last",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+        controller.ControllerContext.HttpContext.Request.Headers["x-user-id"] = user.Id.ToString();
+
+        var request = new ChangePasswordApiRequest(
+            OldPassword: "OldPassword123!",
+            NewPassword: "BrandNewPassword123!",
+            ConfirmPassword: "BrandNewPassword123!"
+        );
+        var result = await controller.ChangePassword(request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<ChangePasswordApiResponse>(okResult.Value);
+        Assert.True(resp.Success);
+    }
+
+    [Fact]
+    public async Task LogoutAll_Returns_Ok_With_Revoked_Count()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.RefreshTokens.AddRange(
+            new RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TokenHash = "hash1",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                IsRevoked = false
+            },
+            new RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TokenHash = "hash2",
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                IsRevoked = false
+            }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+        controller.ControllerContext.HttpContext.Request.Headers["x-user-id"] = userId.ToString();
+
+        var result = await controller.LogoutAll(CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<LogoutAllApiResponse>(okResult.Value);
+        Assert.Equal(2, resp.CountRevoked);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
-        public string GenerateToken(User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)
+        public string GenerateToken(User user, System.Collections.Generic.IEnumerable<string> roles, System.Collections.Generic.IEnumerable<string>? permissions, out DateTime expiresAt)
         {
             expiresAt = DateTime.UtcNow.AddMinutes(60);
             return "mock-jwt-access-token-xyz";

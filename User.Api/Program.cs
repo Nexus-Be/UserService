@@ -1,46 +1,27 @@
 using Microsoft.EntityFrameworkCore;
 using User.Api.Extensions;
-using User.Api.Middleware;
 using User.Application;
 using User.Infrastructure;
 using User.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 0. Observability / OpenTelemetry Tracing
-builder.Services.AddServiceObservability(builder.Configuration, "user-service");
+// 1. Auxiliary Service Defaults (Observability, Swagger, JSON options)
+builder.Services.AddServiceDefaults(builder.Configuration, "user-service");
 
-// 1. Application & Infrastructure Dependency Injection
+// 2. Application & Infrastructure Dependency Injection
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
-// 2. REST Services
+// 3. REST Services
 builder.Services.AddControllers();
-
-// 3. Swagger / OpenAPI & JSON Serialization
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.ConfigureHttpJsonOptions(options =>
-{
-    options.SerializerOptions.Converters.Add(new User.Api.Common.Converters.PascalCaseJsonStringEnumConverter(allowIntegerValues: false));
-});
-builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
-{
-    options.JsonSerializerOptions.Converters.Add(new User.Api.Common.Converters.PascalCaseJsonStringEnumConverter(allowIntegerValues: false));
-});
 
 var app = builder.Build();
 
-// 4. Global Exception Handler Middleware
-app.UseGlobalExceptionHandler();
+// 4. Default Middleware Pipeline (Exception Handler, Swagger UI)
+app.UseServiceDefaults();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-// Tự động apply migrations nếu kết nối CSDL thành công
+// Automatically apply database migrations on startup if relational DB is available
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -58,6 +39,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapControllers();
-app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "User.Api" }));
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "user-service" }));
 
 app.Run();

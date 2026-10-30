@@ -53,7 +53,7 @@ Sơ đồ **thật** (đọc từ các `*.csproj`):
 3. **`User.Infrastructure`** ✅:
    - `AppDbContext`: `public class AppDbContext : DbContext, IUserDbContext` (`User.Infrastructure/Persistence/AppDbContext.cs:8`), `OnModelCreating` gọi `ApplyConfigurationsFromAssembly` (`:32`), seed (`:33`), và 3 entity MassTransit Outbox/Inbox (`:36-38`).
    - ⚠️ Có thêm `public class UserDbContext : AppDbContext` (`AppDbContext.cs:42`) nhưng **không được đăng ký DI** — DI chỉ đăng ký `AppDbContext` (`User.Infrastructure/DependencyInjection.cs:19-24`). Tài liệu cũ nói "UserDbContext triển khai IUserDbContext" là **gây nhầm lẫn**: lớp triển khai thật là `AppDbContext`.
-   - ✅ Cấu hình Fluent API trong `Persistence/Configurations/` — **14 file** `*Configuration.cs`, không có `builder.ToTable(...)` (tên bảng = tên DbSet, PascalCase), enum map bằng `HasConversion<string>()`.
+   - ✅ Cấu hình Fluent API trong `Persistence/Configurations/` — **14 file** `*Configuration.cs`, không có `builder.ToTable(...)` (tên bảng = tên DbSet, PascalCase), enum lưu trực tiếp dạng số nguyên `integer` (int) trong DB.
 4. **`User.Api`** ✅:
    - Điểm khởi chạy **REST API** — `builder.Services.AddControllers()` (`Program.cs:18`), `app.MapControllers()` (`Program.cs:60`), `app.MapGet("/health", ...)` (`Program.cs:61`).
    - Controllers: `AuthController.cs`, `UsersController.cs`, `AdminUsersController.cs`, `SellerController.cs`.
@@ -71,12 +71,12 @@ Sơ đồ **thật** (đọc từ các `*.csproj`):
 1. **Giao tiếp đồng bộ (RESTful)**:
    - `User.Api/Controllers/`: Thin Dispatcher Controller, không logic, không inline DTO.
    - `User.Application/Services/{Feature}/`: Mỗi feature (`Auth`, `Profile`, `Admin`, `Seller`) chứa `I{Feature}Service.cs`, `{Feature}Service.cs`, và Request/Response DTOs dùng chung.
-2. **Giao tiếp bất đồng bộ (RabbitMQ MassTransit)**:
-   - `User.Application/Contracts/`: Chứa các Integration Events (ví dụ `SendOtpEmailIntegrationEvent`, `SellerApprovedIntegrationEvent`).
-   - `User.Infrastructure/Consumers/`: Chứa các MassTransit Consumer xử lý sự kiện khi có yêu cầu tiêu thụ message.
+2. **Bãi bỏ hoàn toàn gRPC & Message Broker**:
+   - Không sử dụng RabbitMQ, MassTransit hay Outbox/Inbox tables.
+   - Gửi yêu cầu email OTP trực tiếp qua REST Typed Client (`IEmailNotificationClient`).
 3. **Quản lý Dependency Injection**:
    - `User.Application/DependencyInjection.cs`: Đăng ký toàn bộ Application Services.
-   - `User.Infrastructure/DependencyInjection.cs`: Đăng ký `AppDbContext`, `RedisOtpService`, `JwtTokenGenerator`, MassTransit Bus.
+   - `User.Infrastructure/DependencyInjection.cs`: Đăng ký `AppDbContext` (hiện thực `IUserDbContext`), `RedisOtpService`, `JwtTokenGenerator`, và Typed REST Client `IEmailNotificationClient`.
 4. **Validation**:
    - Input format validation đặt tại Request DTOs qua Data Annotations (`[Required]`, `[EmailAddress]`...).
    - Business validation đặt tại Application Services hoặc Domain Exceptions.

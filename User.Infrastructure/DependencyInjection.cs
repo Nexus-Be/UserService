@@ -1,13 +1,13 @@
 namespace User.Infrastructure;
 
-using MassTransit;
+using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
-using User.Application.Consumers;
 using User.Application.Interfaces;
 using User.Infrastructure.Persistence;
+using User.Infrastructure.Services.Notification;
 using User.Infrastructure.Services.Redis;
 
 public static class DependencyInjection
@@ -37,35 +37,15 @@ public static class DependencyInjection
         services.AddSingleton<IRedisOtpService, RedisOtpService>();
         services.AddSingleton<IJwtTokenGenerator, Services.Jwt.JwtTokenGenerator>();
 
-        // MassTransit RabbitMQ
-        services.AddMassTransit(x =>
+        // REST Email Notification Client
+        var notificationBaseUrl = configuration["Services:Notification:BaseUrl"]
+            ?? configuration["NotificationService:BaseUrl"]
+            ?? "http://localhost:8007/";
+
+        services.AddHttpClient<IEmailNotificationClient, EmailNotificationClient>(client =>
         {
-            x.SetKebabCaseEndpointNameFormatter();
-
-            x.AddApplicationConsumers();
-
-            x.AddEntityFrameworkOutbox<AppDbContext>(o =>
-            {
-                o.UsePostgres();
-                o.UseBusOutbox();
-            });
-
-            x.UsingRabbitMq((context, cfg) =>
-            {
-                var host = configuration["RabbitMq:Host"] ?? "localhost";
-                var portStr = configuration["RabbitMq:Port"] ?? "5672";
-                var port = ushort.TryParse(portStr, out var p) ? p : (ushort)5672;
-                var user = configuration["RabbitMq:User"] ?? "guest";
-                var pass = configuration["RabbitMq:Password"] ?? "guest";
-
-                cfg.Host(host, port, "/", h =>
-                {
-                    h.Username(user);
-                    h.Password(pass);
-                });
-
-                cfg.ConfigureEndpoints(context);
-            });
+            client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(10);
         });
 
         return services;

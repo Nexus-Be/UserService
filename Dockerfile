@@ -11,10 +11,10 @@ COPY ["User.Domain/User.Domain.csproj", "User.Domain/"]
 COPY ["User.Infrastructure/User.Infrastructure.csproj", "User.Infrastructure/"]
 RUN dotnet restore "User.Api/User.Api.csproj"
 COPY . .
-RUN dotnet build "User.Api/User.Api.csproj" -c Release -o /app/build
+RUN dotnet build "User.Api/User.Api.csproj" -c Release --no-restore -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "User.Api/User.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "User.Api/User.Api.csproj" -c Release --no-restore -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app

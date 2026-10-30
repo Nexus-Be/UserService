@@ -12,8 +12,6 @@ using User.Domain.Enums;
 using User.Domain.Exceptions;
 using User.Infrastructure.Persistence;
 using User.Infrastructure.Services.Redis;
-using MassTransit;
-using Nexus.Contracts.Events;
 using Xunit;
 
 public sealed class AuthServiceTests
@@ -49,7 +47,7 @@ public sealed class AuthServiceTests
         Assert.Equal(UserStatus.PendingVerification, user.Status);
         Assert.True(BCrypt.Net.BCrypt.Verify("Password123!", user.PasswordHash));
 
-        // Kiểm tra OTP được lưu trong Redis
+        // Verify OTP is saved in Redis
         var savedOtp = await otpService.GetOtpAsync("buyer01@nexus.local");
         Assert.NotNull(savedOtp);
         Assert.Equal(OtpStatus.Active, savedOtp.Status);
@@ -57,12 +55,12 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
-    public async Task RegisterAsync_publishes_SendOtpEmailIntegrationEvent_when_publishEndpoint_provided()
+    public async Task RegisterAsync_dispatches_otp_email_via_notification_client_when_provided()
     {
         using var dbContext = CreateInMemoryDbContext();
         var otpService = new TestRedisOtpService();
-        var publishEndpoint = new TestPublishEndpoint();
-        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, publishEndpoint);
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
 
         var dto = new RegisterDto(
             Email: "event.buyer@nexus.local",
@@ -75,21 +73,21 @@ public sealed class AuthServiceTests
         var user = await authService.RegisterAsync(dto);
 
         Assert.NotNull(user);
-        Assert.Single(publishEndpoint.PublishedMessages);
-        var publishedEvent = Assert.IsType<SendOtpEmailIntegrationEvent>(publishEndpoint.PublishedMessages[0]);
-        Assert.Equal("event.buyer@nexus.local", publishedEvent.Email);
-        Assert.Equal("Nguyen Van Event", publishedEvent.FullName);
-        Assert.Equal(6, publishedEvent.Otp.Length);
-        Assert.Equal(5, publishedEvent.ExpiresInMinutes);
+        Assert.Single(emailClient.SentEmails);
+        var sentEmail = emailClient.SentEmails[0];
+        Assert.Equal("event.buyer@nexus.local", sentEmail.Email);
+        Assert.Equal("Nguyen Van Event", sentEmail.FullName);
+        Assert.Equal(6, sentEmail.OtpCode.Length);
+        Assert.Equal(5, sentEmail.ExpiresInMinutes);
     }
 
     [Fact]
-    public async Task ResendOtpAsync_publishes_SendOtpEmailIntegrationEvent_when_publishEndpoint_provided()
+    public async Task ResendOtpAsync_dispatches_otp_email_via_notification_client_when_provided()
     {
         using var dbContext = CreateInMemoryDbContext();
         var otpService = new TestRedisOtpService();
-        var publishEndpoint = new TestPublishEndpoint();
-        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, publishEndpoint);
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
 
         var dto = new RegisterDto(
             Email: "resend.event@nexus.local",
@@ -99,16 +97,16 @@ public sealed class AuthServiceTests
         );
 
         await authService.RegisterAsync(dto);
-        publishEndpoint.PublishedMessages.Clear();
+        emailClient.SentEmails.Clear();
 
         var success = await authService.ResendOtpAsync("resend.event@nexus.local");
 
         Assert.True(success);
-        Assert.Single(publishEndpoint.PublishedMessages);
-        var publishedEvent = Assert.IsType<SendOtpEmailIntegrationEvent>(publishEndpoint.PublishedMessages[0]);
-        Assert.Equal("resend.event@nexus.local", publishedEvent.Email);
-        Assert.Equal("Tran Thi Event", publishedEvent.FullName);
-        Assert.Equal(6, publishedEvent.Otp.Length);
+        Assert.Single(emailClient.SentEmails);
+        var sentEmail = emailClient.SentEmails[0];
+        Assert.Equal("resend.event@nexus.local", sentEmail.Email);
+        Assert.Equal("Tran Thi Event", sentEmail.FullName);
+        Assert.Equal(6, sentEmail.OtpCode.Length);
     }
 
     [Fact]
@@ -121,11 +119,11 @@ public sealed class AuthServiceTests
         var dto = new RegisterDto("active@nexus.local", "Password123!", "Le", "Van B");
         var user = await authService.RegisterAsync(dto);
 
-        // Kích hoạt user
+        // Activate user
         user.Status = UserStatus.Active;
         await dbContext.SaveChangesAsync();
 
-        // Đăng ký lại bằng cùng email
+        // Re-register with the same email
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.RegisterAsync(dto));
         Assert.Equal("EMAIL_ALREADY_EXISTS", ex.ErrorCode);
         Assert.Equal("Email is already registered in the system.", ex.Message);
@@ -143,7 +141,7 @@ public sealed class AuthServiceTests
 
         var firstOtp = (await otpService.GetOtpAsync("unverified@nexus.local"))!.Code;
 
-        // Đăng ký lại với password mới khi tài khoản chưa verify
+        // Re-register with new password when account is unverified
         var updateDto = new RegisterDto("unverified@nexus.local", "NewPassword456!", "Tran", "Van C");
         await authService.RegisterAsync(updateDto);
 
@@ -152,7 +150,7 @@ public sealed class AuthServiceTests
         Assert.Equal(UserStatus.PendingVerification, updatedUser.Status);
         Assert.True(BCrypt.Net.BCrypt.Verify("NewPassword456!", updatedUser.PasswordHash));
 
-        // OTP mới được sinh ra và khác OTP cũ
+        // New OTP is generated and differs from old OTP
         var secondOtp = (await otpService.GetOtpAsync("unverified@nexus.local"))!.Code;
         Assert.NotNull(secondOtp);
         Assert.Equal(OtpStatus.Active, (await otpService.GetOtpAsync("unverified@nexus.local"))!.Status);
@@ -175,7 +173,7 @@ public sealed class AuthServiceTests
         Assert.Equal(UserStatus.Active, verifiedUser.Status);
         Assert.NotNull(verifiedUser.EmailVerifiedAt);
 
-        // OTP trong Redis chuyển sang trạng thái Consumed (chống Replay)
+        // OTP in Redis transitions to Consumed status (replay protection)
         var consumedOtp = await otpService.GetOtpAsync("verify@nexus.local");
         Assert.NotNull(consumedOtp);
         Assert.Equal(OtpStatus.Consumed, consumedOtp.Status);
@@ -209,10 +207,10 @@ public sealed class AuthServiceTests
 
         var otp = (await otpService.GetOtpAsync("replay@nexus.local"))!.Code;
 
-        // Verify lần đầu thành công
+        // Initial verification succeeds
         await authService.VerifyOtpAsync("replay@nexus.local", otp);
 
-        // Đổi trạng thái user về PendingVerification để giả lập thử verify lại với OTP đã used
+        // Reset user status to PendingVerification to test replay protection with consumed OTP
         var user = await dbContext.Users.FirstAsync(u => u.Email == "replay@nexus.local");
         user.Status = UserStatus.PendingVerification;
         await dbContext.SaveChangesAsync();
@@ -252,7 +250,7 @@ public sealed class AuthServiceTests
         var dto = new RegisterDto("expired@nexus.local", "Password123!", "Pham", "Expired");
         await authService.RegisterAsync(dto);
 
-        // Đổi trạng thái OTP sang Expired
+        // Invalidate OTP to simulate expiration
         await otpService.InvalidateExistingOtpsAsync("expired@nexus.local");
 
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.VerifyOtpAsync("expired@nexus.local", "123456"));
@@ -513,12 +511,12 @@ public sealed class AuthServiceTests
         Assert.NotEqual(loginResult.RefreshToken, refreshResult.RefreshToken);
         Assert.True(refreshResult.ExpiresIn > 0);
 
-        // Kiểm tra Refresh Token cũ đã bị thu hồi
+        // Verify old Refresh Token has been revoked
         var oldTokens = await dbContext.RefreshTokens.Where(t => t.UserId == user.Id && t.IsRevoked).ToListAsync();
         Assert.Single(oldTokens);
         Assert.NotNull(oldTokens[0].RevokedAt);
 
-        // Kiểm tra Refresh Token mới đang hoạt động
+        // Verify new Refresh Token is active
         var activeTokens = await dbContext.RefreshTokens.Where(t => t.UserId == user.Id && !t.IsRevoked).ToListAsync();
         Assert.Single(activeTokens);
     }
@@ -554,7 +552,7 @@ public sealed class AuthServiceTests
         var loginResult = await authService.LoginAsync(new LoginDto("expired@nexus.local", "Password123!"));
         var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
 
-        // Làm hết hạn token
+        // Expire token
         tokenEntity.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-5);
         await dbContext.SaveChangesAsync();
 
@@ -581,7 +579,7 @@ public sealed class AuthServiceTests
         var loginResult = await authService.LoginAsync(new LoginDto("revoked@nexus.local", "Password123!"));
         var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
 
-        // Thu hồi token thủ công
+        // Manually revoke token
         tokenEntity.IsRevoked = true;
         tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync();
@@ -608,7 +606,7 @@ public sealed class AuthServiceTests
 
         var loginResult = await authService.LoginAsync(new LoginDto("banned@nexus.local", "Password123!"));
 
-        // Khóa tài khoản user
+        // Ban user account
         user.Status = UserStatus.Banned;
         await dbContext.SaveChangesAsync();
 
@@ -618,7 +616,7 @@ public sealed class AuthServiceTests
         Assert.Equal("USER_BANNED", ex.ErrorCode);
         Assert.Equal("User account has been banned.", ex.Message);
 
-        // Kiểm tra token đã bị thu hồi trong DB
+        // Verify token has been revoked in DB
         var tokenEntity = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == user.Id);
         Assert.True(tokenEntity.IsRevoked);
         Assert.NotNull(tokenEntity.RevokedAt);
@@ -663,11 +661,11 @@ public sealed class AuthServiceTests
 
         var loginResult = await authService.LoginAsync(new LoginDto("idempotent@nexus.local", "Password123!"));
         
-        // Đăng xuất lần 1
+        // First logout
         var firstResult = await authService.LogoutAsync(loginResult.RefreshToken!);
         Assert.True(firstResult);
 
-        // Đăng xuất lần 2 (idempotent)
+        // Second logout (idempotent)
         var secondResult = await authService.LogoutAsync(loginResult.RefreshToken!);
         Assert.True(secondResult);
     }
@@ -710,7 +708,7 @@ public sealed class AuthServiceTests
         var userId1 = Guid.NewGuid();
         var userId2 = Guid.NewGuid();
 
-        // 2 token active + 1 token đã revoke cho user 1
+        // 2 active tokens + 1 revoked token for user 1
         dbContext.RefreshTokens.AddRange(
             new Domain.Entities.RefreshToken
             {
@@ -737,7 +735,7 @@ public sealed class AuthServiceTests
                 IsRevoked = true,
                 RevokedAt = DateTimeOffset.UtcNow.AddHours(-1)
             },
-            // Token active cho user 2 (không bị ảnh hưởng)
+            // Active token for user 2 (unaffected)
             new Domain.Entities.RefreshToken
             {
                 Id = Guid.NewGuid(),
@@ -752,11 +750,11 @@ public sealed class AuthServiceTests
         var countRevoked = await authService.LogoutAllAsync(userId1);
         Assert.Equal(2, countRevoked);
 
-        // Kiểm tra tất cả token của user 1 đều đã bị thu hồi
+        // Verify all tokens for user 1 have been revoked
         var user1Tokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId1).ToListAsync();
         Assert.All(user1Tokens, t => Assert.True(t.IsRevoked));
 
-        // Token của user 2 vẫn active
+        // User 2 token remains active
         var user2Token = await dbContext.RefreshTokens.FirstAsync(t => t.UserId == userId2);
         Assert.False(user2Token.IsRevoked);
     }
@@ -825,7 +823,7 @@ public sealed class AuthServiceTests
         Assert.Equal(nonExistentEmail, result.Email);
         Assert.Equal("If the email exists in our system, password reset instructions have been sent.", result.Message);
 
-        // Đảm bảo không sinh OTP trong Redis cho email không tồn tại
+        // Ensure no OTP is generated in Redis for non-existent email
         var storedOtp = await otpService.GetOtpAsync(nonExistentEmail, purpose: "password_reset");
         Assert.Null(storedOtp);
     }
@@ -916,7 +914,7 @@ public sealed class AuthServiceTests
         };
         dbContext.Users.Add(user);
 
-        // Tạo 2 refresh token đang hoạt động
+        // Create 2 active refresh tokens
         dbContext.RefreshTokens.Add(new Domain.Entities.RefreshToken
         {
             Id = Guid.NewGuid(),
@@ -940,7 +938,7 @@ public sealed class AuthServiceTests
 
         await dbContext.SaveChangesAsync();
 
-        // Lưu OTP vào Redis
+        // Save OTP to Redis
         var otpCode = "654321";
         await otpService.SaveOtpAsync(email, otpCode, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
 
@@ -951,18 +949,18 @@ public sealed class AuthServiceTests
         Assert.True(result.Success);
         Assert.Equal("Password has been reset successfully.", result.Message);
 
-        // Kiểm tra mật khẩu trong DB đã đổi và khớp với hash BCrypt mới
+        // Verify password in DB was changed and matches new BCrypt hash
         var dbUser = await dbContext.Users.FindAsync(userId);
         Assert.NotNull(dbUser);
         Assert.NotEqual(oldHash, dbUser.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify("NewPassword123!", dbUser.PasswordHash));
 
-        // Kiểm tra OTP đã chuyển thành Consumed
+        // Verify OTP transitioned to Consumed status
         var storedOtp = await otpService.GetOtpAsync(email, purpose: "password_reset");
         Assert.NotNull(storedOtp);
         Assert.Equal(OtpStatus.Consumed, storedOtp.Status);
 
-        // Kiểm tra toàn bộ refresh token cũ đều bị thu hồi
+        // Verify all old refresh tokens have been revoked
         var tokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
         Assert.Equal(2, tokens.Count);
         Assert.All(tokens, t => Assert.True(t.IsRevoked));
@@ -1137,7 +1135,7 @@ public sealed class AuthServiceTests
         };
         dbContext.Users.Add(user);
 
-        // Thêm 2 refresh token đang hoạt động
+        // Add 2 active refresh tokens
         var token1 = new Domain.Entities.RefreshToken
         {
             Id = Guid.NewGuid(),
@@ -1168,13 +1166,13 @@ public sealed class AuthServiceTests
         Assert.True(result.Success);
         Assert.Equal("Password changed successfully.", result.Message);
 
-        // Kiểm tra mật khẩu mới đã được băm bằng BCrypt
+        // Verify new password is hashed with BCrypt
         var updatedUser = await dbContext.Users.FindAsync(userId);
         Assert.NotNull(updatedUser);
         Assert.True(BCrypt.Net.BCrypt.Verify("NewSecretPass456!", updatedUser.PasswordHash));
         Assert.False(BCrypt.Net.BCrypt.Verify("OldPassword123!", updatedUser.PasswordHash));
 
-        // Kiểm tra tất cả refresh token cũ đã bị thu hồi
+        // Verify all old refresh tokens have been revoked
         var activeTokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId && !t.IsRevoked).ToListAsync();
         Assert.Empty(activeTokens);
     }
@@ -1342,7 +1340,7 @@ public sealed class AuthServiceTests
 
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
-        public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, out DateTime expiresAt)
+        public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, System.Collections.Generic.IEnumerable<string>? permissions, out DateTime expiresAt)
         {
             expiresAt = DateTime.UtcNow.AddMinutes(120);
             return "mock-jwt-access-token-xyz";
@@ -1428,70 +1426,19 @@ public sealed class AuthServiceTests
         }
     }
 
-    private sealed class TestPublishEndpoint : IPublishEndpoint
+    private sealed class TestEmailNotificationClient : IEmailNotificationClient
     {
-        public System.Collections.Generic.List<object> PublishedMessages { get; } = new();
+        public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
 
-        public Task Publish<T>(T message, System.Threading.CancellationToken cancellationToken = default) where T : class
+        public Task<bool> SendOtpEmailAsync(
+            string email,
+            string fullName,
+            string otpCode,
+            int expiresInMinutes = 5,
+            System.Threading.CancellationToken cancellationToken = default)
         {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
+            SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
+            return Task.FromResult(true);
         }
-
-        public Task Publish<T>(T message, IPipe<PublishContext<T>> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
-        {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish<T>(T message, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
-        {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish(object message, System.Threading.CancellationToken cancellationToken = default)
-        {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish(object message, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default)
-        {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish(object message, Type messageType, System.Threading.CancellationToken cancellationToken = default)
-        {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish(object message, Type messageType, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default)
-        {
-            PublishedMessages.Add(message);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish<T>(object values, System.Threading.CancellationToken cancellationToken = default) where T : class
-        {
-            PublishedMessages.Add(values);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish<T>(object values, IPipe<PublishContext<T>> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
-        {
-            PublishedMessages.Add(values);
-            return Task.CompletedTask;
-        }
-
-        public Task Publish<T>(object values, IPipe<PublishContext> publishPipe, System.Threading.CancellationToken cancellationToken = default) where T : class
-        {
-            PublishedMessages.Add(values);
-            return Task.CompletedTask;
-        }
-
-        public ConnectHandle ConnectPublishObserver(IPublishObserver observer) => throw new NotImplementedException();
     }
 }

@@ -34,6 +34,7 @@ public static class EnumExtensions
 
     /// <summary>
     /// Parses an external string into the strongly-typed Enum (case-insensitive).
+    /// Supports PascalCase, camelCase, UPPERCASE, and SCREAMING_SNAKE_CASE.
     /// Throws ArgumentException with Sentence case English message if invalid.
     /// </summary>
     public static TEnum ToEnum<TEnum>(this string? value) where TEnum : struct, Enum
@@ -43,9 +44,24 @@ public static class EnumExtensions
             throw new ArgumentException($"Enum value for '{typeof(TEnum).Name}' cannot be empty. Valid values are: {string.Join(", ", Enum.GetNames<TEnum>())}.");
         }
 
-        if (Enum.TryParse<TEnum>(value.Trim(), ignoreCase: true, out var result))
+        var trimmed = value.Trim();
+        if (long.TryParse(trimmed, out _))
+        {
+            throw new ArgumentException($"Invalid value '{value}' for enum '{typeof(TEnum).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<TEnum>())}.");
+        }
+
+        if (Enum.TryParse<TEnum>(trimmed, ignoreCase: true, out var result) && Enum.IsDefined(typeof(TEnum), result))
         {
             return result;
+        }
+
+        if (trimmed.Contains('_'))
+        {
+            var withoutUnderscore = trimmed.Replace("_", "");
+            if (Enum.TryParse<TEnum>(withoutUnderscore, ignoreCase: true, out var resultNoUnderscore) && Enum.IsDefined(typeof(TEnum), resultNoUnderscore))
+            {
+                return resultNoUnderscore;
+            }
         }
 
         throw new ArgumentException($"Invalid value '{value}' for enum '{typeof(TEnum).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<TEnum>())}.");
@@ -56,12 +72,12 @@ public static class EnumExtensions
     /// </summary>
     public static TEnum ToEnumOrDefault<TEnum>(this string? value, TEnum defaultValue = default) where TEnum : struct, Enum
     {
-        if (string.IsNullOrWhiteSpace(value)) return defaultValue;
-        return Enum.TryParse<TEnum>(value.Trim(), ignoreCase: true, out var result) ? result : defaultValue;
+        return TryToEnum<TEnum>(value, out var result) ? result : defaultValue;
     }
 
     /// <summary>
     /// Tries to parse an external string into the strongly-typed Enum.
+    /// Supports PascalCase, camelCase, UPPERCASE, and SCREAMING_SNAKE_CASE.
     /// </summary>
     public static bool TryToEnum<TEnum>(this string? value, out TEnum result) where TEnum : struct, Enum
     {
@@ -71,7 +87,29 @@ public static class EnumExtensions
             return false;
         }
 
-        return Enum.TryParse<TEnum>(value.Trim(), ignoreCase: true, out result);
+        var trimmed = value.Trim();
+        if (long.TryParse(trimmed, out _))
+        {
+            result = default;
+            return false;
+        }
+
+        if (Enum.TryParse<TEnum>(trimmed, ignoreCase: true, out result) && Enum.IsDefined(typeof(TEnum), result))
+        {
+            return true;
+        }
+
+        if (trimmed.Contains('_'))
+        {
+            var withoutUnderscore = trimmed.Replace("_", "");
+            if (Enum.TryParse<TEnum>(withoutUnderscore, ignoreCase: true, out result) && Enum.IsDefined(typeof(TEnum), result))
+            {
+                return true;
+            }
+        }
+
+        result = default;
+        return false;
     }
 
     /// <summary>
