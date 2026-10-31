@@ -124,4 +124,13 @@ public sealed class SellerController : ControllerBase
         var result = await _sellerService.UpdateSellerOwnProfileAsync(userId, request, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>Retrieves public shop profile for a seller by shop ID or seller user ID.</summary>
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetPublicSellerProfile([FromRoute] Guid id, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[REST GetPublicSellerProfile] Loading public seller profile for identifier: '{Id}'", id);
+        var result = await _sellerService.GetPublicSellerProfileAsync(id, cancellationToken);
+        return Ok(result);
+    }
 }
