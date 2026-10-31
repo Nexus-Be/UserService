@@ -80,3 +80,7 @@ Sơ đồ **thật** (đọc từ các `*.csproj`):
 4. **Validation**:
    - Input format validation đặt tại Request DTOs qua Data Annotations (`[Required]`, `[EmailAddress]`...).
    - Business validation đặt tại Application Services hoặc Domain Exceptions.
+5. **Quản lý Nhật ký Kiểm toán Tập trung (AuditLog Extensions)**:
+   - `User.Application/Common/Extensions/AuditLogExtensions.cs`: Cung cấp extension method `_dbContext.AddAuditLog(...)` cho `IUserDbContext`.
+   - Tự động serialize payload `oldValues`, `newValues`, `changedColumns` sang JSON, chuẩn hóa `ServiceName = "user-service"`, và điền `CreatedAt = UtcNow`.
+   - Giúp Application layer (`AdminUserService`, `SellerService`) ghi nhật ký kiểm toán trong 1 dòng lệnh duy nhất thay vì tạo đối tượng thủ công rải rác.

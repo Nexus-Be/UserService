@@ -12,6 +12,7 @@ using User.Api.Controllers;
 using User.Application.Services.Admin;
 using User.Domain.Entities;
 using User.Domain.Enums;
+using User.Application.Common.Models;
 using User.Infrastructure.Persistence;
 using Xunit;
 
@@ -68,17 +69,9 @@ public sealed class AdminUsersControllerRestTests
     }
 
     [Fact]
-    public async Task CreateUser_WithoutAdminHeader_SucceedsWithSystemAdmin()
+    public async Task CreateUser_WithoutCallerIdentity_Returns401Unauthorized()
     {
         using var dbContext = CreateInMemoryDbContext();
-        dbContext.Roles.Add(new Role
-        {
-            Id = Guid.NewGuid(),
-            RoleCode = RoleType.SupportStaff,
-            RoleName = "Support Staff"
-        });
-        await dbContext.SaveChangesAsync();
-
         var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
         var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
 
@@ -95,8 +88,9 @@ public sealed class AdminUsersControllerRestTests
 
         var result = await controller.CreateUser(request, CancellationToken.None);
 
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status201Created, objectResult.StatusCode);
+        var objectResult = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, objectResult.StatusCode);
+        Assert.Empty(dbContext.Users);
     }
 
     [Fact]
@@ -120,13 +114,13 @@ public sealed class AdminUsersControllerRestTests
         var httpContext = new DefaultHttpContext();
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
-        var result = await controller.ListUsers(page: 1, limit: 10, keyword: null, role: null, status: null, cancellationToken: CancellationToken.None);
+        var result = await controller.ListUsers(page: 1, pageSize: 10, keyword: null, role: null, status: null, cancellationToken: CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
 
-        var pagedResult = Assert.IsType<AdminUserListPagedResultDto>(okResult.Value);
-        Assert.Equal(1, pagedResult.Total);
+        var pagedResult = Assert.IsType<PagedData<AdminUserListItemDto>>(okResult.Value);
+        Assert.Equal(1, pagedResult.Pagination.TotalCount);
         Assert.Single(pagedResult.Items);
         Assert.Equal("listed.user@nexus.local", pagedResult.Items[0].Email);
     }

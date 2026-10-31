@@ -20,7 +20,7 @@
 | 11 | `UserReport` | `UserReports` | `UserReports` | `UserReportConfiguration` | ❌ | ⚠️ schema có, không dùng |
 | 12 | `UserPenalty` | `UserPenalties` | `UserPenalties` | `UserPenaltyConfiguration` | ❌ | ⚠️ schema có, không dùng |
 | 13 | `SystemConfig` | `SystemConfigs` | `SystemConfigs` | `SystemConfigConfiguration` | ❌ (chỉ seed) | ⚠️ schema có, không dùng |
-| 14 | `AuditLog` | `AuditLogs` | `AuditLogs` | `AuditLogConfiguration` | ❌ | ⚠️ schema có, không dùng |
+| 14 | `AuditLog` | `AuditLogs` | `AuditLogs` | `AuditLogConfiguration` | ✅ (AdminUserService, SellerService qua AuditLogExtensions) | ✅ Đang hoạt động |
 Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTransit**: `InboxState`, `OutboxMessage`, `OutboxState` (`AppDbContext.cs:36-38`).
 **Quy ước chung của mọi entity (đúng 14/14):**
 - Kế thừa `BaseEntity<TKey>` hoặc `AuditableEntity<TKey>` (`User.Domain/Base/BaseEntity.cs`), gồm: `Id`, `CreatedAt`, `UpdatedAt`, `IsDeleted`, `DeletedAt`.
@@ -145,18 +145,18 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
     - `Description`: `string?` (Max 500).
     - `UpdatedBy`: `Guid?`.
     - Seed 2 bản ghi: `DEFAULT_REPUTATION_SCORE = 50`, `AUTO_APPROVE_BUYER = true`.
-14. **`AuditLog` (Nhật ký kiểm toán thao tác)** — ⚠️ schema có, code **chưa ghi** lần nào:
-    - `Id`: `Guid` — ⚠️ **không phải UUID v7** (đặc tả cũ ghi "Version 7" là sai); entity dùng `Guid.NewGuid()` (`AuditLog.cs:7`).
-    - `ServiceName`: `string` (Max 100).
-    - `TraceId`: `string?` (Max 100) — ⚠️ **không chỗ nào gán giá trị** trong code hiện tại.
-    - `UserId`, `UserName`: **`string?`** (Max 100 / 255) — đặc tả cũ ghi `string` là sai.
-    - `Action`: `AuditAction` (`UserUpdate = 0`, `UserBan = 1`, `UserUnban = 2`, `SellerApprove = 3`, `SellerReject = 4`, `RoleAssign = 5`, ...).
+14. **`AuditLog` (Nhật ký kiểm toán thao tác)** — ✅ Đang hoạt động qua `AuditLogExtensions.AddAuditLog(...)`:
+    - `Id`: `Guid` — tự sinh `Guid.NewGuid()` (`AuditLog.cs:7`).
+    - `ServiceName`: `string` (Max 100, chuẩn hóa `"user-service"`).
+    - `TraceId`: `string?` (Max 100) — hỗ trợ gán trace ID của request.
+    - `UserId`, `UserName`: **`string?`** (Max 100 / 255).
+    - `Action`: `AuditAction` (`UserUpdate = 0`, `UserBan = 1`, `UserUnban = 2`, `SellerApprove = 3`, `SellerReject = 4`, `RoleAssign = 5`, `SoftDelete = 6`, `ReputationAdjust = 7`, `PasswordReset = 8`, `SystemConfigUpdate = 9`).
     - `EntityName`, `EntityId`: `string` (Max 150, required).
-    - `OldValues`, `NewValues`, `ChangedColumns`: `jsonb`.
+    - `OldValues`, `NewValues`, `ChangedColumns`: `jsonb` (tự động serialize từ object/dictionary sang JSON qua `AuditLogExtensions`).
     - `IpAddress` (Max 50), `UserAgent` (Max 500).
     - `CreatedAt`: `DateTimeOffset`, `IsSynced`: `bool`.
     - ⚠️ **Không có `HasQueryFilter`** dù `AuditLog` không kế thừa `ISoftDelete` trực tiếp — xem §2.
-    - ⚠️ Không có interceptor/`SaveChanges` override nào ghi audit log ⇒ bảng luôn rỗng.
+    - **Cơ chế ghi**: Gọi trực tiếp extension method `_dbContext.AddAuditLog(...)` tại `AdminUserService` (`CreateUserAsync`, `AssignRolesAsync`, `UpdateUserAsync`, `DeleteUserAsync`) và `SellerService` (`ApproveSellerRegistrationAsync`, `RejectSellerRegistrationAsync`, `UpdateSellerStatusAsync`). Bảng lưu trữ vĩnh viễn trong PostgreSQL.
 ---
 ## 2. QUY CHUẨN EF CORE & PERSISTENCE
 - Provider: `Npgsql.EntityFrameworkCore.PostgreSQL` **8.0.10** (`User.Infrastructure/User.Infrastructure.csproj`).

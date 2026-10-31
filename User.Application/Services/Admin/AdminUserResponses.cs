@@ -31,13 +31,6 @@ public sealed record AdminUserListItemDto(
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
 );
 
-public sealed record AdminUserListPagedResultDto(
-    [property: JsonPropertyName("items")] IReadOnlyList<AdminUserListItemDto> Items,
-    [property: JsonPropertyName("total")] int Total,
-    [property: JsonPropertyName("page")] int Page,
-    [property: JsonPropertyName("limit")] int Limit
-);
-
 public sealed record AdminSellerProfileDetailDto(
     [property: JsonPropertyName("shopName")] string ShopName,
     [property: JsonPropertyName("status")] string Status,

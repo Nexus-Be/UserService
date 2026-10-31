@@ -65,7 +65,7 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
 2. **TUYỆT ĐỐI KHÔNG LƯU MẬT KHẨU PLAIN TEXT**: Mật khẩu phải được hash bằng **BCrypt có salt** (`BCrypt.Net-Next 4.0.3`).
 3. **CẤU HÌNH PORT 8001 (HTTP RESTful) VÀ DATABASE `usermanagement_db` (host port 5433) LÀ BẤT BIẾN**.
 4. **CẤM SỬ DỤNG gRPC VÀ BÃI BỎ MESSAGE BROKER — 100% RESTFUL API**:
-   - Toàn bộ API phục vụ giao tiếp đồng bộ qua **RESTful HTTP/JSON** (`/api/v1/auth`, `/api/v1/user`, `/api/v1/admin/user`, `/api/v1/sellers`).
+   - Toàn bộ API phục vụ giao tiếp đồng bộ qua **RESTful HTTP/JSON** sử dụng quy chuẩn 100% số nhiều cho collections: `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers` (và contextual singleton `/api/v1/me`, `/api/v1/auth`).
    - Tuyệt đối cấm gRPC, Protobuf, RabbitMQ và MassTransit.
 5. **GIAO TIẾP LIÊN SERVICE QUA TYPED REST CLIENT**:
    - Gửi OTP email gọi trực tiếp qua `IEmailNotificationClient` sang `NotificationService` (`POST /api/v1/notifications/email/otp`).
@@ -81,14 +81,40 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
    - **REST API Inbound**: Nhận chuỗi qua `PascalCaseJsonStringEnumConverter` hoặc `EnumExtensions.TryToEnum<T>()`. CẤM nhận số nguyên (`allowIntegerValues: false`).
    - **Migration**: Không tự ý thêm lệnh DROP / TRUNCATE / RENAME cột khi chưa được duyệt; kiểm tra `AppDbContextModelSnapshot.cs` đồng bộ 100%.
    - **Seed Data**: Dùng GUID cố định `Guid.Parse(...)` trong `HasData()`. CẤM `Guid.NewGuid()`.
+9. **QUY CHUẨN PHÂN TRANG (PAGINATION GOVERNANCE)**:
+   - Toàn bộ thao tác phân trang bắt buộc thực hiện trực tiếp tại Database qua `.Skip((page - 1) * pageSize).Take(pageSize)` và `.CountAsync()`.
+   - Đóng gói dữ liệu trả về theo cấu trúc phân trang chuẩn `PagedResultDto<T>` hoặc `PagedData<T>` (`items` kèm metadata phân trang `total`, `page`, `limit`).
+   - TUYỆT ĐỐI CẤM trả về danh sách thô lớn không giới hạn để Gateway tự phân trang.
+10. **QUY CHUẨN PHÂN TÁCH PUBLIC VÀ INTERNAL REST API (INTERNAL API SEGREGATION)**:
+    - Cấu trúc thư mục Controller tại `User.Api/Controllers/` bắt buộc chia thành `Controllers/Public/` (`/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`) và `Controllers/Internal/` (nếu có endpoint liên service).
+    - Tầng Api kích hoạt `InternalServiceAuthMiddleware` chặn mọi request `/api/v1/internal/*` không có header `X-Internal-Service-Key` hợp lệ.
+    - HttpClient gọi sang Notification (`EmailNotificationClient`) bắt buộc đăng ký kèm `InternalServiceAuthHandler` gọi vào route nội bộ `POST /api/v1/internal/notifications/email/otp`.
+11. **QUY CHUẨN BẢO VỆ QUYỀN SỞ HỮU TÀI NGUYÊN (RESOURCE OWNERSHIP GOVERNANCE)**:
+    - Mọi thao tác cập nhật hồ sơ cá nhân hoặc xem thông tin nhạy cảm bắt buộc đọc `currentUserId` từ `HttpContext.GetUserId()`.
+    - Người dùng chỉ được sửa hồ sơ của chính mình; các thao tác quản trị tài khoản khác bắt buộc kiểm tra quyền `admin` hoặc `staff`.
+12. **QUY CHUẨN GHI NHẬT KÝ KIỂM TOÁN TẬP TRUNG (CENTRALIZED AUDIT LOGGING GOVERNANCE)**:
+    - Mọi thao tác ghi nhật ký kiểm toán vào bảng `AuditLogs` bắt buộc thực hiện qua extension method `_dbContext.AddAuditLog(...)` (`User.Application/Common/Extensions/AuditLogExtensions.cs`).
+    - TUYỆT ĐỐI CẤM khởi tạo thủ công `new AuditLog { ... }` rải rác trong code tầng Application hay Api.
+    - Hàm tiện ích tự động serialize `oldValues`, `newValues`, `changedColumns` sang JSON, chuẩn hóa `ServiceName = "user-service"`, và điền `CreatedAt = DateTimeOffset.UtcNow`.
+    - TUYỆT ĐỐI CẤM dùng `_logger.LogInformation` để thay thế cho AuditLog nghiệp vụ nhạy cảm (như phân quyền, khóa tài khoản, duyệt hồ sơ người bán).
 
 ---
 
-## 💬 NGUYÊN TẮC 5: QUY CHUẨN THÔNG BÁO LỖI TOÀN HỆ THỐNG
+## 💬 NGUYÊN TẮC 5: QUY CHUẨN THÔNG BÁO LỖI TOÀN HỆ THỐNG (MANDATORY ERROR & ENUM RULES)
 
-1. **Ngôn ngữ (100% English)**: Toàn bộ thông báo lỗi viết bằng tiếng Anh. Tuyệt đối không dùng tiếng Việt.
-2. **Quy cách viết hoa (Sentence case)**: Viết hoa duy nhất chữ cái đầu câu: `"Email is already registered in the system."`
-3. **Mã lỗi (SCREAMING_SNAKE_CASE)**: `EMAIL_ALREADY_EXISTS`, `OTP_EXPIRED`, `OTP_INVALID`, `OTP_ALREADY_USED`, `USER_NOT_FOUND`, `VAL_INVALID_INPUT`, `UNAUTHORIZED`, `FORBIDDEN`.
+1. **Ngôn ngữ (100% English)**: Toàn bộ thông báo lỗi viết bằng 100% tiếng Anh. Tuyệt đối CẤM tiếng Việt trong response và runtime exception.
+2. **Quy cách viết hoa thông báo lỗi (100% Sentence case)**:
+   - Viết hoa DUY NHẤT chữ cái đầu tiên của câu thông báo.
+   - Toàn bộ các từ tiếp theo viết thường, TRỪ các từ viết tắt kỹ thuật hoặc tên riêng: `ID`, `OTP`, `JWT`, `URL`, `UUID`, `Email`, `API`, `HTTP`.
+   - TUYỆT ĐỐI CẤM viết hoa toàn bộ thông báo lỗi (ví dụ cấm: `"USER NOT FOUND"`).
+   - Ví dụ đúng: `"Email is already registered in the system."`, `"Password must be at least 8 characters long."`
+3. **Mã lỗi (100% SCREAMING_SNAKE_CASE)**:
+   - Viết hoa toàn bộ và nối bằng gạch dưới: `EMAIL_ALREADY_EXISTS`, `OTP_EXPIRED`, `OTP_INVALID`, `OTP_ALREADY_USED`, `USER_NOT_FOUND`, `VAL_INVALID_INPUT`, `UNAUTHORIZED`, `FORBIDDEN`.
+   - CẤM tiền tố `ERR_` (ví dụ cấm: `ERR_INVALID_CREDENTIALS` -> sửa thành: `INVALID_CREDENTIALS`). Tiền tố `VAL_` chỉ dành riêng cho validation.
+4. **Quy chuẩn Tuần tự hóa Enum đầu ra REST API (PascalCase Serialization)**:
+   - 100% Enum trả về trong JSON envelope phải là chuỗi `PascalCase` (`"Active"`, `"PendingVerification"`, `"Banned"`), cấm chuỗi in hoa toàn bộ hoặc số nguyên.
+5. **Cơ chế Duy trì Rule Bền vững ("Ghi vào Rule")**:
+   - Khi Người dùng (Sếp) chỉ thị "ghi vào rule", AI Agent bắt buộc phải lập tức ghi nhận và đồng bộ vào file này, `.agents/AGENTS.md`, root `AGENTS.md` và `.cursor/rules/`.
 
 ---
 

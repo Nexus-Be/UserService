@@ -26,7 +26,12 @@ public record LoginResultDto(
     string RefreshToken,
     string TokenType,
     int ExpiresIn,
-    LoginUserApiResponse User);
+    LoginUserApiResponse User,
+    string? UserId = null,
+    string? Email = null,
+    string? Role = null,
+    System.Collections.Generic.IReadOnlyList<string>? Roles = null,
+    System.Collections.Generic.IReadOnlyList<string>? Permissions = null);
 
 public record RefreshTokenDto(
     string RefreshToken,
@@ -36,7 +41,13 @@ public record RefreshTokenDto(
 public record RefreshTokenResultDto(
     string AccessToken,
     string RefreshToken,
-    int ExpiresIn);
+    int ExpiresIn,
+    string? UserId = null,
+    string? Email = null,
+    string? Role = null,
+    System.Collections.Generic.IReadOnlyList<string>? Roles = null,
+    System.Collections.Generic.IReadOnlyList<string>? Permissions = null,
+    LoginUserApiResponse? User = null);
 
 public record LogoutDto(
     string RefreshToken);

@@ -2,11 +2,13 @@ namespace User.Tests;
 
 using System;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Swagger;
 using Xunit;
 
@@ -22,8 +24,7 @@ public sealed class SwaggerGenerationTests
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
-    [Fact]
-    public void Swagger_v1_specification_generates_successfully_without_route_conflicts()
+    private static ISwaggerProvider CreateSwaggerProvider()
     {
         var services = new ServiceCollection();
 
@@ -38,8 +39,14 @@ public sealed class SwaggerGenerationTests
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
 
-        using var serviceProvider = services.BuildServiceProvider();
-        var swaggerProvider = serviceProvider.GetRequiredService<ISwaggerProvider>();
+        var serviceProvider = services.BuildServiceProvider();
+        return serviceProvider.GetRequiredService<ISwaggerProvider>();
+    }
+
+    [Fact]
+    public void Swagger_v1_specification_generates_successfully_without_route_conflicts()
+    {
+        var swaggerProvider = CreateSwaggerProvider();
 
         // Retrieve Swagger v1 doc - Swashbuckle throws if duplicate routes or conflicting actions exist
         var swaggerDoc = swaggerProvider.GetSwagger("v1");
@@ -47,5 +54,31 @@ public sealed class SwaggerGenerationTests
         Assert.NotNull(swaggerDoc);
         Assert.NotNull(swaggerDoc.Paths);
         Assert.True(swaggerDoc.Paths.Count > 0, "Swagger specification should contain API paths.");
+    }
+
+    [Fact]
+    public void Admin_users_list_uses_the_shared_pageSize_query_parameter()
+    {
+        var swaggerDoc = CreateSwaggerProvider().GetSwagger("v1");
+
+        var path = swaggerDoc.Paths["/api/v1/admin/users"];
+        var operation = Assert.IsType<OpenApiOperation>(path.Operations[OperationType.Get]);
+        var parameterNames = operation.Parameters.Select(parameter => parameter.Name).ToList();
+
+        Assert.Contains("pageSize", parameterNames);
+        Assert.DoesNotContain("limit", parameterNames);
+    }
+
+    [Fact]
+    public void Admin_users_delete_declares_only_the_success_status_code()
+    {
+        var swaggerDoc = CreateSwaggerProvider().GetSwagger("v1");
+
+        var operation = Assert.IsType<OpenApiOperation>(
+            swaggerDoc.Paths["/api/v1/admin/users/{userId}"].Operations[OperationType.Delete]);
+
+        Assert.Contains("204", operation.Responses.Keys);
+        Assert.DoesNotContain("400", operation.Responses.Keys);
+        Assert.DoesNotContain("404", operation.Responses.Keys);
     }
 }

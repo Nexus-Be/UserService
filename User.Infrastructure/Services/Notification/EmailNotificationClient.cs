@@ -36,7 +36,7 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
                 expiresInMinutes
             };
 
-            var response = await _httpClient.PostAsJsonAsync("api/v1/notifications/email/otp", payload, cancellationToken);
+            var response = await _httpClient.PostAsJsonAsync("api/v1/internal/notifications/email/otp", payload, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 _logger.LogInformation("[REST Email Notification] OTP email dispatched successfully to '{Email}'.", email);

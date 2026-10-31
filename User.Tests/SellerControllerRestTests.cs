@@ -13,6 +13,7 @@ using User.Application.Models;
 using User.Application.Services.Seller;
 using User.Domain.Entities;
 using User.Domain.Enums;
+using User.Application.Common.Models;
 using User.Infrastructure.Persistence;
 using Xunit;
 
@@ -99,12 +100,12 @@ public sealed class SellerControllerRestTests
 
         var result = await controller.RegisterSeller(request, CancellationToken.None);
 
-        var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.NotNull(badRequestResult.Value);
+        var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.NotNull(unauthorizedResult.Value);
     }
 
     [Fact]
-    public async Task RegisterSeller_InvalidUserIdHeader_Returns400BadRequest()
+    public async Task RegisterSeller_InvalidUserIdHeader_Returns401Unauthorized()
     {
         using var dbContext = CreateInMemoryDbContext();
         var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
@@ -124,8 +125,8 @@ public sealed class SellerControllerRestTests
 
         var result = await controller.RegisterSeller(request, CancellationToken.None);
 
-        var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.NotNull(badRequestResult.Value);
+        var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.NotNull(unauthorizedResult.Value);
     }
 
     [Fact]
@@ -133,12 +134,12 @@ public sealed class SellerControllerRestTests
     {
         using var dbContext = CreateInMemoryDbContext();
         var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
-        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+        var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
         var result = await controller.ListSellerRegistrations(1, 20, null, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        var pagedResult = Assert.IsType<PagedResultDto<AdminSellerRegistrationItemDto>>(okResult.Value);
+        var pagedResult = Assert.IsType<PagedData<AdminSellerRegistrationItemDto>>(okResult.Value);
         Assert.NotNull(pagedResult);
     }
 
@@ -174,7 +175,7 @@ public sealed class SellerControllerRestTests
         await dbContext.SaveChangesAsync();
 
         var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
-        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+        var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
         var staffId = Guid.NewGuid();
         var httpContext = new DefaultHttpContext();
@@ -221,7 +222,7 @@ public sealed class SellerControllerRestTests
         await dbContext.SaveChangesAsync();
 
         var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
-        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+        var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
         var staffId = Guid.NewGuid();
         var httpContext = new DefaultHttpContext();
@@ -297,7 +298,7 @@ public sealed class SellerControllerRestTests
 
         var result = await controller.GetSellerOwnProfile(CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<UnauthorizedObjectResult>(result);
     }
 
     [Fact]
@@ -355,7 +356,7 @@ public sealed class SellerControllerRestTests
     }
 
     [Fact]
-    public async Task UpdateSellerOwnProfile_MissingOrInvalidUserId_Returns400BadRequest()
+    public async Task UpdateSellerOwnProfile_MissingOrInvalidUserId_Returns401Unauthorized()
     {
         using var dbContext = CreateInMemoryDbContext();
         var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
@@ -367,6 +368,6 @@ public sealed class SellerControllerRestTests
 
         var result = await controller.UpdateSellerOwnProfile(new UpdateSellerOwnProfileDto { ShopName = "Test" }, CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<UnauthorizedObjectResult>(result);
     }
 }

@@ -12,6 +12,7 @@ using User.Application.Services.Seller;
 using User.Domain.Entities;
 using User.Domain.Enums;
 using User.Domain.Exceptions;
+using User.Application.Common.Models;
 using User.Infrastructure.Persistence;
 using Xunit;
 
@@ -507,7 +508,7 @@ public sealed class SellerServiceTests
 
         var result = await service.GetSellerRegistrationsAsync(1, 10, "PENDING", CancellationToken.None);
 
-        Assert.Equal(1, result.Total);
+        Assert.Equal(1, result.Pagination.TotalCount);
         Assert.Single(result.Items);
         Assert.Equal("PENDING", result.Items[0].Status);
         Assert.Equal("Pending Shop", result.Items[0].ShopName);

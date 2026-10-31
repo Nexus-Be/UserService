@@ -459,7 +459,7 @@ public sealed class ProfileServiceTests
         var ex = await Assert.ThrowsAsync<DomainException>(() =>
             profileService.GetPublicProfileAsync(Guid.NewGuid()));
 
-        Assert.Equal("ERR_USER_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
         Assert.Equal(404, ex.StatusCode);
     }
 }

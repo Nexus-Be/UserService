@@ -209,15 +209,11 @@ public sealed class AdminUserService : IAdminUserService
         });
 
         // 10. Record audit log
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "UserService",
-            Action = AuditAction.RoleAssign,
-            EntityName = nameof(Domain.Entities.User),
-            EntityId = newUser.Id.ToString(),
-            UserId = adminId?.ToString() ?? "SYSTEM_ADMIN",
-            UserName = adminId?.ToString() ?? "SystemAdmin",
-            NewValues = JsonSerializer.Serialize(new
+        _dbContext.AddAuditLog(
+            action: AuditAction.RoleAssign,
+            entityName: nameof(Domain.Entities.User),
+            entityId: newUser.Id.ToString(),
+            newValues: new
             {
                 Email = newUser.Email,
                 FirstName = newUser.FirstName,
@@ -225,9 +221,9 @@ public sealed class AdminUserService : IAdminUserService
                 Roles = assignedRoleNames,
                 Status = newUser.Status.ToString(),
                 CreatedBy = adminId
-            }),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+            },
+            userId: adminId?.ToString() ?? "SYSTEM_ADMIN",
+            userName: adminId?.ToString() ?? "SystemAdmin");
 
         // 11. Commit to database
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -245,7 +241,7 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
-    public async Task<AdminUserListPagedResultDto> GetUsersAsync(
+    public async Task<PagedData<AdminUserListItemDto>> GetUsersAsync(
         int page = 1,
         int limit = 20,
         string? keyword = null,
@@ -355,7 +351,7 @@ public sealed class AdminUserService : IAdminUserService
             );
         }).ToList();
 
-        return new AdminUserListPagedResultDto(items, total, safePage, safeLimit);
+        return new PagedData<AdminUserListItemDto>(items, PaginationMetadata.Create(safePage, safeLimit, total));
     }
 
     public async Task<AdminUserDetailDto> GetUserDetailAsync(
@@ -584,7 +580,7 @@ public sealed class AdminUserService : IAdminUserService
         // 3. Segregation of Duties (SoD): Cannot combine Admin and SupportStaff
         if (requestedRoles.Contains(RoleType.Admin) && requestedRoles.Contains(RoleType.SupportStaff))
         {
-            throw new BusinessRuleValidationException("ERR_SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
+            throw new BusinessRuleValidationException("SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
         }
 
         // 4. Demotion Guard: Cannot demote the last active Administrator
@@ -605,7 +601,7 @@ public sealed class AdminUserService : IAdminUserService
 
             if (activeAdminCount <= 1)
             {
-                throw new BusinessRuleValidationException("ERR_CANNOT_DEMOTE_LAST_ADMIN", "Cannot remove Admin role from the last active Administrator in the system.");
+                throw new BusinessRuleValidationException("CANNOT_DEMOTE_LAST_ADMIN", "Cannot remove Admin role from the last active Administrator in the system.");
             }
         }
 
@@ -657,18 +653,14 @@ public sealed class AdminUserService : IAdminUserService
         var newRoleNames = requestedRoles.Select(r => r.ToString().ToLowerInvariant()).ToList();
 
         // 6. Ghi AuditLog
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "user-service",
-            Action = AuditAction.RoleAssign,
-            EntityName = "UserRoles",
-            EntityId = targetUserId.ToString(),
-            UserId = adminId?.ToString(),
-            OldValues = JsonSerializer.Serialize(oldRoleNames),
-            NewValues = JsonSerializer.Serialize(newRoleNames),
-            ChangedColumns = JsonSerializer.Serialize(new[] { "UserRoles" }),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+        _dbContext.AddAuditLog(
+            action: AuditAction.RoleAssign,
+            entityName: "UserRoles",
+            entityId: targetUserId.ToString(),
+            oldValues: oldRoleNames,
+            newValues: newRoleNames,
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "UserRoles" });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -858,18 +850,14 @@ public sealed class AdminUserService : IAdminUserService
         };
 
         // 7. Ghi AuditLog
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "user-service",
-            Action = AuditAction.UserUpdate,
-            EntityName = "User",
-            EntityId = targetUserId.ToString(),
-            UserId = adminId?.ToString(),
-            OldValues = JsonSerializer.Serialize(oldValues),
-            NewValues = JsonSerializer.Serialize(newValues),
-            ChangedColumns = JsonSerializer.Serialize(changedColumns),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserUpdate,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: oldValues,
+            newValues: newValues,
+            userId: adminId?.ToString(),
+            changedColumns: changedColumns);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -891,7 +879,7 @@ public sealed class AdminUserService : IAdminUserService
 
     public async Task DeleteUserAsync(
         Guid targetUserId,
-        DeleteAdminUserDto dto,
+        DeleteAdminUserDto? dto,
         Guid? adminId = null,
         CancellationToken cancellationToken = default)
     {
@@ -940,7 +928,7 @@ public sealed class AdminUserService : IAdminUserService
 
             if (activeAdminCount <= 1)
             {
-                throw new BusinessRuleValidationException("ERR_CANNOT_DELETE_LAST_ADMIN", "Cannot delete the last active Administrator in the system.");
+                throw new BusinessRuleValidationException("CANNOT_DELETE_LAST_ADMIN", "Cannot delete the last active Administrator in the system.");
             }
         }
 
@@ -986,18 +974,14 @@ public sealed class AdminUserService : IAdminUserService
             ["RevokedTokensCount"] = activeTokens.Count
         };
 
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "user-service",
-            Action = AuditAction.SoftDelete,
-            EntityName = "User",
-            EntityId = targetUserId.ToString(),
-            UserId = adminId?.ToString(),
-            OldValues = JsonSerializer.Serialize(oldValues),
-            NewValues = JsonSerializer.Serialize(newValues),
-            ChangedColumns = JsonSerializer.Serialize(new[] { "IsDeleted", "DeletedAt", "Status" }),
-            CreatedAt = now
-        });
+        _dbContext.AddAuditLog(
+            action: AuditAction.SoftDelete,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: oldValues,
+            newValues: newValues,
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "IsDeleted", "DeletedAt", "Status" });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 

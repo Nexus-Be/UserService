@@ -92,6 +92,11 @@ public class AuthService : IAuthService
                 throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.");
             }
 
+            if (existingUser.Status == UserStatus.Banned)
+            {
+                throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            }
+
             // Re-registration for unverified account (PendingVerification):
             existingUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
             existingUser.FirstName = dto.FirstName.Trim();
@@ -230,9 +235,9 @@ public class AuthService : IAuthService
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
         }
 
-        if (user.Status == UserStatus.Active)
+        if (user.Status == UserStatus.Banned)
         {
-            return user;
+            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
         }
 
         var otpEntry = await _otpService.GetOtpAsync(normalizedEmail);
@@ -260,6 +265,11 @@ public class AuthService : IAuthService
             throw new DomainException("OTP_INVALID", "OTP code is invalid.");
         }
 
+        if (user.Status == UserStatus.Active)
+        {
+            return user;
+        }
+
         await _otpService.MarkOtpConsumedAsync(normalizedEmail);
 
         user.Status = UserStatus.Active;
@@ -281,9 +291,20 @@ public class AuthService : IAuthService
 
         var user = await VerifyOtpAsync(request.Email, request.Otp, cancellationToken);
 
+        var roles = new List<string>();
+        ExtractUserRoles(user, roles);
+        if (roles.Count == 0) roles.Add("buyer");
+
+        var permissions = new List<string>();
+        ExtractUserPermissions(user, roles, permissions);
+
         return new VerifyOtpApiResponse(
             IsVerified: true,
-            Email: user.Email
+            Email: user.Email,
+            UserId: user.Id.ToString(),
+            Role: roles.FirstOrDefault() ?? "buyer",
+            Roles: roles,
+            Permissions: permissions.Distinct().ToList()
         );
     }
 
@@ -326,6 +347,12 @@ public class AuthService : IAuthService
             throw new DomainException("USER_ALREADY_VERIFIED", "User account has already been verified.");
         }
 
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[AUTH] Resend OTP rejected: User '{Email}' is banned.", normalizedEmail);
+            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+        }
+
         await _otpService.InvalidateExistingOtpsAsync(normalizedEmail);
 
         var newOtpCode = Random.Shared.Next(100000, 999999).ToString();
@@ -360,7 +387,7 @@ public class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(dto.UsernameOrEmail) || string.IsNullOrWhiteSpace(dto.Password))
         {
-            throw new DomainException("ERR_INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
+            throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
         var identifier = dto.UsernameOrEmail.Trim();
@@ -369,7 +396,7 @@ public class AuthService : IAuthService
         if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
         {
             _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
-            throw new DomainException("ERR_ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
+            throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
         }
 
         var user = await _dbContext.Users
@@ -386,21 +413,21 @@ public class AuthService : IAuthService
             if (attempts >= 5)
             {
                 await _otpService.LockAccountAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
-                throw new DomainException("ERR_ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
+                throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
             }
-            throw new DomainException("ERR_INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
+            throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
         if (user.Status == UserStatus.PendingVerification)
         {
             _logger.LogWarning("[AUTH] Login rejected: User '{Email}' is PendingVerification. OTP verification required.", user.Email);
-            throw new DomainException("ERR_ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
+            throw new DomainException("ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
         }
 
         if (user.Status == UserStatus.Banned)
         {
             _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned.", user.Email);
-            throw new DomainException("ERR_ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
         }
 
         bool isPasswordValid = false;
@@ -421,9 +448,9 @@ public class AuthService : IAuthService
             if (attempts >= 5)
             {
                 await _otpService.LockAccountAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
-                throw new DomainException("ERR_ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
+                throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
             }
-            throw new DomainException("ERR_INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
+            throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
         await _otpService.ResetLoginAttemptsAsync(normalizedIdentifier);
@@ -468,6 +495,7 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("[AUTH] User '{Email}' logged in successfully. UserId: {UserId} | Roles: [{Roles}]. JWT & RefreshToken issued.", user.Email, user.Id, string.Join(", ", roles));
 
+        var primaryRole = roles.FirstOrDefault() ?? "buyer";
         var userResponse = new LoginUserApiResponse(
             Id: user.Id.ToString(),
             Email: user.Email,
@@ -475,7 +503,9 @@ public class AuthService : IAuthService
             FirstName: user.FirstName,
             LastName: user.LastName,
             Roles: roles,
-            Permissions: permissions.Distinct().ToList()
+            Permissions: permissions.Distinct().ToList(),
+            UserId: user.Id.ToString(),
+            Role: primaryRole
         );
 
         return new LoginResultDto(
@@ -483,7 +513,12 @@ public class AuthService : IAuthService
             RefreshToken: rawRefreshToken,
             TokenType: "Bearer",
             ExpiresIn: expiresIn,
-            User: userResponse);
+            User: userResponse,
+            UserId: user.Id.ToString(),
+            Email: user.Email,
+            Role: primaryRole,
+            Roles: roles,
+            Permissions: permissions.Distinct().ToList());
     }
 
     public async Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default)
@@ -586,6 +621,19 @@ public class AuthService : IAuthService
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
         if (expiresIn == 0) expiresIn = 3600;
 
+        var primaryRole = roles.FirstOrDefault() ?? "buyer";
+        var userResponse = new LoginUserApiResponse(
+            Id: user.Id.ToString(),
+            Email: user.Email,
+            Username: user.Username,
+            FirstName: user.FirstName,
+            LastName: user.LastName,
+            Roles: roles,
+            Permissions: permissions.Distinct().ToList(),
+            UserId: user.Id.ToString(),
+            Role: primaryRole
+        );
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[AUTH] Rotated refresh token for UserId: {UserId}. New JWT issued.", user.Id);
@@ -593,7 +641,13 @@ public class AuthService : IAuthService
         return new RefreshTokenResultDto(
             AccessToken: newAccessToken,
             RefreshToken: newRawRefreshToken,
-            ExpiresIn: expiresIn);
+            ExpiresIn: expiresIn,
+            UserId: user.Id.ToString(),
+            Email: user.Email,
+            Role: primaryRole,
+            Roles: roles,
+            Permissions: permissions.Distinct().ToList(),
+            User: userResponse);
     }
 
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken cancellationToken = default)

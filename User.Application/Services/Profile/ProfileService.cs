@@ -64,12 +64,12 @@ public class ProfileService : IProfileService
         if (user == null || user.IsDeleted)
         {
             _logger.LogWarning("[PUBLIC PROFILE] User not found or deleted for UserId: {UserId}", userId);
-            throw new DomainException("ERR_USER_NOT_FOUND", "User was not found.", 404);
+            throw new DomainException("USER_NOT_FOUND", "User was not found.", 404);
         }
 
         if (user.Status != Domain.Enums.UserStatus.Active)
         {
-            throw new DomainException("ERR_USER_INACTIVE", "Account is not active or has been deleted.", 400);
+            throw new DomainException("USER_INACTIVE", "Account is not active or has been deleted.", 400);
         }
 
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
@@ -211,7 +211,7 @@ public class ProfileService : IProfileService
 
             if (usernameExists)
             {
-                throw new DomainException("ERR_USERNAME_DUPLICATE", "Username is already taken by another account.", 409);
+                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already taken by another account.", 409);
             }
 
             user.Username = trimmedUsername;

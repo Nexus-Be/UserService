@@ -10,7 +10,11 @@ public sealed record RegisterApiResponse(
 
 public sealed record VerifyOtpApiResponse(
     bool IsVerified,
-    string Email
+    string Email,
+    string? UserId = null,
+    string? Role = null,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? Permissions = null
 );
 
 public sealed record ResendOtpApiResponse(
@@ -25,7 +29,9 @@ public sealed record LoginUserApiResponse(
     string FirstName,
     string LastName,
     IReadOnlyList<string> Roles,
-    IReadOnlyList<string> Permissions
+    IReadOnlyList<string> Permissions,
+    string? UserId = null,
+    string? Role = null
 );
 
 public sealed record LoginApiResponse(
@@ -33,13 +39,24 @@ public sealed record LoginApiResponse(
     string RefreshToken,
     string TokenType,
     int ExpiresIn,
-    LoginUserApiResponse User
+    LoginUserApiResponse User,
+    string? UserId = null,
+    string? Email = null,
+    string? Role = null,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? Permissions = null
 );
 
 public sealed record RefreshTokenApiResponse(
     string AccessToken,
     string RefreshToken,
-    int ExpiresIn
+    int ExpiresIn,
+    string? UserId = null,
+    string? Email = null,
+    string? Role = null,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? Permissions = null,
+    LoginUserApiResponse? User = null
 );
 
 public sealed record LogoutApiResponse(

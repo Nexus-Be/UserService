@@ -11,7 +11,7 @@ public interface ISellerService
         CreateSellerRegistrationDto dto,
         CancellationToken cancellationToken = default);
 
-    Task<PagedResultDto<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
+    Task<PagedData<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
         int page,
         int limit,
         string? status,

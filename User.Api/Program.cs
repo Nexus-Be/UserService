@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using User.Api.Common;
 using User.Api.Extensions;
 using User.Application;
 using User.Infrastructure;
@@ -14,7 +15,11 @@ builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
 // 3. REST Services
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = ApiValidationProblemFactory.Create;
+    });
 
 var app = builder.Build();
 

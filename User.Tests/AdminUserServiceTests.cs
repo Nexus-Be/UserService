@@ -11,6 +11,7 @@ using User.Application.Services.Admin;
 using User.Domain.Entities;
 using User.Domain.Enums;
 using User.Domain.Exceptions;
+using User.Application.Common.Models;
 using User.Infrastructure.Persistence;
 using Xunit;
 
@@ -248,17 +249,17 @@ public sealed class AdminUserServiceTests
 
         // Page 1, Limit 2
         var page1 = await service.GetUsersAsync(page: 1, limit: 2, cancellationToken: CancellationToken.None);
-        Assert.Equal(5, page1.Total);
+        Assert.Equal(5, page1.Pagination.TotalCount);
         Assert.Equal(2, page1.Items.Count);
-        Assert.Equal(1, page1.Page);
-        Assert.Equal(2, page1.Limit);
+        Assert.Equal(1, page1.Pagination.PageIndex);
+        Assert.Equal(2, page1.Pagination.PageSize);
         Assert.Equal("user5@nexus.local", page1.Items[0].Email); // Newest first
 
         // Page 3, Limit 2 (last page with 1 item remaining)
         var page3 = await service.GetUsersAsync(page: 3, limit: 2, cancellationToken: CancellationToken.None);
-        Assert.Equal(5, page3.Total);
+        Assert.Equal(5, page3.Pagination.TotalCount);
         Assert.Single(page3.Items);
-        Assert.Equal(3, page3.Page);
+        Assert.Equal(3, page3.Pagination.PageIndex);
     }
 
     [Fact]
@@ -293,13 +294,13 @@ public sealed class AdminUserServiceTests
 
         // Search by keyword "alex"
         var searchAlex = await service.GetUsersAsync(keyword: "alex", cancellationToken: CancellationToken.None);
-        Assert.Equal(1, searchAlex.Total);
+        Assert.Equal(1, searchAlex.Pagination.TotalCount);
         Assert.Single(searchAlex.Items);
         Assert.Equal("alex.rivers@nexus.local", searchAlex.Items[0].Email);
 
         // Search by phone "9876543"
         var searchPhone = await service.GetUsersAsync(keyword: "9876543", cancellationToken: CancellationToken.None);
-        Assert.Equal(1, searchPhone.Total);
+        Assert.Equal(1, searchPhone.Pagination.TotalCount);
         Assert.Equal("john.doe@nexus.local", searchPhone.Items[0].Email);
     }
 
@@ -340,7 +341,7 @@ public sealed class AdminUserServiceTests
         await dbContext.SaveChangesAsync();
 
         var staffList = await service.GetUsersAsync(role: "staff", cancellationToken: CancellationToken.None);
-        Assert.Equal(1, staffList.Total);
+        Assert.Equal(1, staffList.Pagination.TotalCount);
         Assert.Single(staffList.Items);
         Assert.Equal("staff.role@nexus.local", staffList.Items[0].Email);
     }
@@ -374,7 +375,7 @@ public sealed class AdminUserServiceTests
         await dbContext.SaveChangesAsync();
 
         var bannedResult = await service.GetUsersAsync(status: "banned", cancellationToken: CancellationToken.None);
-        Assert.Equal(1, bannedResult.Total);
+        Assert.Equal(1, bannedResult.Pagination.TotalCount);
         Assert.Single(bannedResult.Items);
         Assert.Equal("banned@nexus.local", bannedResult.Items[0].Email);
     }
@@ -644,7 +645,7 @@ public sealed class AdminUserServiceTests
         var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
             service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Equal("ERR_SOD_VIOLATION", ex.ErrorCode);
+        Assert.Equal("SOD_VIOLATION", ex.ErrorCode);
     }
 
     [Fact]
@@ -680,7 +681,7 @@ public sealed class AdminUserServiceTests
         var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
             service.AssignUserRolesAsync(soleAdminId, dto, Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Equal("ERR_CANNOT_DEMOTE_LAST_ADMIN", ex.ErrorCode);
+        Assert.Equal("CANNOT_DEMOTE_LAST_ADMIN", ex.ErrorCode);
     }
 
     [Fact]
@@ -1028,7 +1029,7 @@ public sealed class AdminUserServiceTests
         var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
             service.DeleteUserAsync(soleAdminId, dto, Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Equal("ERR_CANNOT_DELETE_LAST_ADMIN", ex.ErrorCode);
+        Assert.Equal("CANNOT_DELETE_LAST_ADMIN", ex.ErrorCode);
     }
 
     [Fact]

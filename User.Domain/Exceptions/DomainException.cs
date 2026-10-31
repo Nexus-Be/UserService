@@ -30,6 +30,11 @@ public class EntityNotFoundException : DomainException
         : base("ENTITY_NOT_FOUND", $"Entity '{entityName}' with key '{key}' was not found.", 404)
     {
     }
+
+    public EntityNotFoundException(string errorCode, string entityName, object key)
+        : base(errorCode, $"Entity '{entityName}' with key '{key}' was not found.", 404)
+    {
+    }
 }
 
 public class BusinessRuleValidationException : DomainException

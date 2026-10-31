@@ -130,6 +130,61 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task RegisterAsync_throws_when_email_belongs_to_banned_account()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto("banned.register@nexus.local", "Password123!", "Le", "Van Banned");
+        var user = await authService.RegisterAsync(dto);
+        user.Status = UserStatus.Banned;
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.RegisterAsync(dto));
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResendOtpAsync_throws_when_user_is_banned()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto("banned.resend@nexus.local", "Password123!", "Le", "Van Banned");
+        var user = await authService.RegisterAsync(dto);
+        user.Status = UserStatus.Banned;
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.ResendOtpAsync(dto.Email));
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_throws_when_user_is_banned_and_keeps_status()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto("banned.verify@nexus.local", "Password123!", "Le", "Van Banned");
+        var user = await authService.RegisterAsync(dto);
+        var otp = (await otpService.GetOtpAsync(dto.Email))!.Code;
+        user.Status = UserStatus.Banned;
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.VerifyOtpAsync(dto.Email, otp));
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+
+        var reloaded = await dbContext.Users.FirstAsync(u => u.Email == dto.Email);
+        Assert.Equal(UserStatus.Banned, reloaded.Status);
+    }
+
+    [Fact]
     public async Task RegisterAsync_re_register_unverified_account_invalidates_previous_otp()
     {
         using var dbContext = CreateInMemoryDbContext();
@@ -216,6 +271,26 @@ public sealed class AuthServiceTests
         await dbContext.SaveChangesAsync();
 
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.VerifyOtpAsync("replay@nexus.local", otp));
+        Assert.Equal("OTP_ALREADY_USED", ex.ErrorCode);
+        Assert.Equal("This OTP code has already been used.", ex.Message);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_throws_when_otp_already_used_for_active_user()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto("replayactive@nexus.local", "Password123!", "Do", "Van Replay");
+        await authService.RegisterAsync(dto);
+
+        var otp = (await otpService.GetOtpAsync("replayactive@nexus.local"))!.Code;
+
+        var verifiedUser = await authService.VerifyOtpAsync("replayactive@nexus.local", otp);
+        Assert.Equal(UserStatus.Active, verifiedUser.Status);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.VerifyOtpAsync("replayactive@nexus.local", otp));
         Assert.Equal("OTP_ALREADY_USED", ex.ErrorCode);
         Assert.Equal("This OTP code has already been used.", ex.Message);
     }
@@ -316,7 +391,7 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("wrongpass@nexus.local", "WrongPassword999!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("ERR_INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
         Assert.Equal(401, ex.StatusCode);
     }
 
@@ -331,7 +406,7 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("nonexistent@nexus.local", "Password123!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("ERR_INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
         Assert.Equal(401, ex.StatusCode);
     }
 
@@ -349,7 +424,7 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("pending@nexus.local", "Password123!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("ERR_ACCOUNT_NOT_VERIFIED", ex.ErrorCode);
+        Assert.Equal("ACCOUNT_NOT_VERIFIED", ex.ErrorCode);
         Assert.Equal(403, ex.StatusCode);
     }
 
@@ -369,7 +444,7 @@ public sealed class AuthServiceTests
         var loginDto = new LoginDto("banned@nexus.local", "Password123!");
         var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
 
-        Assert.Equal("ERR_ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
         Assert.Equal(403, ex.StatusCode);
     }
 
@@ -388,23 +463,23 @@ public sealed class AuthServiceTests
 
         var wrongLoginDto = new LoginDto("lockout@nexus.local", "WrongPassword!");
 
-        // First 4 attempts return 401 ERR_INVALID_CREDENTIALS
+        // First 4 attempts return 401 INVALID_CREDENTIALS
         for (int i = 0; i < 4; i++)
         {
             var ex401 = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(wrongLoginDto));
-            Assert.Equal("ERR_INVALID_CREDENTIALS", ex401.ErrorCode);
+            Assert.Equal("INVALID_CREDENTIALS", ex401.ErrorCode);
             Assert.Equal(401, ex401.StatusCode);
         }
 
-        // 5th attempt locks account for 30 minutes and throws 423 ERR_ACCOUNT_LOCKED_TEMPORARY
+        // 5th attempt locks account for 30 minutes and throws 423 ACCOUNT_LOCKED_TEMPORARY
         var ex423 = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(wrongLoginDto));
-        Assert.Equal("ERR_ACCOUNT_LOCKED_TEMPORARY", ex423.ErrorCode);
+        Assert.Equal("ACCOUNT_LOCKED_TEMPORARY", ex423.ErrorCode);
         Assert.Equal(423, ex423.StatusCode);
 
         // Subsequent attempt with correct password still blocked by lockout
         var correctLoginDto = new LoginDto("lockout@nexus.local", "CorrectPassword123!");
         var exSubsequent = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(correctLoginDto));
-        Assert.Equal("ERR_ACCOUNT_LOCKED_TEMPORARY", exSubsequent.ErrorCode);
+        Assert.Equal("ACCOUNT_LOCKED_TEMPORARY", exSubsequent.ErrorCode);
         Assert.Equal(423, exSubsequent.StatusCode);
     }
 

@@ -46,7 +46,7 @@ public sealed class UsersControllerRestTests
         await dbContext.SaveChangesAsync();
 
         var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
-        var controller = new UsersController(profileService, NullLogger<UsersController>.Instance);
+        var controller = new MeController(profileService, NullLogger<MeController>.Instance);
 
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers["x-user-id"] = userId.ToString();
@@ -64,11 +64,11 @@ public sealed class UsersControllerRestTests
     }
 
     [Fact]
-    public async Task GetCurrentUserProfile_Without_Header_Returns_BadRequest()
+    public async Task GetCurrentUserProfile_Without_Header_Returns_Unauthorized()
     {
         using var dbContext = CreateInMemoryDbContext();
         var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
-        var controller = new UsersController(profileService, NullLogger<UsersController>.Instance);
+        var controller = new MeController(profileService, NullLogger<MeController>.Instance);
 
         var httpContext = new DefaultHttpContext();
         controller.ControllerContext = new ControllerContext
@@ -78,7 +78,8 @@ public sealed class UsersControllerRestTests
 
         var result = await controller.GetCurrentUserProfile(CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        var objectResult = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, objectResult.StatusCode);
     }
 
     [Fact]
@@ -102,7 +103,7 @@ public sealed class UsersControllerRestTests
         await dbContext.SaveChangesAsync();
 
         var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
-        var controller = new UsersController(profileService, NullLogger<UsersController>.Instance);
+        var controller = new MeController(profileService, NullLogger<MeController>.Instance);
 
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers["x-user-id"] = userId.ToString();

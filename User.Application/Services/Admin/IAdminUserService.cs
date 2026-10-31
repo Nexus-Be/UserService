@@ -12,7 +12,7 @@ public interface IAdminUserService
         CancellationToken cancellationToken = default
     );
 
-    Task<AdminUserListPagedResultDto> GetUsersAsync(
+    Task<PagedData<AdminUserListItemDto>> GetUsersAsync(
         int page = 1,
         int limit = 20,
         string? keyword = null,
@@ -46,7 +46,7 @@ public interface IAdminUserService
 
     Task DeleteUserAsync(
         Guid targetUserId,
-        DeleteAdminUserDto dto,
+        DeleteAdminUserDto? dto,
         Guid? adminId = null,
         CancellationToken cancellationToken = default
     );

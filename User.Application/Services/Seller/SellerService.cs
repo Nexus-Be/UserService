@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common.Extensions;
+using User.Application.Common;
+using User.Application.Common.Models;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -240,14 +242,15 @@ public sealed class SellerService : ISellerService
         );
     }
 
-    public async Task<PagedResultDto<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
+    public async Task<PagedData<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
         int page,
         int limit,
         string? status,
         CancellationToken cancellationToken = default)
     {
-        page = page < 1 ? 1 : page;
-        limit = limit < 1 ? 20 : (limit > 100 ? 100 : limit);
+        var (safePage, safeLimit) = PaginationConstants.Normalize(page, limit);
+        page = safePage;
+        limit = safeLimit;
 
         var query = _dbContext.SellerProfiles
             .AsNoTracking()
@@ -285,7 +288,7 @@ public sealed class SellerService : ISellerService
             CreatedAt: s.CreatedAt
         )).ToList();
 
-        return new PagedResultDto<AdminSellerRegistrationItemDto>(items, total, page, limit);
+        return new PagedData<AdminSellerRegistrationItemDto>(items, PaginationMetadata.Create(page, limit, total));
     }
 
     public async Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(
@@ -352,16 +355,12 @@ public sealed class SellerService : ISellerService
         sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
 
         // 3. Record audit log
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "UserService",
-            Action = AuditAction.SellerApprove,
-            EntityName = nameof(SellerProfile),
-            EntityId = sellerProfile.Id.ToString(),
-            UserId = reviewerId?.ToString(),
-            NewValues = System.Text.Json.JsonSerializer.Serialize(new { status = "APPROVED", note = dto?.Note }),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerApprove,
+            entityName: nameof(SellerProfile),
+            entityId: sellerProfile.Id.ToString(),
+            newValues: new { status = "APPROVED", note = dto?.Note },
+            userId: reviewerId?.ToString());
 
         // 4. Commit to database
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -414,16 +413,12 @@ public sealed class SellerService : ISellerService
         sellerProfile.ReviewedAt = DateTimeOffset.UtcNow;
         sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
 
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "UserService",
-            Action = AuditAction.SellerReject,
-            EntityName = nameof(SellerProfile),
-            EntityId = sellerProfile.Id.ToString(),
-            UserId = reviewerId?.ToString(),
-            NewValues = System.Text.Json.JsonSerializer.Serialize(new { status = "REJECTED", reason }),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerReject,
+            entityName: nameof(SellerProfile),
+            entityId: sellerProfile.Id.ToString(),
+            newValues: new { status = "REJECTED", reason },
+            userId: reviewerId?.ToString());
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -601,14 +596,11 @@ public sealed class SellerService : ISellerService
         sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
 
         // 6. Record audit log
-        _dbContext.AuditLogs.Add(new AuditLog
-        {
-            ServiceName = "UserService",
-            Action = AuditAction.UserUpdate,
-            EntityName = nameof(SellerProfile),
-            EntityId = sellerProfile.Id.ToString(),
-            UserId = userId.ToString(),
-            NewValues = System.Text.Json.JsonSerializer.Serialize(new
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserUpdate,
+            entityName: nameof(SellerProfile),
+            entityId: sellerProfile.Id.ToString(),
+            newValues: new
             {
                 shopName = sellerProfile.ShopName,
                 hotline = sellerProfile.Hotline,
@@ -618,9 +610,8 @@ public sealed class SellerService : ISellerService
                 provinceId = sellerProfile.ProvinceId,
                 districtId = sellerProfile.DistrictId,
                 wardCode = sellerProfile.WardCode
-            }),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+            },
+            userId: userId.ToString());
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 

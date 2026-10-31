@@ -1,3 +1,5 @@
+name: nexus-db-user
+
 services:
   postgres-user:
     image: postgres:16-alpine
