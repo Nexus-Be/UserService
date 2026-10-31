@@ -494,4 +494,49 @@ public sealed class SellerControllerRestTests
 
         Assert.IsType<UnauthorizedObjectResult>(result);
     }
+
+    [Fact]
+    public async Task GetPublicSellerProfile_ApprovedShopExists_Returns200OkWithPublicData()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "public_seller_controller@test.com",
+            FirstName = "Public",
+            LastName = "User",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var shopId = Guid.NewGuid();
+        var sellerProfile = new SellerProfile
+        {
+            Id = shopId,
+            UserId = userId,
+            ShopName = "Nexus Official Store",
+            Hotline = "0901234567",
+            PickupAddress = "123 Cầu Giấy, Hà Nội",
+            ProvinceId = 201,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = CreateSellerService(dbContext);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var result = await controller.GetPublicSellerProfile(shopId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<PublicSellerProfileResponseDto>(okResult.Value);
+        Assert.Equal(shopId.ToString(), response.ShopId);
+        Assert.Equal(userId.ToString(), response.SellerId);
+        Assert.Equal("Nexus Official Store", response.ShopName);
+        Assert.Equal("090*****67", response.Hotline);
+    }
 }

@@ -56,3 +56,15 @@ public sealed record RejectSellerRegistrationResponseDto(
     [property: JsonPropertyName("rejectedAt")] DateTimeOffset RejectedAt,
     [property: JsonPropertyName("rejectionReason")] string RejectionReason
 );
+
+public sealed record PublicSellerProfileResponseDto(
+    [property: JsonPropertyName("shopId")] string ShopId,
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("logoUrl")] string? LogoUrl,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("hotline")] string Hotline,
+    [property: JsonPropertyName("ratingAvg")] double RatingAvg,
+    [property: JsonPropertyName("totalProducts")] int TotalProducts,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);

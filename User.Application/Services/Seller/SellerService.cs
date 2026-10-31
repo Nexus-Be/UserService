@@ -660,7 +660,7 @@ public sealed class SellerService : ISellerService
         {
             _logger.LogError("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Local DB untouched.",
                 sellerProfile.Id);
-            throw new DomainException("ERR_FULFILLMENT_UNAVAILABLE", "Fulfillment warehouse creation failed or timed out. Please try again.", 502);
+            throw new DomainException("FULFILLMENT_UNAVAILABLE", "Fulfillment warehouse creation failed or timed out. Please try again.", 502);
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL
@@ -1021,5 +1021,65 @@ public sealed class SellerService : ISellerService
             UpdatedAt: sellerProfile.UpdatedAt,
             Message: "Seller profile updated successfully."
         );
+    }
+
+    public async Task<PublicSellerProfileResponseDto> GetPublicSellerProfileAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Seller or shop identifier is required.");
+        }
+
+        var sellerProfile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(sp => sp.User)
+                .ThenInclude(u => u!.ReviewsReceived)
+            .FirstOrDefaultAsync(sp => (sp.Id == id || sp.UserId == id) && sp.Status == SellerProfileStatus.Approved, cancellationToken);
+
+        if (sellerProfile == null || sellerProfile.User == null || sellerProfile.User.IsDeleted || sellerProfile.User.Status != Domain.Enums.UserStatus.Active)
+        {
+            _logger.LogWarning("[PUBLIC SELLER PROFILE] Approved seller profile was not found or inactive for identifier: '{Id}'.", id);
+            throw new DomainException("SELLER_NOT_FOUND", "Seller shop was not found.", 404);
+        }
+
+        var reviews = sellerProfile.User?.ReviewsReceived?.Where(r => !r.IsDisabled).ToList();
+        double ratingAvg = 5.0;
+        if (reviews != null && reviews.Count > 0)
+        {
+            ratingAvg = Math.Round(reviews.Average(r => r.Rating), 2);
+        }
+
+        return new PublicSellerProfileResponseDto(
+            ShopId: sellerProfile.Id.ToString(),
+            SellerId: sellerProfile.UserId.ToString(),
+            ShopName: sellerProfile.ShopName,
+            LogoUrl: sellerProfile.AvatarUrl ?? sellerProfile.User?.AvatarUrl,
+            Description: null,
+            Hotline: MaskHotline(sellerProfile.Hotline),
+            RatingAvg: ratingAvg,
+            TotalProducts: 0,
+            CreatedAt: sellerProfile.CreatedAt
+        );
+    }
+
+    private static string MaskHotline(string? hotline)
+    {
+        if (string.IsNullOrWhiteSpace(hotline))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = hotline.Trim();
+        if (trimmed.Length < 6)
+        {
+            return trimmed;
+        }
+
+        var prefix = trimmed.Substring(0, 3);
+        var suffix = trimmed.Substring(trimmed.Length - 2);
+        var maskLength = Math.Max(1, trimmed.Length - 5);
+        return $"{prefix}{new string('*', maskLength)}{suffix}";
     }
 }
