@@ -288,7 +288,7 @@ public sealed class SellerService : ISellerService
             CreatedAt: s.CreatedAt
         )).ToList();
 
-        return new PagedData<AdminSellerRegistrationItemDto>(items, PaginationMetadata.Create(page, limit, total));
+        return PagedData<AdminSellerRegistrationItemDto>.From(items, page, limit, total);
     }
 
     public async Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(

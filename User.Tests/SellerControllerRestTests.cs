@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using User.Api.Common;
 using User.Api.Controllers;
 using User.Application.Interfaces;
 using User.Application.Models;
@@ -136,7 +137,7 @@ public sealed class SellerControllerRestTests
         var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
         var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
-        var result = await controller.ListSellerRegistrations(1, 20, null, CancellationToken.None);
+        var result = await controller.ListSellerRegistrations(new PageQuery { Page = 1, PageSize = 20 }, null, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var pagedResult = Assert.IsType<PagedData<AdminSellerRegistrationItemDto>>(okResult.Value);

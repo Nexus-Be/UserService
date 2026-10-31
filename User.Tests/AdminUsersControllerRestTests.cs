@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using User.Api.Common;
 using User.Api.Controllers;
 using User.Application.Services.Admin;
 using User.Domain.Entities;
@@ -114,7 +115,7 @@ public sealed class AdminUsersControllerRestTests
         var httpContext = new DefaultHttpContext();
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
-        var result = await controller.ListUsers(page: 1, pageSize: 10, keyword: null, role: null, status: null, cancellationToken: CancellationToken.None);
+        var result = await controller.ListUsers(new PageQuery { Page = 1, PageSize = 10 }, keyword: null, role: null, status: null, cancellationToken: CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);

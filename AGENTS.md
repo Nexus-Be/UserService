@@ -25,6 +25,12 @@ This project is indexed by GitNexus as **UserService** (618 symbols, 971 relatio
 
 ---
 
+## Endpoint Workflow
+
+Before adding or changing any REST endpoint, follow the local checklist at `.agents/skills/new-feature-endpoint/SKILL.md`. It covers contract, persistence, Application, Api, tests, documentation handoff, and verification. This repository is Inward-Only, so the checklist is self-contained.
+
+---
+
 ## 🛑 NGUYÊN TẮC 1: BẮT BUỘC LẬP KẾ HOẠCH TRƯỚC KHI HÀNH ĐỘNG (PLAN-FIRST RULE)
 
 Mọi AI Agent khi nhận nhiệm vụ kỹ thuật tại UserService **BẮT BUỘC PHẢI LẬP VÀ TRÌNH BÀY PLAN** trước khi thực hiện bất kỳ hành động sửa đổi mã nguồn, thêm/xóa file, refactor, tạo migration database hay thay đổi cấu hình nào.
@@ -85,10 +91,9 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
    - Toàn bộ thao tác phân trang bắt buộc thực hiện trực tiếp tại Database qua `.Skip((page - 1) * pageSize).Take(pageSize)` và `.CountAsync()`.
    - Đóng gói dữ liệu trả về theo cấu trúc phân trang chuẩn `PagedResultDto<T>` hoặc `PagedData<T>` (`items` kèm metadata phân trang `total`, `page`, `limit`).
    - TUYỆT ĐỐI CẤM trả về danh sách thô lớn không giới hạn để Gateway tự phân trang.
-10. **QUY CHUẨN PHÂN TÁCH PUBLIC VÀ INTERNAL REST API (INTERNAL API SEGREGATION)**:
-    - Cấu trúc thư mục Controller tại `User.Api/Controllers/` bắt buộc chia thành `Controllers/Public/` (`/api/v1/auth`, `/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`) và `Controllers/Internal/` (nếu có endpoint liên service).
-    - Tầng Api kích hoạt `InternalServiceAuthMiddleware` chặn mọi request `/api/v1/internal/*` không có header `X-Internal-Service-Key` hợp lệ.
-    - HttpClient gọi sang Notification (`EmailNotificationClient`) bắt buộc đăng ký kèm `InternalServiceAuthHandler` gọi vào route nội bộ `POST /api/v1/internal/notifications/email/otp`.
+10. **INTERNAL API ĐANG TẠM KHÓA (2026-10-31)**:
+   - Route liên service dùng đường dẫn công khai, không còn `/api/v1/internal`.
+   - `InternalServiceAuthMiddleware` và `InternalServiceAuthHandler` đã comment đăng ký; không yêu cầu `X-Internal-Service-Key`.
 11. **QUY CHUẨN BẢO VỆ QUYỀN SỞ HỮU TÀI NGUYÊN (RESOURCE OWNERSHIP GOVERNANCE)**:
     - Mọi thao tác cập nhật hồ sơ cá nhân hoặc xem thông tin nhạy cảm bắt buộc đọc `currentUserId` từ `HttpContext.GetUserId()`.
     - Người dùng chỉ được sửa hồ sơ của chính mình; các thao tác quản trị tài khoản khác bắt buộc kiểm tra quyền `admin` hoặc `staff`.

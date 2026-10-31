@@ -5,7 +5,11 @@ using System.Collections.Generic;
 
 public sealed record PagedData<T>(
     IReadOnlyList<T> Items,
-    PaginationMetadata Pagination);
+    PaginationMetadata Pagination)
+{
+    public static PagedData<T> From(IReadOnlyList<T> items, int pageIndex, int pageSize, int totalCount)
+        => new(items, PaginationMetadata.Create(pageIndex, pageSize, totalCount));
+}
 
 public sealed record PaginationMetadata(
     int PageIndex,

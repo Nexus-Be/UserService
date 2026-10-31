@@ -51,14 +51,13 @@ public sealed class AdminUsersController : ControllerBase
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PagedData<AdminUserListItemDto>))]
     public async Task<IActionResult> ListUsers(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery] PageQuery pagination,
         [FromQuery] string? keyword = null,
         [FromQuery] string? role = null,
         [FromQuery] string? status = null,
         CancellationToken cancellationToken = default)
     {
-        var (safePage, safePageSize) = PaginationConstants.Normalize(page, pageSize);
+        var (safePage, safePageSize) = pagination.Normalize();
 
         _logger.LogInformation("[REST Admin ListUsers] Page: {Page}, PageSize: {PageSize}, Keyword: '{Keyword}', Role: '{Role}', Status: '{Status}'",
             safePage, safePageSize, keyword, role, status);

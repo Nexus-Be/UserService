@@ -15,24 +15,11 @@ using Xunit;
 public sealed class EmailNotificationClientTests
 {
     [Fact]
-    public async Task SendOtpEmailAsync_posts_to_internal_endpoint_with_internal_service_key()
+    public async Task SendOtpEmailAsync_posts_to_public_endpoint_without_internal_service_key()
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["InternalSecurity:ServiceKey"] = "integration-test-key"
-            })
-            .Build();
-
         var capture = new CapturingHandler();
-        var authHandler = new InternalServiceAuthHandler(
-            configuration,
-            NullLogger<InternalServiceAuthHandler>.Instance)
-        {
-            InnerHandler = capture
-        };
 
-        using var httpClient = new HttpClient(authHandler)
+        using var httpClient = new HttpClient(capture)
         {
             BaseAddress = new Uri("http://notification.local/")
         };
@@ -44,8 +31,8 @@ public sealed class EmailNotificationClientTests
         Assert.True(sent);
         Assert.NotNull(capture.LastRequest);
         Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
-        Assert.Equal("/api/v1/internal/notifications/email/otp", capture.LastRequest.RequestUri!.AbsolutePath);
-        Assert.True(capture.LastRequest.Headers.Contains(InternalServiceAuthHandler.HeaderKeyInternalService));
+        Assert.Equal("/api/v1/notifications/email/otp", capture.LastRequest.RequestUri!.AbsolutePath);
+        Assert.False(capture.LastRequest.Headers.Contains(InternalServiceAuthHandler.HeaderKeyInternalService));
         Assert.Contains("654321", capture.LastBody);
     }
 

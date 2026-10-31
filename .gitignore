@@ -78,5 +78,10 @@ publish/
 [Pp]ublish/
 
 ## AI Agents & Local Customizations
-.agents/
+.agents/*
+!.agents/AGENTS.md
+!.agents/rules/
+!.agents/rules/**
+!.agents/skills/
+!.agents/skills/**
 
