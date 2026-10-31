@@ -57,12 +57,13 @@ public static class DependencyInjection
             ?? configuration["NotificationService:BaseUrl"]
             ?? "http://localhost:8007/";
 
-        services.AddTransient<Services.Common.InternalServiceAuthHandler>();
+        // Internal service key handler is temporarily disabled. Inter-service calls use plain REST routes.
+        // services.AddTransient<Services.Common.InternalServiceAuthHandler>();
         services.AddHttpClient<EmailNotificationClient>(client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(10);
-        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
+        });
 
         services.AddSingleton<OtpEmailQueue>();
         services.AddSingleton<IEmailNotificationClient, QueuedEmailNotificationClient>();

@@ -351,7 +351,7 @@ public sealed class AdminUserService : IAdminUserService
             );
         }).ToList();
 
-        return new PagedData<AdminUserListItemDto>(items, PaginationMetadata.Create(safePage, safeLimit, total));
+        return PagedData<AdminUserListItemDto>.From(items, safePage, safeLimit, total);
     }
 
     public async Task<AdminUserDetailDto> GetUserDetailAsync(

@@ -28,12 +28,11 @@ public sealed class AdminSellerRegistrationsController : ControllerBase
     /// <summary>Lists pending seller registration applications for review.</summary>
     [HttpGet]
     public async Task<IActionResult> ListSellerRegistrations(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery] PageQuery pagination,
         [FromQuery] string? status = null,
         CancellationToken cancellationToken = default)
     {
-        var (safePage, safePageSize) = PaginationConstants.Normalize(page, pageSize);
+        var (safePage, safePageSize) = pagination.Normalize();
 
         _logger.LogInformation("[REST ListSellerRegistrations] Fetching page {Page}, pageSize {PageSize}, status {Status}", safePage, safePageSize, status);
         var result = await _sellerService.GetSellerRegistrationsAsync(safePage, safePageSize, status, cancellationToken);
