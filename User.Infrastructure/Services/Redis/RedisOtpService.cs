@@ -16,6 +16,9 @@ public sealed class RedisOtpService : IRedisOtpService
     private readonly ConcurrentDictionary<string, OtpEntry> _inMemoryFallback = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset ExpiresAt)> _inMemoryAttempts = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _inMemoryLockouts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (string Value, DateTimeOffset ExpiresAt)> _inMemoryDrafts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _inMemoryCooldowns = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset ExpiresAt)> _inMemoryOtpAttempts = new(StringComparer.OrdinalIgnoreCase);
     private const string KeyPrefix = "otp:registration:";
 
     public RedisOtpService(
@@ -130,16 +133,18 @@ public sealed class RedisOtpService : IRedisOtpService
     public async Task InvalidateExistingOtpsAsync(string email, string purpose = "registration")
     {
         var key = FormatKey(email, purpose);
+        var attemptsKey = FormatOtpAttemptsKey(email, purpose);
 
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            await db.KeyDeleteAsync(key);
+            await db.KeyDeleteAsync(new RedisKey[] { key, attemptsKey });
             _logger.LogInformation("Invalidated (deleted) existing OTPs in Redis for '{Email}'.", email);
         }
         else
         {
             _inMemoryFallback.TryRemove(key, out _);
+            _inMemoryOtpAttempts.TryRemove(attemptsKey, out _);
             _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Invalidated OTP in memory for '{Email}'.", email);
         }
     }
@@ -223,7 +228,146 @@ public sealed class RedisOtpService : IRedisOtpService
         }
     }
 
+    public async Task SaveDraftAsync(string key, string data, TimeSpan duration)
+    {
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(key, data, duration);
+            _logger.LogInformation("[REDIS] Stored Draft in Redis for key '{Key}' | TTL: {TtlSeconds}s.", key, duration.TotalSeconds);
+        }
+        else
+        {
+            _inMemoryDrafts[key] = (data, DateTimeOffset.UtcNow.Add(duration));
+            _logger.LogWarning("[REDIS OFFLINE - IN-MEMORY FALLBACK] Stored Draft in memory for key '{Key}'.", key);
+        }
+    }
+
+    public async Task<string?> GetDraftAsync(string key)
+    {
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            var val = await db.StringGetAsync(key);
+            return val.IsNullOrEmpty ? null : val.ToString();
+        }
+
+        if (_inMemoryDrafts.TryGetValue(key, out var entry))
+        {
+            if (entry.ExpiresAt > DateTimeOffset.UtcNow)
+            {
+                return entry.Value;
+            }
+            _inMemoryDrafts.TryRemove(key, out _);
+        }
+
+        return null;
+    }
+
+    public async Task<string?> GetAndDeleteDraftAsync(string key)
+    {
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            var val = await db.StringGetDeleteAsync(key);
+            if (val.IsNullOrEmpty) return null;
+            _logger.LogInformation("[REDIS] Atomically retrieved and deleted Draft for key '{Key}'.", key);
+            return val.ToString();
+        }
+
+        if (_inMemoryDrafts.TryRemove(key, out var entry))
+        {
+            if (entry.ExpiresAt > DateTimeOffset.UtcNow)
+            {
+                _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Retrieved and deleted Draft for key '{Key}'.", key);
+                return entry.Value;
+            }
+        }
+
+        return null;
+    }
+
+    public async Task<bool> IsCooldownActiveAsync(string email, string purpose = "registration")
+    {
+        var key = FormatCooldownKey(email, purpose);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            return await db.KeyExistsAsync(key);
+        }
+
+        if (_inMemoryCooldowns.TryGetValue(key, out var expiresAt))
+        {
+            if (expiresAt > DateTimeOffset.UtcNow)
+            {
+                return true;
+            }
+            _inMemoryCooldowns.TryRemove(key, out _);
+        }
+
+        return false;
+    }
+
+    public async Task SetCooldownAsync(string email, TimeSpan duration, string purpose = "registration")
+    {
+        var key = FormatCooldownKey(email, purpose);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(key, "active", duration);
+            _logger.LogInformation("[REDIS] Set OTP cooldown for '{Email}' (purpose: {Purpose}, TTL: {DurationSeconds}s).", email, purpose, duration.TotalSeconds);
+        }
+        else
+        {
+            _inMemoryCooldowns[key] = DateTimeOffset.UtcNow.Add(duration);
+            _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Set OTP cooldown for '{Email}' (purpose: {Purpose}).", email, purpose);
+        }
+    }
+
+    public async Task<int> IncrementOtpAttemptsAsync(string email, TimeSpan window, string purpose = "registration")
+    {
+        var key = FormatOtpAttemptsKey(email, purpose);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            var count = await db.StringIncrementAsync(key);
+            if (count == 1)
+            {
+                await db.KeyExpireAsync(key, window);
+            }
+            _logger.LogInformation("[REDIS] Incremented OTP attempts for '{Email}' (purpose: {Purpose}, count: {Count}).", email, purpose, count);
+            return (int)count;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var entry = _inMemoryOtpAttempts.AddOrUpdate(
+            key,
+            _ => (1, now.Add(window)),
+            (_, existing) => existing.ExpiresAt > now ? (existing.Count + 1, existing.ExpiresAt) : (1, now.Add(window))
+        );
+        _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Incremented OTP attempts for '{Email}' (purpose: {Purpose}, count: {Count}).", email, purpose, entry.Count);
+        return entry.Count;
+    }
+
+    public async Task ResetOtpAttemptsAsync(string email, string purpose = "registration")
+    {
+        var key = FormatOtpAttemptsKey(email, purpose);
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.KeyDeleteAsync(key);
+            _logger.LogInformation("[REDIS] Reset OTP attempts for '{Email}' (purpose: {Purpose}).", email, purpose);
+        }
+        else
+        {
+            _inMemoryOtpAttempts.TryRemove(key, out _);
+            _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Reset OTP attempts for '{Email}' (purpose: {Purpose}).", email, purpose);
+        }
+    }
+
     private static string FormatKey(string email, string purpose = "registration") => $"otp:{purpose}:{email.Trim().ToLowerInvariant()}";
+    private static string FormatCooldownKey(string email, string purpose) => $"otp:cooldown:{purpose}:{email.Trim().ToLowerInvariant()}";
+    private static string FormatOtpAttemptsKey(string email, string purpose) => $"otp:attempts:{purpose}:{email.Trim().ToLowerInvariant()}";
     private static string FormatAttemptKey(string identifier) => $"user:login_attempts:{identifier.Trim().ToLowerInvariant()}";
     private static string FormatLockoutKey(string identifier) => $"user:login_lockout:{identifier.Trim().ToLowerInvariant()}";
 }

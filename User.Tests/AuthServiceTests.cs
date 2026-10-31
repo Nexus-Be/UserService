@@ -429,6 +429,25 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task LoginAsync_PendingVerification_with_wrong_password_throws_INVALID_CREDENTIALS_anti_enumeration()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("pending.enum@nexus.local", "CorrectPassword123!", "Nguyen", "Enum");
+        await authService.RegisterAsync(registerDto);
+
+        // Wrong password on pending verification account returns 401 INVALID_CREDENTIALS, not 403
+        var loginDto = new LoginDto("pending.enum@nexus.local", "WrongPassword999!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
+    }
+
+    [Fact]
     public async Task LoginAsync_throws_when_user_is_suspended()
     {
         using var dbContext = CreateInMemoryDbContext();
@@ -1413,6 +1432,67 @@ public sealed class AuthServiceTests
         Assert.Equal("USER_BANNED", ex.ErrorCode);
     }
 
+    [Fact]
+    public async Task ResendOtpAsync_throws_OTP_COOLDOWN_ACTIVE_when_called_within_cooldown_window()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto(
+            Email: "cooldown.test@nexus.local",
+            Password: "Password123!",
+            FirstName: "Cooldown",
+            LastName: "Tester"
+        );
+        await authService.RegisterAsync(dto);
+
+        // First resend succeeds and sets cooldown
+        var success = await authService.ResendOtpAsync("cooldown.test@nexus.local");
+        Assert.True(success);
+
+        // Immediate second resend throws OTP_COOLDOWN_ACTIVE (HTTP 429)
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ResendOtpAsync("cooldown.test@nexus.local"));
+
+        Assert.Equal("OTP_COOLDOWN_ACTIVE", ex.ErrorCode);
+        Assert.Equal(429, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_throws_OTP_MAX_ATTEMPTS_EXCEEDED_on_5th_failed_attempt_and_invalidates_otp()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto(
+            Email: "bruteforce.test@nexus.local",
+            Password: "Password123!",
+            FirstName: "Brute",
+            LastName: "Force"
+        );
+        await authService.RegisterAsync(dto);
+
+        // Attempts 1 to 4: OTP_INVALID
+        for (var i = 1; i <= 4; i++)
+        {
+            var exInvalid = await Assert.ThrowsAsync<DomainException>(() =>
+                authService.VerifyOtpAsync("bruteforce.test@nexus.local", "000000"));
+            Assert.Equal("OTP_INVALID", exInvalid.ErrorCode);
+        }
+
+        // Attempt 5: OTP_MAX_ATTEMPTS_EXCEEDED
+        var exExceeded = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.VerifyOtpAsync("bruteforce.test@nexus.local", "000000"));
+        Assert.Equal("OTP_MAX_ATTEMPTS_EXCEEDED", exExceeded.ErrorCode);
+
+        // Subsequent attempt: OTP_EXPIRED (because OTP was invalidated)
+        var exExpired = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.VerifyOtpAsync("bruteforce.test@nexus.local", "000000"));
+        Assert.Equal("OTP_EXPIRED", exExpired.ErrorCode);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, System.Collections.Generic.IEnumerable<string>? permissions, out DateTime expiresAt)
@@ -1427,6 +1507,8 @@ public sealed class AuthServiceTests
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, int> _loginAttempts = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, DateTimeOffset> _lockouts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DateTimeOffset> _cooldowns = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _otpAttempts = new(StringComparer.OrdinalIgnoreCase);
 
         private static string Key(string email, string purpose) => $"{purpose}:{email}";
 
@@ -1465,6 +1547,35 @@ public sealed class AuthServiceTests
             {
                 entry.Status = OtpStatus.Expired;
             }
+            _otpAttempts.TryRemove(Key(email, purpose), out _);
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> IsCooldownActiveAsync(string email, string purpose = "registration")
+        {
+            if (_cooldowns.TryGetValue(Key(email, purpose), out var expiresAt))
+            {
+                if (DateTimeOffset.UtcNow < expiresAt) return Task.FromResult(true);
+                _cooldowns.TryRemove(Key(email, purpose), out _);
+            }
+            return Task.FromResult(false);
+        }
+
+        public Task SetCooldownAsync(string email, TimeSpan duration, string purpose = "registration")
+        {
+            _cooldowns[Key(email, purpose)] = DateTimeOffset.UtcNow.Add(duration);
+            return Task.CompletedTask;
+        }
+
+        public Task<int> IncrementOtpAttemptsAsync(string email, TimeSpan window, string purpose = "registration")
+        {
+            var attempts = _otpAttempts.AddOrUpdate(Key(email, purpose), 1, (_, current) => current + 1);
+            return Task.FromResult(attempts);
+        }
+
+        public Task ResetOtpAttemptsAsync(string email, string purpose = "registration")
+        {
+            _otpAttempts.TryRemove(Key(email, purpose), out _);
             return Task.CompletedTask;
         }
 

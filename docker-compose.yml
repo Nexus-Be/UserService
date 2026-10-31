@@ -19,11 +19,11 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
-      ConnectionStrings__DefaultConnection: "${USER_DB_CONNECTION:?USER_DB_CONNECTION is required}"
+      ConnectionStrings__DefaultConnection: "${USER_DB_CONNECTION:-${USER_CONNECTION_STRING:-${CONNECTION_STRING}}}"
       Redis__ConnectionString: "${REDIS_CONNECTION_STRING:-redis:6379}"
       Jwt__Issuer: "${JWT_ISSUER:-http://localhost:8001}"
       Jwt__Audience: "${JWT_AUDIENCE:-shoppingcart-api}"
-      Jwt__Signature: "${JWT_SIGNATURE:?JWT_SIGNATURE is required}"
+      Jwt__Signature: "${JWT_SIGNATURE:-eaT0Ombups70WJzd85CBBpp8rAno55SxKn1qvYBGH9e}"
       NOTIFICATION_SERVICE_URL: "${NOTIFICATION_SERVICE_URL:-http://notification-service:8007}"
       InternalSecurity__ServiceKey: "${INTERNAL_SERVICE_SECRET:-eaT0Ombups70WJzd85CBBpp8rAno55SxKn1qvYBGH9e}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}"

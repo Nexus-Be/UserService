@@ -68,6 +68,19 @@ public static class DependencyInjection
         services.AddSingleton<IEmailNotificationClient, QueuedEmailNotificationClient>();
         services.AddHostedService<OtpEmailDispatchWorker>();
 
+        // REST Fulfillment Service Client (Internal sync with 5s timeout)
+        var fulfillmentBaseUrl = Environment.GetEnvironmentVariable("FULFILLMENT_SERVICE_URL")
+            ?? configuration["FULFILLMENT_SERVICE_URL"]
+            ?? configuration["Services:Fulfillment:BaseUrl"]
+            ?? configuration["FulfillmentService:BaseUrl"]
+            ?? "http://localhost:8006/";
+
+        services.AddHttpClient<IFulfillmentServiceClient, Services.External.FulfillmentServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
+
         return services;
     }
 

@@ -33,7 +33,7 @@ public sealed class PermissionDefectReproTests
     }
 
     [Fact]
-    public async Task Defect_RefreshToken_Fails_To_Extract_Database_RolePermissions()
+    public async Task RoleOnly_Login_And_RefreshToken_Do_Not_Generate_Permissions_Or_Fallback()
     {
         // ARRANGE: Set up a shared in-memory database
         var dbName = $"repro_db_{Guid.NewGuid():N}";
@@ -97,9 +97,11 @@ public sealed class PermissionDefectReproTests
             var loginResult = await authService.LoginAsync(new LoginDto("defect_test@nexus.local", "Password123!"));
             refreshToken = loginResult.RefreshToken!;
 
-            // Verify login extracted SPECIAL.REPORT.EXPORT from DB
+            // Verify login operates in Role-only mode: empty permissions, valid roles
             Assert.NotNull(jwtGenerator.CapturedPermissions);
-            Assert.Contains("SPECIAL.REPORT.EXPORT", jwtGenerator.CapturedPermissions);
+            Assert.Empty(jwtGenerator.CapturedPermissions!);
+            Assert.Empty(loginResult.Permissions!);
+            Assert.Contains("buyer", loginResult.Roles!);
         }
 
         // 2. Perform RefreshToken with a fresh DbContext (simulating the next HTTP request)
@@ -108,15 +110,16 @@ public sealed class PermissionDefectReproTests
             var authService = new AuthService(refreshContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
             var refreshResult = await authService.RefreshTokenAsync(new RefreshTokenDto(refreshToken));
 
-            // INTENT: AuthService must extract permissions from RolePermission -> Permission on login AND refresh.
-            // BUG: RefreshTokenAsync query misses .ThenInclude(r => r!.RolePermissions).ThenInclude(rp => rp.Permission).
-            // captured permissions will NOT contain SPECIAL.REPORT.EXPORT, but instead hardcoded fallback ["CART.VIEW", ...].
-            Assert.Contains("SPECIAL.REPORT.EXPORT", jwtGenerator.CapturedPermissions);
+            // Verify refresh operates in Role-only mode: empty permissions, valid roles
+            Assert.NotNull(jwtGenerator.CapturedPermissions);
+            Assert.Empty(jwtGenerator.CapturedPermissions!);
+            Assert.Empty(refreshResult.Permissions!);
+            Assert.Contains("buyer", refreshResult.Roles!);
         }
     }
 
     [Fact]
-    public async Task Defect_ExtractUserPermissions_Does_Not_Trim_PermissionCode_Causing_Duplicates_Across_Roles()
+    public async Task RoleOnly_Login_Extracts_Roles_Properly_Without_Permissions()
     {
         var dbName = $"repro_untrimmed_db_{Guid.NewGuid():N}";
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
@@ -163,13 +166,14 @@ public sealed class PermissionDefectReproTests
         using (var loginContext = new AppDbContext(dbOptions))
         {
             var authService = new AuthService(loginContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
-            await authService.LoginAsync(new LoginDto("trim_test@nexus.local", "Password123!"));
+            var loginResult = await authService.LoginAsync(new LoginDto("trim_test@nexus.local", "Password123!"));
 
-            // INTENT: Duplicate permissions across roles should be deduplicated (case-insensitively and ignoring whitespace).
-            // BUG: ExtractUserPermissions calls ToUpperInvariant() without Trim(), so "ORDER.VIEW " and "ORDER.VIEW" are both added.
+            // INTENT: Login extracts multiple roles accurately while permissions are cleanly empty
+            Assert.Contains("buyer", loginResult.Roles!);
+            Assert.Contains("seller", loginResult.Roles!);
             Assert.NotNull(jwtGenerator.CapturedPermissions);
-            var normalizedPerms = jwtGenerator.CapturedPermissions.Select(p => p.Trim().ToUpperInvariant()).ToList();
-            Assert.Single(normalizedPerms);
+            Assert.Empty(jwtGenerator.CapturedPermissions!);
+            Assert.Empty(loginResult.Permissions!);
         }
     }
 

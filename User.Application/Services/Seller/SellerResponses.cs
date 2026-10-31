@@ -4,9 +4,28 @@ using System;
 using System.Text.Json.Serialization;
 
 public sealed record SellerRegistrationResponseDto(
-    [property: JsonPropertyName("registrationId")] string RegistrationId,
+    [property: JsonPropertyName("businessEmail")] string BusinessEmail,
     [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("otpExpiresInSeconds")] int OtpExpiresInSeconds,
+    [property: JsonPropertyName("nextStep")] string NextStep,
     [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt
+);
+
+public sealed record VerifySellerOtpResponseDto(
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("businessEmail")] string BusinessEmail,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("verifiedAt")] DateTimeOffset VerifiedAt,
+    [property: JsonPropertyName("message")] string Message
+);
+
+public sealed record SellerRegistrationStatusResponseDto(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejectionReason")] string? RejectionReason = null,
+    [property: JsonPropertyName("nextStep")] string? NextStep = null,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail = null
 );
 
 public sealed record AdminSellerRegistrationItemDto(
