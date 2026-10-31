@@ -16,4 +16,5 @@ public interface ISellerService
     Task<RejectSellerRegistrationResponseDto> RejectSellerRegistrationAsync(Guid registrationId, Guid? reviewerId, RejectSellerRegistrationDto dto, CancellationToken cancellationToken = default);
     Task<SellerOwnProfileResponseDto> GetSellerOwnProfileAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<SellerOwnProfileUpdatedResponseDto> UpdateSellerOwnProfileAsync(Guid userId, UpdateSellerOwnProfileDto dto, CancellationToken cancellationToken = default);
+    Task<PublicSellerProfileResponseDto> GetPublicSellerProfileAsync(Guid id, CancellationToken cancellationToken = default);
 }

@@ -1185,7 +1185,7 @@ public sealed class SellerServiceTests
         var ex = await Assert.ThrowsAsync<DomainException>(() =>
             service.ApproveSellerRegistrationAsync(regId, Guid.NewGuid(), null, CancellationToken.None));
 
-        Assert.Equal("ERR_FULFILLMENT_UNAVAILABLE", ex.ErrorCode);
+        Assert.Equal("FULFILLMENT_UNAVAILABLE", ex.ErrorCode);
         Assert.Equal(502, ex.StatusCode);
 
         // Verify local DB status remains PENDING
@@ -1533,5 +1533,150 @@ public sealed class SellerServiceTests
             service.UpdateSellerOwnProfileAsync(Guid.NewGuid(), new UpdateSellerOwnProfileDto { ShopName = "Valid Name" }, CancellationToken.None));
 
         Assert.Equal("SELLER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetPublicSellerProfileAsync_ByShopId_ReturnsMaskedHotlineAndProfile()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "public_seller@test.com",
+            FirstName = "Public",
+            LastName = "Seller",
+            PasswordHash = "hash",
+            AvatarUrl = "https://cdn.san.vn/avatars/user.jpg",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var shopId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = shopId,
+            UserId = userId,
+            ShopName = "Nexus Official Store",
+            AvatarUrl = "https://cdn.san.vn/avatars/shop.jpg",
+            Hotline = "0901234567",
+            PickupAddress = "123 Cầu Giấy, Hà Nội",
+            ProvinceId = 201,
+            DistrictId = 1490,
+            WardCode = "1A0807",
+            Status = SellerProfileStatus.Approved,
+            CreatedAt = new DateTimeOffset(2026, 10, 28, 8, 0, 0, TimeSpan.Zero)
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.GetPublicSellerProfileAsync(shopId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(shopId.ToString(), result.ShopId);
+        Assert.Equal(userId.ToString(), result.SellerId);
+        Assert.Equal("Nexus Official Store", result.ShopName);
+        Assert.Equal("https://cdn.san.vn/avatars/shop.jpg", result.LogoUrl);
+        Assert.Equal("090*****67", result.Hotline);
+        Assert.Equal(5.0, result.RatingAvg);
+        Assert.Equal(0, result.TotalProducts);
+    }
+
+    [Fact]
+    public async Task GetPublicSellerProfileAsync_ByUserId_ReturnsProfile()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_by_user@test.com",
+            FirstName = "A",
+            LastName = "B",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var shopId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = shopId,
+            UserId = userId,
+            ShopName = "Another Good Shop",
+            Hotline = "0987654321",
+            PickupAddress = "456 Le Loi, Q1",
+            ProvinceId = 202,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.GetPublicSellerProfileAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(shopId.ToString(), result.ShopId);
+        Assert.Equal(userId.ToString(), result.SellerId);
+        Assert.Equal("Another Good Shop", result.ShopName);
+        Assert.Equal("098*****21", result.Hotline);
+    }
+
+    [Fact]
+    public async Task GetPublicSellerProfileAsync_ShopPendingOrRejected_Throws404()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "pending_shop@test.com",
+            FirstName = "A",
+            LastName = "B",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var shopId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = shopId,
+            UserId = userId,
+            ShopName = "Pending Approval Shop",
+            Hotline = "0901234567",
+            PickupAddress = "Address",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.GetPublicSellerProfileAsync(shopId, CancellationToken.None));
+
+        Assert.Equal("SELLER_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal(404, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetPublicSellerProfileAsync_EmptyId_ThrowsValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.GetPublicSellerProfileAsync(Guid.Empty, CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
     }
 }
