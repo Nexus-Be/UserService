@@ -100,9 +100,10 @@ public sealed record LoginApiResponse(
 | HTTP Status | Error Code | Message (Sentence case) | Điều kiện kích hoạt (Trigger Condition) |
 | :---: | :--- | :--- | :--- |
 | `400 Bad Request` | `VAL_INVALID_INPUT` | `One or more validation errors occurred.` | Empty identifier or password |
-| `401 Unauthorized` | `INVALID_CREDENTIALS` | `Invalid username or password.` | User not found or BCrypt password verification failed |
-| `403 Forbidden` | `USER_BANNED` | `User account has been suspended or banned.` | User status is Banned |
-| `403 Forbidden` | `USER_NOT_ACTIVE` | `User account is pending verification or deactivated.` | User status is PendingVerification or Deleted |
+| `401 Unauthorized` | `INVALID_CREDENTIALS` | `Invalid username, email, or password.` | User not found or BCrypt password verification failed |
+| `403 Forbidden` | `ACCOUNT_BANNED` | `Account has been locked or banned by an administrator. Reason: <banReason>.` | User account is banned (includes `Reason: <banReason>` if specified by admin) |
+| `403 Forbidden` | `ACCOUNT_NOT_VERIFIED` | `Account has not been verified with OTP.` | User status is PendingVerification |
+| `423 Locked` | `ACCOUNT_LOCKED_TEMPORARY` | `Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.` | User reached 5 consecutive failed login attempts |
 
 ### 4.1 Bảng Ánh xạ Enum liên quan
 | Tên Enum C# | Giá trị DB (Integer) | Giá trị API (PascalCase) | Ý nghĩa nghiệp vụ |
