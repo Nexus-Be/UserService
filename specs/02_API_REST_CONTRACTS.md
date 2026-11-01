@@ -3,6 +3,7 @@
 > **Trạng thái triển khai (2026-11-01):** ✅ ĐÃ CHUẨN HÓA 100% RESTFUL — Toàn bộ API của UserService là RESTful HTTP/JSON. Bãi bỏ hoàn toàn gRPC, Protobuf (`shop.proto`) và RabbitMQ / MassTransit.
 > **Nguồn sự thật:** code (`User.Api/Controllers/AuthController.cs`, `User.Api/Controllers/UsersController.cs`, `User.Api/Controllers/AdminUsersController.cs`, `User.Api/Controllers/SellerController.cs`).
 > **Cập nhật lần cuối:** 2026-11-01.
+> **Tác giả:** Vinh & AI Agent
 
 ---
 

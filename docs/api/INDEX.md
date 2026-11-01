@@ -1,5 +1,6 @@
 # USER SERVICE — REST API SPECIFICATION CATALOG
 
+> **Tác giả:** Vinh & AI Agent
 > **Tổng số APIs:** 35 Endpoints
 > **Kiến trúc:** 100% RESTful HTTP/JSON (Cấm gRPC & Message Broker)
 > **Quy chuẩn Định tuyến:** 100% Plural Route Convention (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/me`, `/api/v1/auth`)
