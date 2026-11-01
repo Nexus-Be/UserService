@@ -247,4 +247,122 @@ public sealed class AdminUsersControllerRestTests
         Assert.True(deletedDbUser.IsDeleted);
         Assert.Equal(UserStatus.Deleted, deletedDbUser.Status);
     }
+
+    [Fact]
+    public async Task BanUser_ValidRequest_Returns200Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "ban.target@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new BanAdminUserDto
+        {
+            Reason = "Fraudulent bidding activity"
+        };
+
+        var result = await controller.BanUser(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdminUserBannedResponseDto>(okResult.Value);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Banned", response.Status);
+        Assert.Equal("Fraudulent bidding activity", response.BanReason);
+    }
+
+    [Fact]
+    public async Task BanUser_MissingAuth_ReturnsUnauthorized()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var request = new BanAdminUserDto { Reason = "Some reason" };
+
+        var result = await controller.BanUser(Guid.NewGuid(), request, CancellationToken.None);
+
+        var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnbanUser_ValidRequest_Returns200Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "unban.target@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow,
+            BannedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            BanReason = "Previous ban",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new UnbanAdminUserDto
+        {
+            Reason = "Appeal approved"
+        };
+
+        var result = await controller.UnbanUser(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdminUserUnbannedResponseDto>(okResult.Value);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Active", response.Status);
+    }
+
+    [Fact]
+    public async Task UnbanUser_MissingAuth_ReturnsUnauthorized()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = await controller.UnbanUser(Guid.NewGuid(), null, CancellationToken.None);
+
+        var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
+    }
 }

@@ -19,11 +19,16 @@ public sealed class AdminUserService : IAdminUserService
 {
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<AdminUserService> _logger;
+    private readonly IRedisOtpService? _redisOtpService;
 
-    public AdminUserService(IUserDbContext dbContext, ILogger<AdminUserService> logger)
+    public AdminUserService(
+        IUserDbContext dbContext,
+        ILogger<AdminUserService> logger,
+        IRedisOtpService? redisOtpService = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _redisOtpService = redisOtpService;
     }
 
     public async Task<AdminUserCreatedResponseDto> CreateUserAsync(
@@ -987,5 +992,270 @@ public sealed class AdminUserService : IAdminUserService
 
         _logger.LogInformation("[ADMIN USER DELETE] Successfully soft-deleted user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
             targetUserId, activeTokens.Count, dto.Reason.Trim());
+    }
+
+    public async Task<AdminUserBannedResponseDto> BanUserAsync(
+        Guid targetUserId,
+        BanAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for banning user is required.");
+        }
+
+        var trimmedReason = dto.Reason.Trim();
+        if (trimmedReason.Length > 1000)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Ban reason cannot exceed 1000 characters.");
+        }
+
+        if (adminId.HasValue && adminId.Value == targetUserId)
+        {
+            throw new BusinessRuleValidationException("CANNOT_BAN_SELF", "Administrators cannot ban their own account.");
+        }
+
+        // 1. Find user in DB (including soft-deleted for correct error status)
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+            .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[ADMIN USER BAN] User '{UserId}' not found.", targetUserId);
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.", 404);
+        }
+
+        if (user.IsDeleted)
+        {
+            _logger.LogWarning("[ADMIN USER BAN] User '{UserId}' has already been deleted.", targetUserId);
+            throw new DomainException("USER_ALREADY_DELETED", "User has already been deleted.", 400);
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[ADMIN USER BAN] User '{UserId}' is already banned.", targetUserId);
+            throw new DomainException("USER_ALREADY_BANNED", "User account is already banned.", 400);
+        }
+
+        // 2. Guard against banning the last active Administrator
+        var isTargetAdmin = user.UserRoles
+            .Any(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RoleCode == RoleType.Admin);
+
+        if (isTargetAdmin)
+        {
+            var activeAdminCount = await _dbContext.UserRoles
+                .Include(ur => ur.User)
+                .Include(ur => ur.Role)
+                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
+                .Select(ur => ur.UserId)
+                .Distinct()
+                .CountAsync(cancellationToken);
+
+            if (activeAdminCount <= 1)
+            {
+                throw new BusinessRuleValidationException("CANNOT_BAN_LAST_ADMIN", "Cannot ban the last active Administrator in the system.");
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var oldValues = new Dictionary<string, object?>
+        {
+            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["BannedAt"] = user.BannedAt,
+            ["BannedBy"] = user.BannedBy?.ToString(),
+            ["BanReason"] = user.BanReason
+        };
+
+        // 3. Update User Entity
+        user.Status = UserStatus.Banned;
+        user.BannedAt = now;
+        user.BannedBy = adminId;
+        user.BanReason = trimmedReason;
+        user.UpdatedAt = now;
+        if (adminId.HasValue)
+        {
+            user.UpdatedBy = adminId.Value;
+        }
+
+        // 4. Revoke active refresh tokens in PostgreSQL
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+        }
+
+        // 5. Audit Log
+        var newValues = new Dictionary<string, object?>
+        {
+            ["Status"] = UserStatus.Banned.ToString().ToUpperInvariant(),
+            ["BannedAt"] = now,
+            ["BannedBy"] = adminId?.ToString(),
+            ["BanReason"] = trimmedReason,
+            ["RevokedTokensCount"] = activeTokens.Count
+        };
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserBan,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: oldValues,
+            newValues: newValues,
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status", "BannedAt", "BannedBy", "BanReason" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // 6. Redis Invalidation
+        if (_redisOtpService != null)
+        {
+            try
+            {
+                await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+                await _redisOtpService.LockAccountAsync(user.Email, TimeSpan.FromDays(30));
+                await _redisOtpService.LockAccountAsync(targetUserId.ToString(), TimeSpan.FromDays(30));
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_onboarding");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ADMIN USER BAN] Error invalidating Redis session/tokens for User '{UserId}'.", targetUserId);
+            }
+        }
+
+        _logger.LogInformation("[ADMIN USER BAN] Successfully banned user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
+            targetUserId, activeTokens.Count, trimmedReason);
+
+        return new AdminUserBannedResponseDto(
+            UserId: user.Id.ToString(),
+            Status: user.Status.ToString(),
+            BanReason: trimmedReason,
+            BannedAt: now,
+            BannedBy: adminId?.ToString() ?? "system",
+            RevokedTokensCount: activeTokens.Count,
+            Message: "User account banned successfully."
+        );
+    }
+
+    public async Task<AdminUserUnbannedResponseDto> UnbanUserAsync(
+        Guid targetUserId,
+        UnbanAdminUserDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        // 1. Find user in DB
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[ADMIN USER UNBAN] User '{UserId}' not found.", targetUserId);
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.", 404);
+        }
+
+        if (user.IsDeleted)
+        {
+            _logger.LogWarning("[ADMIN USER UNBAN] User '{UserId}' has already been deleted.", targetUserId);
+            throw new DomainException("USER_ALREADY_DELETED", "User has already been deleted.", 400);
+        }
+
+        if (user.Status != UserStatus.Banned)
+        {
+            _logger.LogWarning("[ADMIN USER UNBAN] User '{UserId}' is not currently banned. Current status: {Status}", targetUserId, user.Status);
+            throw new DomainException("USER_NOT_BANNED", "User account is not currently banned.", 400);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var oldValues = new Dictionary<string, object?>
+        {
+            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["BannedAt"] = user.BannedAt,
+            ["BannedBy"] = user.BannedBy?.ToString(),
+            ["BanReason"] = user.BanReason
+        };
+
+        // 2. Restore Status: Active if email verified, otherwise PendingVerification
+        var restoredStatus = user.EmailVerifiedAt.HasValue ? UserStatus.Active : UserStatus.PendingVerification;
+        user.Status = restoredStatus;
+        user.BannedAt = null;
+        user.BannedBy = null;
+        user.BanReason = null;
+        user.UpdatedAt = now;
+        if (adminId.HasValue)
+        {
+            user.UpdatedBy = adminId.Value;
+        }
+
+        var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Account unbanned by administrator.";
+
+        var newValues = new Dictionary<string, object?>
+        {
+            ["Status"] = restoredStatus.ToString().ToUpperInvariant(),
+            ["BannedAt"] = null,
+            ["BannedBy"] = null,
+            ["BanReason"] = null,
+            ["Reason"] = reason
+        };
+
+        // 3. Audit Log
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserUnban,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: oldValues,
+            newValues: newValues,
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status", "BannedAt", "BannedBy", "BanReason" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // 4. Redis Cleanup
+        if (_redisOtpService != null)
+        {
+            try
+            {
+                await _redisOtpService.UnbanUserAsync(targetUserId);
+                await _redisOtpService.ResetLoginAttemptsAsync(user.Email);
+                await _redisOtpService.ResetLoginAttemptsAsync(targetUserId.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ADMIN USER UNBAN] Error clearing Redis ban/lockout for User '{UserId}'.", targetUserId);
+            }
+        }
+
+        _logger.LogInformation("[ADMIN USER UNBAN] Successfully unbanned user '{UserId}'. Restored status to '{Status}'.",
+            targetUserId, restoredStatus);
+
+        return new AdminUserUnbannedResponseDto(
+            UserId: user.Id.ToString(),
+            Status: restoredStatus.ToString(),
+            UnbannedAt: now,
+            UnbannedBy: adminId?.ToString() ?? "system",
+            Message: "User account unbanned successfully."
+        );
     }
 }

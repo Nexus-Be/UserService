@@ -137,4 +137,46 @@ public sealed class AdminUsersController : ControllerBase
         await _adminUserService.DeleteUserAsync(userId, request, adminId, cancellationToken);
         return NoContent();
     }
+
+    /// <summary>Bans a user account for regulatory or policy violations (ADMIN-05).</summary>
+    [HttpPatch("{userId:guid}/ban")]
+    [HttpPatch("/api/v1/admin/user/{userId:guid}/ban")]
+    [RequireRole("admin")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserBannedResponseDto))]
+    public async Task<IActionResult> BanUser(
+        [FromRoute] Guid userId,
+        [FromBody] BanAdminUserDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var adminId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST Admin BanUser] Incoming request to ban UserId: '{UserId}' by Admin: '{AdminId}'", userId, adminId);
+
+        var result = await _adminUserService.BanUserAsync(userId, request, adminId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>Unbans a previously suspended user account (ADMIN-06).</summary>
+    [HttpPatch("{userId:guid}/unban")]
+    [HttpPatch("/api/v1/admin/user/{userId:guid}/unban")]
+    [RequireRole("admin")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserUnbannedResponseDto))]
+    public async Task<IActionResult> UnbanUser(
+        [FromRoute] Guid userId,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] UnbanAdminUserDto? request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var adminId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST Admin UnbanUser] Incoming request to unban UserId: '{UserId}' by Admin: '{AdminId}'", userId, adminId);
+
+        var result = await _adminUserService.UnbanUserAsync(userId, request, adminId, cancellationToken);
+        return Ok(result);
+    }
 }

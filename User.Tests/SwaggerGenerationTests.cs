@@ -81,4 +81,20 @@ public sealed class SwaggerGenerationTests
         Assert.DoesNotContain("400", operation.Responses.Keys);
         Assert.DoesNotContain("404", operation.Responses.Keys);
     }
+
+    [Fact]
+    public void Admin_users_ban_and_unban_are_declared_in_swagger()
+    {
+        var swaggerDoc = CreateSwaggerProvider().GetSwagger("v1");
+
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/users/{userId}/ban"));
+        var banOp = swaggerDoc.Paths["/api/v1/admin/users/{userId}/ban"].Operations[OperationType.Patch];
+        Assert.NotNull(banOp);
+        Assert.Contains("200", banOp.Responses.Keys);
+
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/users/{userId}/unban"));
+        var unbanOp = swaggerDoc.Paths["/api/v1/admin/users/{userId}/unban"].Operations[OperationType.Patch];
+        Assert.NotNull(unbanOp);
+        Assert.Contains("200", unbanOp.Responses.Keys);
+    }
 }

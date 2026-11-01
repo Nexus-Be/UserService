@@ -1,8 +1,8 @@
 # 02 — HỢP ĐỒNG GIAO TIẾP RESTFUL (USER SERVICE REST CONTRACTS)
 
-> **Trạng thái triển khai (2026-10-30):** ✅ ĐÃ CHUẨN HÓA 100% RESTFUL — Toàn bộ API của UserService là RESTful HTTP/JSON. Bãi bỏ hoàn toàn gRPC, Protobuf (`shop.proto`) và RabbitMQ / MassTransit.
+> **Trạng thái triển khai (2026-11-01):** ✅ ĐÃ CHUẨN HÓA 100% RESTFUL — Toàn bộ API của UserService là RESTful HTTP/JSON. Bãi bỏ hoàn toàn gRPC, Protobuf (`shop.proto`) và RabbitMQ / MassTransit.
 > **Nguồn sự thật:** code (`User.Api/Controllers/AuthController.cs`, `User.Api/Controllers/UsersController.cs`, `User.Api/Controllers/AdminUsersController.cs`, `User.Api/Controllers/SellerController.cs`).
-> **Cập nhật lần cuối:** 2026-10-30.
+> **Cập nhật lần cuối:** 2026-11-01.
 
 ---
 
@@ -29,13 +29,15 @@
 * `PUT /api/v1/admin/users/{userId}`: Cập nhật thông tin người dùng bởi quản trị viên.
 * `PUT /api/v1/admin/users/{userId}/roles`: Phân quyền vai trò người dùng.
 * `DELETE /api/v1/admin/users/{userId}`: Xóa mềm người dùng và thu hồi tokens.
+* `PATCH /api/v1/admin/users/{userId}/ban`: Khóa tài khoản vi phạm quy chế (ADMIN-05).
+* `PATCH /api/v1/admin/users/{userId}/unban`: Mở khóa tài khoản đã bị đình chỉ (ADMIN-06).
 
 ### 1.4. Nhà bán hàng (`SellerController` — `/api/v1/sellers`)
 * `POST /api/v1/sellers/registration`: Đăng ký nâng cấp tài khoản lên Seller.
 * `GET /api/v1/sellers/profile`: Tra cứu hồ sơ người bán.
 * `PATCH /api/v1/sellers/profile`: Cập nhật hồ sơ và địa chỉ kho người bán.
 * `GET /api/v1/admin/seller-registrations`: Danh sách đơn đăng ký seller chờ duyệt.
-* `GET /api/v1/admin/seller-registrations/{registrationId}`: Xem chi tiết hồ sơ chứng từ, thông tin kho GHN của đơn đăng ký seller.
+* `GET /api/v1/admin/seller-registrations/{registrationId}`: Chi tiết hồ sơ đơn đăng ký seller.
 * `HttpPost /api/v1/admin/seller-registrations/{id}/approve`: Duyệt đơn đăng ký seller.
 * `HttpPost /api/v1/admin/seller-registrations/{id}/reject`: Từ chối đơn đăng ký seller.
 

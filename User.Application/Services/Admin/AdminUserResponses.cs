@@ -156,3 +156,20 @@ public sealed class DeleteAdminUserDto
     public string? Reason { get; set; }
 }
 
+public sealed record AdminUserBannedResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("banReason")] string BanReason,
+    [property: JsonPropertyName("bannedAt")] DateTimeOffset BannedAt,
+    [property: JsonPropertyName("bannedBy")] string BannedBy,
+    [property: JsonPropertyName("revokedTokensCount")] int RevokedTokensCount,
+    [property: JsonPropertyName("message")] string Message
+);
+
+public sealed record AdminUserUnbannedResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("unbannedAt")] DateTimeOffset UnbannedAt,
+    [property: JsonPropertyName("unbannedBy")] string UnbannedBy,
+    [property: JsonPropertyName("message")] string Message
+);
