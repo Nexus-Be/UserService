@@ -12,6 +12,7 @@ public interface ISellerService
     Task ResendSellerOtpAsync(Guid userId, string businessEmail, CancellationToken cancellationToken = default);
     Task<SellerRegistrationStatusResponseDto> GetSellerRegistrationStatusAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<PagedData<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(int page, int limit, string? status, CancellationToken cancellationToken = default);
+    Task<SellerRegistrationDetailsDto> GetSellerRegistrationDetailsAsync(Guid registrationId, CancellationToken cancellationToken = default);
     Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(Guid registrationId, Guid? reviewerId, ApproveSellerRegistrationDto? dto, CancellationToken cancellationToken = default);
     Task<RejectSellerRegistrationResponseDto> RejectSellerRegistrationAsync(Guid registrationId, Guid? reviewerId, RejectSellerRegistrationDto dto, CancellationToken cancellationToken = default);
     Task<SellerOwnProfileResponseDto> GetSellerOwnProfileAsync(Guid userId, CancellationToken cancellationToken = default);

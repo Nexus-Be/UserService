@@ -39,6 +39,17 @@ public sealed class AdminSellerRegistrationsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Retrieves full details of a seller registration application for review.</summary>
+    [HttpGet("{registrationId:guid}")]
+    public async Task<IActionResult> GetSellerRequestDetails(
+        [FromRoute] Guid registrationId,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[REST GetSellerRequestDetails] Fetching registration details for '{RegistrationId}'", registrationId);
+        var result = await _sellerService.GetSellerRegistrationDetailsAsync(registrationId, cancellationToken);
+        return Ok(result);
+    }
+
     /// <summary>Approves a seller registration and assigns seller role.</summary>
     [HttpPut("{id:guid}/approve")]
     public async Task<IActionResult> ApproveSellerRegistration(

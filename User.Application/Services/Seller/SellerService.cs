@@ -571,6 +571,69 @@ public sealed class SellerService : ISellerService
         return PagedData<AdminSellerRegistrationItemDto>.From(items, page, limit, total);
     }
 
+    public async Task<SellerRegistrationDetailsDto> GetSellerRegistrationDetailsAsync(
+        Guid registrationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (registrationId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Registration identifier is required.");
+        }
+
+        var profile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(s => s.User)
+                .ThenInclude(u => u!.ReputationScore)
+            .FirstOrDefaultAsync(s => s.Id == registrationId, cancellationToken);
+
+        if (profile == null)
+        {
+            profile = await _dbContext.SellerProfiles
+                .AsNoTracking()
+                .Include(s => s.User)
+                    .ThenInclude(u => u!.ReputationScore)
+                .FirstOrDefaultAsync(s => s.UserId == registrationId, cancellationToken);
+        }
+
+        if (profile == null)
+        {
+            _logger.LogWarning("[SELLER REGISTRATION DETAILS] Seller registration '{RegistrationId}' not found.", registrationId);
+            throw new DomainException("SELLER_REGISTRATION_NOT_FOUND", "Seller registration application not found.", 404);
+        }
+
+        var applicantName = profile.User != null
+            ? $"{profile.User.FirstName} {profile.User.LastName}".Trim()
+            : string.Empty;
+
+        return new SellerRegistrationDetailsDto(
+            RegistrationId: profile.Id.ToString(),
+            UserId: profile.UserId.ToString(),
+            ApplicantName: applicantName,
+            ApplicantEmail: profile.User?.Email ?? profile.BusinessEmail ?? string.Empty,
+            ApplicantPhone: profile.User?.PhoneNumber ?? profile.Hotline,
+            ShopName: profile.ShopName,
+            AvatarUrl: profile.AvatarUrl,
+            BusinessEmail: profile.BusinessEmail,
+            Hotline: profile.Hotline,
+            IdentityCardNumber: profile.User?.IdentifyNumber ?? string.Empty,
+            IdCardFrontUrl: profile.IdCardFrontUrl,
+            IdCardBackUrl: profile.IdCardBackUrl,
+            BusinessLicenseUrl: profile.BusinessLicenseUrl,
+            PickupAddress: profile.PickupAddress,
+            WarehouseAddress: profile.PickupAddress,
+            ProvinceId: profile.ProvinceId,
+            DistrictId: profile.DistrictId,
+            WardCode: profile.WardCode,
+            ReputationScore: profile.User?.ReputationScore?.CurrentScore ?? 50,
+            Status: profile.Status.ToString(),
+            RejectionReason: profile.RejectionReason,
+            ReviewedBy: profile.ReviewedBy?.ToString(),
+            ReviewedAt: profile.ReviewedAt,
+            CreatedAt: profile.CreatedAt,
+            UpdatedAt: profile.UpdatedAt
+        );
+    }
+
     public async Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(
         Guid registrationId,
         Guid? reviewerId,
