@@ -84,4 +84,7 @@ publish/
 !.agents/rules/**
 !.agents/skills/
 !.agents/skills/**
+.agents/plan/
+.agents/history/
+
 

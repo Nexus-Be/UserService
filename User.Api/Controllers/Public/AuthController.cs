@@ -32,6 +32,15 @@ public sealed class AuthController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, response);
     }
 
+    /// <summary>Tests user registration by creating a pending Buyer user and dispatching an OTP email.</summary>
+    [HttpPost("/api/v1/users/auth/test")]
+    public async Task<IActionResult> RegisterTest([FromBody] RegisterTestApiRequest request, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[REST RegisterTest] Incoming test registration for: '{Email}'", request?.Email);
+        var response = await _authService.RegisterTestUserAsync(request!, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, response);
+    }
+
     /// <summary>Verifies the OTP sent to a newly registered account.</summary>
     [HttpPost("otp/verify")]
     public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpApiRequest request, CancellationToken cancellationToken)

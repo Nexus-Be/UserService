@@ -11,7 +11,7 @@
 * Examples: `EMAIL_ALREADY_EXISTS`, `OTP_EXPIRED`, `OTP_INVALID`, `USER_NOT_FOUND`, `VAL_INVALID_INPUT`, `VAL_INVALID_USER_ID`, `UNAUTHORIZED`, `FORBIDDEN`.
 
 ## 3. RFC 9110 ProblemDetails Structure
-* Handled by `GlobalExceptionHandlerMiddleware.cs`: returns `application/problem+json` containing `type`, `title`, `status`, `errorCode`, `detail`, `traceId`.
+* Handled by `GlobalExceptionHandlerMiddleware.cs` and `ApiValidationProblemFactory.cs`: returns `application/problem+json` containing `type`, `title`, `status`, `errorCode`, `detail`, `errors` (field validation dictionary), `traceId`, and `timestamp`.
 
 ## 4. Enum Persistence & Boundary Serialization
 * In PostgreSQL (`usermanagement_db`): 100% stored as `integer` (int32). Prohibit `HasConversion<string>()`.

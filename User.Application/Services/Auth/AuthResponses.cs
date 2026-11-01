@@ -8,6 +8,17 @@ public sealed record RegisterApiResponse(
     int OtpExpiresIn
 );
 
+public sealed record RegisterTestApiResponse(
+    bool Success,
+    string Message,
+    string UserId,
+    string Email,
+    string Status,
+    string Role,
+    bool OtpSent,
+    int OtpExpiresIn
+);
+
 public sealed record VerifyOtpApiResponse(
     bool IsVerified,
     string Email,

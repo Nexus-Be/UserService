@@ -57,6 +57,34 @@ public sealed class AuthControllerRestTests
     }
 
     [Fact]
+    public async Task RegisterTest_Returns_Created_With_Pending_Buyer_And_Otp_Dispatched()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var request = new RegisterTestApiRequest(
+            Email: "quicktest@nexus.local",
+            Password: "Password123!"
+        );
+
+        var result = await controller.RegisterTest(request, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, objectResult.StatusCode);
+        var resp = Assert.IsType<RegisterTestApiResponse>(objectResult.Value);
+        Assert.True(resp.Success);
+        Assert.Equal("quicktest@nexus.local", resp.Email);
+        Assert.Equal("PendingVerification", resp.Status);
+        Assert.Equal("Buyer", resp.Role);
+        Assert.True(resp.OtpSent);
+        Assert.Equal(300, resp.OtpExpiresIn);
+        Assert.False(string.IsNullOrWhiteSpace(resp.UserId));
+    }
+
+    [Fact]
     public async Task VerifyOtp_Returns_Ok_When_Otp_Matches()
     {
         using var dbContext = CreateInMemoryDbContext();
@@ -450,6 +478,22 @@ public sealed class AuthControllerRestTests
             _loginAttempts.TryRemove(identifier, out _);
             _lockouts.TryRemove(identifier, out _);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TestEmailNotificationClient : IEmailNotificationClient
+    {
+        public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
+
+        public Task<bool> SendOtpEmailAsync(
+            string email,
+            string fullName,
+            string otpCode,
+            int expiresInMinutes = 5,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
+            return Task.FromResult(true);
         }
     }
 }
