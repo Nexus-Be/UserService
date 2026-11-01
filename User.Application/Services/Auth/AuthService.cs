@@ -18,6 +18,7 @@ public class AuthService : IAuthService
     private readonly IRedisOtpService _otpService;
     private readonly IJwtTokenGenerator? _jwtTokenGenerator;
     private readonly IEmailNotificationClient? _emailNotificationClient;
+    private readonly IWalletServiceClient? _walletServiceClient;
     private readonly ILogger<AuthService> _logger;
 
     private static readonly Guid BuyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -27,13 +28,15 @@ public class AuthService : IAuthService
         IRedisOtpService otpService,
         ILogger<AuthService> logger,
         IJwtTokenGenerator? jwtTokenGenerator = null,
-        IEmailNotificationClient? emailNotificationClient = null)
+        IEmailNotificationClient? emailNotificationClient = null,
+        IWalletServiceClient? walletServiceClient = null)
     {
         _dbContext = dbContext;
         _otpService = otpService;
         _logger = logger;
         _jwtTokenGenerator = jwtTokenGenerator;
         _emailNotificationClient = emailNotificationClient;
+        _walletServiceClient = walletServiceClient;
     }
 
     public async Task<User> RegisterAsync(RegisterDto dto, CancellationToken cancellationToken = default)
@@ -321,6 +324,26 @@ public class AuthService : IAuthService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("[AUTH] User '{Email}' successfully verified OTP. Status changed to Active.", normalizedEmail);
+
+        if (_walletServiceClient != null)
+        {
+            try
+            {
+                var walletCreated = await _walletServiceClient.CreateWalletAsync(user.Id, "VND", cancellationToken);
+                if (walletCreated)
+                {
+                    _logger.LogInformation("[AUTH] Dispatched initial wallet creation for User '{UserId}'.", user.Id);
+                }
+                else
+                {
+                    _logger.LogWarning("[AUTH] Wallet creation returned false or rejected for User '{UserId}'. User activation remains active.", user.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AUTH] Non-blocking wallet creation call failed for User '{UserId}'. User activation remains active.", user.Id);
+            }
+        }
 
         return user;
     }

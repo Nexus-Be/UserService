@@ -99,8 +99,9 @@ public sealed record VerifyOtpApiResponse(
 3. **Bước 3:** Check OTP against cached value in Redis.
 4. **Bước 4:** Transition User.Status from PendingVerification to Active; set EmailVerifiedAt.
 5. **Bước 5:** Remove consumed OTP from Redis.
-6. **Bước 6:** Record audit log for account activation.
-7. **Bước 7:** Return VerifyOtpApiResponse with roles and permissions.
+6. **Bước 6:** Dispatched non-blocking initial wallet creation via `IWalletServiceClient` (`POST api/v1/wallets`).
+7. **Bước 7:** Record audit log for account activation.
+8. **Bước 8:** Return VerifyOtpApiResponse with roles and permissions.
 
 ### 5.2 Checklist hoàn thành
 - [x] **Pre-Code:** Đã đối soát code có sẵn trong UserService để tái sử dụng DTO/Enum/Naming.
