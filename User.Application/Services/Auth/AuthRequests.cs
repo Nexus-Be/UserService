@@ -9,6 +9,11 @@ public sealed record RegisterApiRequest(
     string? Username = null
 );
 
+public sealed record RegisterTestApiRequest(
+    string Email,
+    string Password
+);
+
 public sealed record VerifyOtpApiRequest(
     string Email,
     string Otp

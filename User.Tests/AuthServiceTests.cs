@@ -110,6 +110,53 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task RegisterTestUserAsync_creates_pending_buyer_and_dispatches_otp()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
+
+        var request = new RegisterTestApiRequest(
+            Email: "test.buyer@nexus.local",
+            Password: "SecurePassword123!"
+        );
+
+        var response = await authService.RegisterTestUserAsync(request);
+
+        Assert.NotNull(response);
+        Assert.True(response.Success);
+        Assert.Equal("test.buyer@nexus.local", response.Email);
+        Assert.Equal("PendingVerification", response.Status);
+        Assert.Equal("Buyer", response.Role);
+        Assert.True(response.OtpSent);
+        Assert.Equal(300, response.OtpExpiresIn);
+
+        // Verify entity in DB
+        var user = await dbContext.Users
+            .Include(u => u.UserRoles)
+            .FirstOrDefaultAsync(u => u.Email == "test.buyer@nexus.local");
+
+        Assert.NotNull(user);
+        Assert.Equal(UserStatus.PendingVerification, user.Status);
+        Assert.Single(user.UserRoles);
+        Assert.Equal(Guid.Parse("11111111-1111-1111-1111-111111111111"), user.UserRoles.First().RoleId);
+
+        // Verify OTP is saved in Redis
+        var savedOtp = await otpService.GetOtpAsync("test.buyer@nexus.local");
+        Assert.NotNull(savedOtp);
+        Assert.Equal(OtpStatus.Active, savedOtp.Status);
+        Assert.Equal(6, savedOtp.Code.Length);
+
+        // Verify email notification dispatched
+        Assert.Single(emailClient.SentEmails);
+        var sentEmail = emailClient.SentEmails[0];
+        Assert.Equal("test.buyer@nexus.local", sentEmail.Email);
+        Assert.Equal(6, sentEmail.OtpCode.Length);
+        Assert.Equal(5, sentEmail.ExpiresInMinutes);
+    }
+
+    [Fact]
     public async Task RegisterAsync_throws_when_email_already_registered_and_active()
     {
         using var dbContext = CreateInMemoryDbContext();

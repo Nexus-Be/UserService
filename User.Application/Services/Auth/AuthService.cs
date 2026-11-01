@@ -212,6 +212,38 @@ public class AuthService : IAuthService
         );
     }
 
+    public async Task<RegisterTestApiResponse> RegisterTestUserAsync(RegisterTestApiRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request == null)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Request payload cannot be empty.");
+        }
+
+        var email = request.Email?.Trim() ?? string.Empty;
+        var password = request.Password ?? string.Empty;
+        var localPart = email.Split('@')[0].Trim();
+        var lastName = string.IsNullOrWhiteSpace(localPart) ? "User" : localPart;
+        var dto = new RegisterDto(
+            Email: email,
+            Password: password,
+            FirstName: "Test",
+            LastName: lastName
+        );
+
+        var user = await RegisterAsync(dto, cancellationToken);
+
+        return new RegisterTestApiResponse(
+            Success: true,
+            Message: "Test user registered with PendingVerification status and Buyer role. OTP dispatched.",
+            UserId: user.Id.ToString(),
+            Email: user.Email,
+            Status: user.Status.ToString(),
+            Role: "Buyer",
+            OtpSent: _emailNotificationClient != null,
+            OtpExpiresIn: 300
+        );
+    }
+
     public async Task<User> VerifyOtpAsync(string email, string otp, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = email?.Trim().ToLowerInvariant();
