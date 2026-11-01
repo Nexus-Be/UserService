@@ -94,7 +94,7 @@ public class AuthService : IAuthService
 
             if (existingUser.Status == UserStatus.Banned)
             {
-                throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+                throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(existingUser.BanReason), 403);
             }
 
             // Re-registration for unverified account (PendingVerification):
@@ -269,7 +269,7 @@ public class AuthService : IAuthService
 
         if (user.Status == UserStatus.Banned)
         {
-            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
         }
 
         var otpEntry = await _otpService.GetOtpAsync(normalizedEmail);
@@ -390,7 +390,7 @@ public class AuthService : IAuthService
         if (user.Status == UserStatus.Banned)
         {
             _logger.LogWarning("[AUTH] Resend OTP rejected: User '{Email}' is banned.", normalizedEmail);
-            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
         }
 
         if (await _otpService.IsCooldownActiveAsync(normalizedEmail))
@@ -440,12 +440,6 @@ public class AuthService : IAuthService
         var identifier = dto.UsernameOrEmail.Trim();
         var normalizedIdentifier = identifier.ToLowerInvariant();
 
-        if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
-        {
-            _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
-            throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
-        }
-
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
@@ -461,6 +455,18 @@ public class AuthService : IAuthService
                 throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
             }
             throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned. Reason: '{Reason}'.", user.Email, user.BanReason);
+            throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
+        }
+
+        if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
+        {
+            _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
+            throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
         }
 
         bool isPasswordValid = false;
@@ -492,12 +498,6 @@ public class AuthService : IAuthService
         {
             _logger.LogWarning("[AUTH] Login rejected: User '{Email}' is PendingVerification. OTP verification required.", user.Email);
             throw new DomainException("ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
-        }
-
-        if (user.Status == UserStatus.Banned)
-        {
-            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned.", user.Email);
-            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
         }
 
         var roles = new List<string>();
@@ -606,12 +606,15 @@ public class AuthService : IAuthService
 
         if (user.Status == UserStatus.Banned)
         {
-            _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' is banned. Revoking token.", tokenEntity.UserId);
+            _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' is banned. Revoking token. Reason: '{Reason}'.", tokenEntity.UserId, user.BanReason);
             tokenEntity.IsRevoked = true;
             tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
             tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
-            throw new DomainException("USER_BANNED", "User account has been banned.");
+            var banMessage = !string.IsNullOrWhiteSpace(user.BanReason)
+                ? $"User account has been banned. Reason: {user.BanReason.Trim()}."
+                : "User account has been banned.";
+            throw new DomainException("USER_BANNED", banMessage);
         }
 
         // --- Refresh Token Rotation (RTR) ---
@@ -1036,6 +1039,13 @@ public class AuthService : IAuthService
         var bytes = System.Text.Encoding.UTF8.GetBytes(input);
         var hashBytes = System.Security.Cryptography.SHA256.HashData(bytes);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static string FormatBanMessage(string? banReason)
+    {
+        return !string.IsNullOrWhiteSpace(banReason)
+            ? $"Account has been locked or banned by an administrator. Reason: {banReason.Trim()}."
+            : "Account has been locked or banned by an administrator.";
     }
 
     private static void ExtractUserRoles(User user, List<string> roles)

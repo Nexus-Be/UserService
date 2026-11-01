@@ -512,6 +512,54 @@ public sealed class AuthServiceTests
 
         Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
         Assert.Equal(403, ex.StatusCode);
+        Assert.Equal("Account has been locked or banned by an administrator.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_returns_ban_reason_when_user_is_banned_with_reason()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("banned_reason@nexus.local", "Password123!", "Le", "Banned");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Banned;
+        user.BanReason = "Violating platform terms and fraud";
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("banned_reason@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Equal("Account has been locked or banned by an administrator. Reason: Violating platform terms and fraud.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_prioritizes_banned_status_over_redis_lockout()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("banned_locked@nexus.local", "Password123!", "Tran", "Banned");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Banned;
+        user.BanReason = "Admin penalty for auction manipulation";
+        await dbContext.SaveChangesAsync();
+
+        // Simulate admin ban setting Redis lockout key
+        await otpService.LockAccountAsync("banned_locked@nexus.local", TimeSpan.FromDays(30));
+
+        var loginDto = new LoginDto("banned_locked@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Contains("Admin penalty for auction manipulation", ex.Message);
     }
 
     [Fact]
