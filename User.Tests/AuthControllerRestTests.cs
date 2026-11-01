@@ -495,5 +495,24 @@ public sealed class AuthControllerRestTests
             SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
             return Task.FromResult(true);
         }
-    }
+    
+        public Task<bool> SendSellerApprovedEmailAsync(
+            string email,
+            string fullName,
+            string shopName,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerRejectedEmailAsync(
+            string email,
+            string fullName,
+            string shopName,
+            string reason,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+}
 }

@@ -3,7 +3,7 @@
 > **Feature / Use Case:** {FeatureName}
 > **Trạng thái:** ⏳ DRAFT (Pre-Code Plan) | 🛠 IN_PROGRESS | ✅ VERIFIED
 > **Ngày tạo:** YYYY-MM-DD
-> **Tác giả:** {Author / AI Agent}
+> **Tác giả:** Vinh & AI Agent
 
 ---
 

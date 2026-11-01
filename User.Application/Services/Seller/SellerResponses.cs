@@ -4,9 +4,28 @@ using System;
 using System.Text.Json.Serialization;
 
 public sealed record SellerRegistrationResponseDto(
-    [property: JsonPropertyName("registrationId")] string RegistrationId,
+    [property: JsonPropertyName("businessEmail")] string BusinessEmail,
     [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("otpExpiresInSeconds")] int OtpExpiresInSeconds,
+    [property: JsonPropertyName("nextStep")] string NextStep,
     [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt
+);
+
+public sealed record VerifySellerOtpResponseDto(
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("businessEmail")] string BusinessEmail,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("verifiedAt")] DateTimeOffset VerifiedAt,
+    [property: JsonPropertyName("message")] string Message
+);
+
+public sealed record SellerRegistrationStatusResponseDto(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejectionReason")] string? RejectionReason = null,
+    [property: JsonPropertyName("nextStep")] string? NextStep = null,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail = null
 );
 
 public sealed record AdminSellerRegistrationItemDto(
@@ -36,4 +55,44 @@ public sealed record RejectSellerRegistrationResponseDto(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("rejectedAt")] DateTimeOffset RejectedAt,
     [property: JsonPropertyName("rejectionReason")] string RejectionReason
+);
+
+public sealed record PublicSellerProfileResponseDto(
+    [property: JsonPropertyName("shopId")] string ShopId,
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("logoUrl")] string? LogoUrl,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("hotline")] string Hotline,
+    [property: JsonPropertyName("ratingAvg")] double RatingAvg,
+    [property: JsonPropertyName("totalProducts")] int TotalProducts,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);
+
+public sealed record SellerRegistrationDetailsDto(
+    [property: JsonPropertyName("registrationId")] string RegistrationId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("applicantName")] string ApplicantName,
+    [property: JsonPropertyName("applicantEmail")] string ApplicantEmail,
+    [property: JsonPropertyName("applicantPhone")] string? ApplicantPhone,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail,
+    [property: JsonPropertyName("hotline")] string Hotline,
+    [property: JsonPropertyName("identityCardNumber")] string? IdentityCardNumber,
+    [property: JsonPropertyName("idCardFrontUrl")] string? IdCardFrontUrl,
+    [property: JsonPropertyName("idCardBackUrl")] string? IdCardBackUrl,
+    [property: JsonPropertyName("businessLicenseUrl")] string? BusinessLicenseUrl,
+    [property: JsonPropertyName("pickupAddress")] string PickupAddress,
+    [property: JsonPropertyName("warehouseAddress")] string WarehouseAddress,
+    [property: JsonPropertyName("provinceId")] int ProvinceId,
+    [property: JsonPropertyName("districtId")] int DistrictId,
+    [property: JsonPropertyName("wardCode")] string WardCode,
+    [property: JsonPropertyName("reputationScore")] int ReputationScore,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejectionReason")] string? RejectionReason,
+    [property: JsonPropertyName("reviewedBy")] string? ReviewedBy,
+    [property: JsonPropertyName("reviewedAt")] DateTimeOffset? ReviewedAt,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
 );

@@ -1,6 +1,7 @@
 namespace User.Tests;
 
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -29,17 +30,78 @@ public sealed class SellerControllerRestTests
         return new AppDbContext(options);
     }
 
+    private sealed class NoOpFulfillmentServiceClient : IFulfillmentServiceClient
+    {
+        public Task<bool> CreateWarehouseAsync(Guid sellerId, Guid userId, string shopName, string contactName, string contactPhone, string pickupAddress, int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> UpdateWarehouseAsync(Guid sellerId, string shopName, string contactPhone, string pickupAddress, int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> DeleteWarehouseBySellerIdAsync(Guid sellerId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
     private sealed class NoOpRedisOtpService : IRedisOtpService
     {
-        public Task SaveOtpAsync(string email, string code, TimeSpan validityDuration, TimeSpan retentionDuration, string purpose = "registration") => Task.CompletedTask;
-        public Task<OtpEntry?> GetOtpAsync(string email, string purpose = "registration") => Task.FromResult<OtpEntry?>(null);
-        public Task MarkOtpConsumedAsync(string email, string purpose = "registration") => Task.CompletedTask;
-        public Task InvalidateExistingOtpsAsync(string email, string purpose = "registration") => Task.CompletedTask;
+        public readonly ConcurrentDictionary<string, string> Drafts = new(StringComparer.OrdinalIgnoreCase);
+        public readonly ConcurrentDictionary<string, OtpEntry> Otps = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task SaveOtpAsync(string email, string code, TimeSpan validityDuration, TimeSpan retentionDuration, string purpose = "registration")
+        {
+            Otps[$"{purpose}:{email}"] = new OtpEntry
+            {
+                Code = code,
+                Email = email,
+                Status = OtpStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.Add(validityDuration)
+            };
+            return Task.CompletedTask;
+        }
+
+        public Task<OtpEntry?> GetOtpAsync(string email, string purpose = "registration")
+        {
+            Otps.TryGetValue($"{purpose}:{email}", out var entry);
+            return Task.FromResult(entry);
+        }
+
+        public Task MarkOtpConsumedAsync(string email, string purpose = "registration")
+        {
+            if (Otps.TryGetValue($"{purpose}:{email}", out var entry))
+            {
+                entry.Status = OtpStatus.Consumed;
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task InvalidateExistingOtpsAsync(string email, string purpose = "registration")
+        {
+            Otps.TryRemove($"{purpose}:{email}", out _);
+            return Task.CompletedTask;
+        }
+
         public Task<int> IncrementLoginAttemptsAsync(string identifier, TimeSpan window) => Task.FromResult(1);
         public Task<bool> IsAccountLockedAsync(string identifier) => Task.FromResult(false);
         public Task LockAccountAsync(string identifier, TimeSpan duration) => Task.CompletedTask;
         public Task ResetLoginAttemptsAsync(string identifier) => Task.CompletedTask;
+
+        public Task SaveDraftAsync(string key, string data, TimeSpan duration)
+        {
+            Drafts[key] = data;
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> GetDraftAsync(string key)
+        {
+            Drafts.TryGetValue(key, out var data);
+            return Task.FromResult(data);
+        }
+
+        public Task<string?> GetAndDeleteDraftAsync(string key)
+        {
+            Drafts.TryRemove(key, out var data);
+            return Task.FromResult(data);
+        }
     }
+
+    private static SellerService CreateSellerService(AppDbContext dbContext, IRedisOtpService? otp = null, IFulfillmentServiceClient? fulfillment = null) =>
+        new(dbContext, otp ?? new NoOpRedisOtpService(), null, fulfillment ?? new NoOpFulfillmentServiceClient(), NullLogger<SellerService>.Instance);
 
     [Fact]
     public async Task RegisterSeller_ValidRequest_Returns201Created()
@@ -57,7 +119,7 @@ public sealed class SellerControllerRestTests
         });
         await dbContext.SaveChangesAsync();
 
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -69,7 +131,11 @@ public sealed class SellerControllerRestTests
             ShopName = "Minh Shop",
             BusinessEmail = "minh@shop.local",
             Hotline = "+84911223344",
-            IdentityCardNumber = "079201009999"
+            IdentityCardNumber = "079201009999",
+            PickupAddress = "123 Le Duan, D1, HCMC",
+            ProvinceId = 202,
+            DistrictId = 1442,
+            WardCode = "20101"
         };
 
         var result = await controller.RegisterSeller(request, CancellationToken.None);
@@ -78,15 +144,72 @@ public sealed class SellerControllerRestTests
         Assert.Equal(StatusCodes.Status201Created, objectResult.StatusCode);
 
         var responseDto = Assert.IsType<SellerRegistrationResponseDto>(objectResult.Value);
-        Assert.Equal("PENDING", responseDto.Status);
-        Assert.NotEmpty(responseDto.RegistrationId);
+        Assert.Equal("OTP_VERIFICATION_REQUIRED", responseDto.Status);
+        Assert.Equal("minh@shop.local", responseDto.BusinessEmail);
+        Assert.Equal("VERIFY_OTP_VIA_POST_/api/v1/sellers/otp/verify", responseDto.NextStep);
+    }
+
+    [Fact]
+    public async Task VerifySellerOtp_ValidOtp_Returns200Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "verify_seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Minh",
+            LastName = "Tran",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var otpService = new NoOpRedisOtpService();
+        var sellerService = CreateSellerService(dbContext, otpService);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = userId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        // Step 1: Register (saves draft + OTP)
+        var regRequest = new CreateSellerRegistrationDto
+        {
+            ShopName = "Green Leaf Store",
+            BusinessEmail = "greenleaf@shop.local",
+            Hotline = "+84911223344",
+            IdentityCardNumber = "079201008888",
+            PickupAddress = "456 Nguyen Hue, D1",
+            ProvinceId = 202,
+            DistrictId = 1442,
+            WardCode = "20101"
+        };
+        await controller.RegisterSeller(regRequest, CancellationToken.None);
+
+        var savedOtp = await otpService.GetOtpAsync("greenleaf@shop.local", "seller_registration");
+        Assert.NotNull(savedOtp);
+
+        // Step 2: Verify OTP
+        var verifyDto = new VerifySellerOtpDto
+        {
+            BusinessEmail = "greenleaf@shop.local",
+            OtpCode = savedOtp.Code
+        };
+
+        var result = await controller.VerifySellerOtp(verifyDto, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var verifyResp = Assert.IsType<VerifySellerOtpResponseDto>(okResult.Value);
+        Assert.Equal("PENDING", verifyResp.Status);
+        Assert.Equal("Green Leaf Store", verifyResp.ShopName);
     }
 
     [Fact]
     public async Task RegisterSeller_MissingUserIdHeader_Returns400BadRequest()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
@@ -109,7 +232,7 @@ public sealed class SellerControllerRestTests
     public async Task RegisterSeller_InvalidUserIdHeader_Returns401Unauthorized()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -134,7 +257,7 @@ public sealed class SellerControllerRestTests
     public async Task ListSellerRegistrations_Returns200Ok_WithPagedResult()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
         var result = await controller.ListSellerRegistrations(new PageQuery { Page = 1, PageSize = 20 }, null, CancellationToken.None);
@@ -142,6 +265,68 @@ public sealed class SellerControllerRestTests
         var okResult = Assert.IsType<OkObjectResult>(result);
         var pagedResult = Assert.IsType<PagedData<AdminSellerRegistrationItemDto>>(okResult.Value);
         Assert.NotNull(pagedResult);
+    }
+
+    [Fact]
+    public async Task GetSellerRequestDetails_Returns200Ok_WithDetailsDto()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "detail_applicant@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Nguyen",
+            LastName = "Van A",
+            PhoneNumber = "0987654321",
+            IdentifyNumber = "123456789012",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Tech Gadget Store",
+            BusinessEmail = "biz@techstore.local",
+            Hotline = "0987654321",
+            IdCardFrontUrl = "https://cdn.example.com/front.jpg",
+            IdCardBackUrl = "https://cdn.example.com/back.jpg",
+            BusinessLicenseUrl = "https://cdn.example.com/license.pdf",
+            PickupAddress = "123 Main St, District 1, HCMC",
+            ProvinceId = 202,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Pending
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = CreateSellerService(dbContext);
+        var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
+
+        var result = await controller.GetSellerRequestDetails(regId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<SellerRegistrationDetailsDto>(okResult.Value);
+        Assert.Equal(regId.ToString(), response.RegistrationId);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Tech Gadget Store", response.ShopName);
+        Assert.Equal("Nguyen Van A", response.ApplicantName);
+        Assert.Equal("detail_applicant@nexus.local", response.ApplicantEmail);
+        Assert.Equal("0987654321", response.ApplicantPhone);
+        Assert.Equal("123456789012", response.IdentityCardNumber);
+        Assert.Equal("https://cdn.example.com/front.jpg", response.IdCardFrontUrl);
+        Assert.Equal("https://cdn.example.com/back.jpg", response.IdCardBackUrl);
+        Assert.Equal("https://cdn.example.com/license.pdf", response.BusinessLicenseUrl);
+        Assert.Equal("123 Main St, District 1, HCMC", response.PickupAddress);
+        Assert.Equal(202, response.ProvinceId);
+        Assert.Equal(1442, response.DistrictId);
+        Assert.Equal("20101", response.WardCode);
+        Assert.Equal("Pending", response.Status);
     }
 
     [Fact]
@@ -175,7 +360,7 @@ public sealed class SellerControllerRestTests
         });
         await dbContext.SaveChangesAsync();
 
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
         var staffId = Guid.NewGuid();
@@ -222,7 +407,7 @@ public sealed class SellerControllerRestTests
         });
         await dbContext.SaveChangesAsync();
 
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
 
         var staffId = Guid.NewGuid();
@@ -269,7 +454,7 @@ public sealed class SellerControllerRestTests
         dbContext.SellerProfiles.Add(sellerProfile);
         await dbContext.SaveChangesAsync();
 
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -290,7 +475,7 @@ public sealed class SellerControllerRestTests
     public async Task GetSellerOwnProfile_MissingOrInvalidUserId_Returns400BadRequest()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -333,7 +518,7 @@ public sealed class SellerControllerRestTests
         dbContext.SellerProfiles.Add(sellerProfile);
         await dbContext.SaveChangesAsync();
 
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -360,7 +545,7 @@ public sealed class SellerControllerRestTests
     public async Task UpdateSellerOwnProfile_MissingOrInvalidUserId_Returns401Unauthorized()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var sellerService = new SellerService(dbContext, new NoOpRedisOtpService(), null, NullLogger<SellerService>.Instance);
+        var sellerService = CreateSellerService(dbContext);
         var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
 
         var httpContext = new DefaultHttpContext();
@@ -370,5 +555,50 @@ public sealed class SellerControllerRestTests
         var result = await controller.UpdateSellerOwnProfile(new UpdateSellerOwnProfileDto { ShopName = "Test" }, CancellationToken.None);
 
         Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task GetPublicSellerProfile_ApprovedShopExists_Returns200OkWithPublicData()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "public_seller_controller@test.com",
+            FirstName = "Public",
+            LastName = "User",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var shopId = Guid.NewGuid();
+        var sellerProfile = new SellerProfile
+        {
+            Id = shopId,
+            UserId = userId,
+            ShopName = "Nexus Official Store",
+            Hotline = "0901234567",
+            PickupAddress = "123 Cầu Giấy, Hà Nội",
+            ProvinceId = 201,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Approved
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = CreateSellerService(dbContext);
+        var controller = new SellerController(sellerService, NullLogger<SellerController>.Instance);
+
+        var result = await controller.GetPublicSellerProfile(shopId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<PublicSellerProfileResponseDto>(okResult.Value);
+        Assert.Equal(shopId.ToString(), response.ShopId);
+        Assert.Equal(userId.ToString(), response.SellerId);
+        Assert.Equal("Nexus Official Store", response.ShopName);
+        Assert.Equal("090*****67", response.Hotline);
     }
 }

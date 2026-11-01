@@ -31,8 +31,6 @@ public class ProfileService : IProfileService
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
-                    .ThenInclude(r => r!.RolePermissions)
-                        .ThenInclude(rp => rp.Permission)
             .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
@@ -227,7 +225,6 @@ public class ProfileService : IProfileService
     private static UserProfileDto MapToDto(Domain.Entities.User user)
     {
         var roles = new List<string>();
-        var permissions = new List<string>();
 
         if (user.UserRoles != null && user.UserRoles.Count > 0)
         {
@@ -238,43 +235,12 @@ public class ProfileService : IProfileService
                 {
                     roles.Add(roleName);
                 }
-
-                if (ur.Role?.RolePermissions != null)
-                {
-                    foreach (var rp in ur.Role.RolePermissions)
-                    {
-                        if (rp.Permission != null && !string.IsNullOrWhiteSpace(rp.Permission.PermissionCode))
-                        {
-                            var code = rp.Permission.PermissionCode.ToUpperInvariant();
-                            if (!permissions.Contains(code))
-                            {
-                                permissions.Add(code);
-                            }
-                        }
-                    }
-                }
             }
         }
 
         if (roles.Count == 0)
         {
             roles.Add("buyer");
-        }
-
-        if (permissions.Count == 0)
-        {
-            if (roles.Contains("admin"))
-            {
-                permissions.AddRange(new[] { "USER.MANAGE", "ROLE.MANAGE", "SYSTEM.CONFIG", "AUDIT.VIEW" });
-            }
-            else if (roles.Contains("seller"))
-            {
-                permissions.AddRange(new[] { "PRODUCT.CREATE", "PRODUCT.UPDATE", "ORDER.VIEW", "SHOP.MANAGE" });
-            }
-            else
-            {
-                permissions.AddRange(new[] { "CART.VIEW", "CART.UPDATE", "ORDER.VIEW", "CHECKOUT.START" });
-            }
         }
 
         var fullName = $"{user.FirstName} {user.LastName}".Trim();
@@ -299,7 +265,7 @@ public class ProfileService : IProfileService
             AvatarUrl: user.AvatarUrl,
             Status: user.Status.ToString(),
             Roles: roles,
-            Permissions: permissions.Distinct().ToList(),
+            Permissions: Array.Empty<string>(),
             IsSeller: isSeller,
             ShopName: user.SellerProfile?.ShopName ?? string.Empty,
             ReputationScore: repScore,

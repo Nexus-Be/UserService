@@ -54,4 +54,74 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
             return false;
         }
     }
+
+    public async Task<bool> SendSellerApprovedEmailAsync(
+        string email,
+        string fullName,
+        string shopName,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var payload = new
+            {
+                email = email.Trim(),
+                fullName = fullName.Trim(),
+                shopName = shopName.Trim()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/v1/notifications/email/seller-approved", payload, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("[REST Email Notification] Seller approval email dispatched successfully to '{Email}' for shop '{ShopName}'.", email, shopName);
+                return true;
+            }
+
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("[REST Email Notification] Failed to send seller approval email to '{Email}'. Status: {StatusCode}, Details: {Details}",
+                email, response.StatusCode, errorBody);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[REST Email Notification] Connection error while dispatching seller approval email to '{Email}'.", email);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendSellerRejectedEmailAsync(
+        string email,
+        string fullName,
+        string shopName,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var payload = new
+            {
+                email = email.Trim(),
+                fullName = fullName.Trim(),
+                shopName = shopName.Trim(),
+                reason = reason.Trim()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/v1/notifications/email/seller-rejected", payload, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("[REST Email Notification] Seller rejection email dispatched successfully to '{Email}' for shop '{ShopName}'.", email, shopName);
+                return true;
+            }
+
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("[REST Email Notification] Failed to send seller rejection email to '{Email}'. Status: {StatusCode}, Details: {Details}",
+                email, response.StatusCode, errorBody);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[REST Email Notification] Connection error while dispatching seller rejection email to '{Email}'.", email);
+            return false;
+        }
+    }
 }

@@ -1098,4 +1098,369 @@ public sealed class AdminUserServiceTests
 
         Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
     }
+
+    // ---------------------------------------------------------
+    // ADMIN-05: BanUserAsync Tests
+    // ---------------------------------------------------------
+
+    [Fact]
+    public async Task BanUserAsync_ValidRequest_BansUserAndRevokesTokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            Email = "violator@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Bad",
+            LastName = "Actor",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        dbContext.RefreshTokens.AddRange(
+            new RefreshToken { Id = Guid.NewGuid(), UserId = userId, TokenHash = "token1", ExpiresAt = DateTimeOffset.UtcNow.AddDays(7), IsRevoked = false },
+            new RefreshToken { Id = Guid.NewGuid(), UserId = userId, TokenHash = "token2", ExpiresAt = DateTimeOffset.UtcNow.AddDays(7), IsRevoked = false }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto
+        {
+            Reason = "Multiple fraudulent bids placed on auction #4582."
+        };
+
+        var response = await service.BanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Banned", response.Status);
+        Assert.Equal(dto.Reason, response.BanReason);
+        Assert.Equal(adminId.ToString(), response.BannedBy);
+        Assert.Equal(2, response.RevokedTokensCount);
+
+        // Verify DB state
+        var dbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.Equal(UserStatus.Banned, dbUser.Status);
+        Assert.NotNull(dbUser.BannedAt);
+        Assert.Equal(adminId, dbUser.BannedBy);
+        Assert.Equal(dto.Reason, dbUser.BanReason);
+
+        var dbTokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
+        Assert.All(dbTokens, t => Assert.True(t.IsRevoked));
+
+        var auditLog = await dbContext.AuditLogs.FirstAsync(a => a.EntityId == userId.ToString() && a.Action == AuditAction.UserBan);
+        Assert.NotNull(auditLog);
+        Assert.Equal(adminId.ToString(), auditLog.UserId);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenSelfBan_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var dto = new BanAdminUserDto { Reason = "Attempt to ban self" };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(adminId, dto, adminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_BAN_SELF", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenLastAdmin_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rAdmin = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Admin, RoleName = "Administrator" };
+        dbContext.Roles.Add(rAdmin);
+
+        var adminId = Guid.NewGuid();
+        var callerAdminId = Guid.NewGuid();
+
+        var adminUser = new User
+        {
+            Id = adminId,
+            Email = "sole.admin@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Sole",
+            LastName = "Admin",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(adminUser);
+
+        dbContext.UserRoles.Add(new UserRole
+        {
+            Id = Guid.NewGuid(),
+            UserId = adminId,
+            RoleId = rAdmin.Id,
+            IsDeleted = false
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Banning the last admin" };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(adminId, dto, callerAdminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_BAN_LAST_ADMIN", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenAlreadyBanned_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "already.banned@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Already",
+            LastName = "Banned",
+            Status = UserStatus.Banned,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Ban again" };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.BanUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_BANNED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenUserNotFound_ThrowsDomainException_404()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new BanAdminUserDto { Reason = "Non existent" };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.BanUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenUserAlreadyDeleted_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "deleted.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Deleted",
+            LastName = "User",
+            Status = UserStatus.Deleted,
+            IsDeleted = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Ban deleted" };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.BanUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_DELETED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenReasonIsMissing_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new BanAdminUserDto { Reason = "   " };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenReasonExceeds1000Chars_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new BanAdminUserDto { Reason = new string('A', 1001) };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    // ---------------------------------------------------------
+    // ADMIN-06: UnbanUserAsync Tests
+    // ---------------------------------------------------------
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserIsBannedAndVerified_RestoresActiveStatus()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            Email = "reformed@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Reformed",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow.AddDays(-10),
+            BannedAt = DateTimeOffset.UtcNow.AddDays(-2),
+            BannedBy = adminId,
+            BanReason = "Previous violation",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new UnbanAdminUserDto { Reason = "Appeal granted after investigation." };
+
+        var response = await service.UnbanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Active", response.Status);
+        Assert.Equal(adminId.ToString(), response.UnbannedBy);
+
+        var dbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.Equal(UserStatus.Active, dbUser.Status);
+        Assert.Null(dbUser.BannedAt);
+        Assert.Null(dbUser.BannedBy);
+        Assert.Null(dbUser.BanReason);
+
+        var auditLog = await dbContext.AuditLogs.FirstAsync(a => a.EntityId == userId.ToString() && a.Action == AuditAction.UserUnban);
+        Assert.NotNull(auditLog);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserIsBannedAndNotVerified_RestoresPendingVerificationStatus()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "unverified.banned@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Unverified",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = null,
+            BannedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            BanReason = "Suspicious unverified activity",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("PendingVerification", response.Status);
+
+        var dbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.Equal(UserStatus.PendingVerification, dbUser.Status);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserNotBanned_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "active.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Active",
+            LastName = "User",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_BANNED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserNotFound_ThrowsDomainException_404()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UnbanUserAsync(Guid.NewGuid(), null, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserAlreadyDeleted_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "deleted.user2@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Deleted",
+            LastName = "User",
+            Status = UserStatus.Deleted,
+            IsDeleted = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_DELETED", ex.ErrorCode);
+    }
 }

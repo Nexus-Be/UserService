@@ -283,6 +283,61 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task VerifyOtpAsync_invokes_wallet_service_client_upon_successful_activation()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var walletClient = new TestWalletServiceClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, null, walletClient);
+
+        var dto = new RegisterDto("wallet.user@nexus.local", "Password123!", "Nguyen", "Van Wallet");
+        var user = await authService.RegisterAsync(dto);
+        var otp = (await otpService.GetOtpAsync("wallet.user@nexus.local"))!.Code;
+
+        var verifiedUser = await authService.VerifyOtpAsync("wallet.user@nexus.local", otp);
+
+        Assert.Equal(UserStatus.Active, verifiedUser.Status);
+        Assert.Single(walletClient.Calls);
+        Assert.Equal(verifiedUser.Id, walletClient.Calls[0].UserId);
+        Assert.Equal("VND", walletClient.Calls[0].Currency);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_succeeds_even_when_wallet_service_client_fails()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var walletClient = new TestWalletServiceClient { ReturnResult = false };
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, null, walletClient);
+
+        var dto = new RegisterDto("wallet.fail@nexus.local", "Password123!", "Tran", "Van Fail");
+        var user = await authService.RegisterAsync(dto);
+        var otp = (await otpService.GetOtpAsync("wallet.fail@nexus.local"))!.Code;
+
+        var verifiedUser = await authService.VerifyOtpAsync("wallet.fail@nexus.local", otp);
+
+        Assert.Equal(UserStatus.Active, verifiedUser.Status);
+        Assert.Single(walletClient.Calls);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_succeeds_even_when_wallet_service_client_throws_exception()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var walletClient = new TestWalletServiceClient { ShouldThrow = true };
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, null, walletClient);
+
+        var dto = new RegisterDto("wallet.throw@nexus.local", "Password123!", "Le", "Van Throw");
+        var user = await authService.RegisterAsync(dto);
+        var otp = (await otpService.GetOtpAsync("wallet.throw@nexus.local"))!.Code;
+
+        var verifiedUser = await authService.VerifyOtpAsync("wallet.throw@nexus.local", otp);
+
+        Assert.Equal(UserStatus.Active, verifiedUser.Status);
+    }
+
+    [Fact]
     public async Task VerifyOtpAsync_throws_when_otp_invalid()
     {
         using var dbContext = CreateInMemoryDbContext();
@@ -476,6 +531,25 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task LoginAsync_PendingVerification_with_wrong_password_throws_INVALID_CREDENTIALS_anti_enumeration()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("pending.enum@nexus.local", "CorrectPassword123!", "Nguyen", "Enum");
+        await authService.RegisterAsync(registerDto);
+
+        // Wrong password on pending verification account returns 401 INVALID_CREDENTIALS, not 403
+        var loginDto = new LoginDto("pending.enum@nexus.local", "WrongPassword999!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
+    }
+
+    [Fact]
     public async Task LoginAsync_throws_when_user_is_suspended()
     {
         using var dbContext = CreateInMemoryDbContext();
@@ -493,6 +567,54 @@ public sealed class AuthServiceTests
 
         Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
         Assert.Equal(403, ex.StatusCode);
+        Assert.Equal("Account has been locked or banned by an administrator.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_returns_ban_reason_when_user_is_banned_with_reason()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("banned_reason@nexus.local", "Password123!", "Le", "Banned");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Banned;
+        user.BanReason = "Violating platform terms and fraud";
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("banned_reason@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Equal("Account has been locked or banned by an administrator. Reason: Violating platform terms and fraud.", ex.Message);
+    }
+
+    [Fact]
+    public async Task LoginAsync_prioritizes_banned_status_over_redis_lockout()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var registerDto = new RegisterDto("banned_locked@nexus.local", "Password123!", "Tran", "Banned");
+        var user = await authService.RegisterAsync(registerDto);
+        user.Status = UserStatus.Banned;
+        user.BanReason = "Admin penalty for auction manipulation";
+        await dbContext.SaveChangesAsync();
+
+        // Simulate admin ban setting Redis lockout key
+        await otpService.LockAccountAsync("banned_locked@nexus.local", TimeSpan.FromDays(30));
+
+        var loginDto = new LoginDto("banned_locked@nexus.local", "Password123!");
+        var ex = await Assert.ThrowsAsync<DomainException>(() => authService.LoginAsync(loginDto));
+
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Contains("Admin penalty for auction manipulation", ex.Message);
     }
 
     [Fact]
@@ -1460,6 +1582,67 @@ public sealed class AuthServiceTests
         Assert.Equal("USER_BANNED", ex.ErrorCode);
     }
 
+    [Fact]
+    public async Task ResendOtpAsync_throws_OTP_COOLDOWN_ACTIVE_when_called_within_cooldown_window()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto(
+            Email: "cooldown.test@nexus.local",
+            Password: "Password123!",
+            FirstName: "Cooldown",
+            LastName: "Tester"
+        );
+        await authService.RegisterAsync(dto);
+
+        // First resend succeeds and sets cooldown
+        var success = await authService.ResendOtpAsync("cooldown.test@nexus.local");
+        Assert.True(success);
+
+        // Immediate second resend throws OTP_COOLDOWN_ACTIVE (HTTP 429)
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ResendOtpAsync("cooldown.test@nexus.local"));
+
+        Assert.Equal("OTP_COOLDOWN_ACTIVE", ex.ErrorCode);
+        Assert.Equal(429, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task VerifyOtpAsync_throws_OTP_MAX_ATTEMPTS_EXCEEDED_on_5th_failed_attempt_and_invalidates_otp()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var dto = new RegisterDto(
+            Email: "bruteforce.test@nexus.local",
+            Password: "Password123!",
+            FirstName: "Brute",
+            LastName: "Force"
+        );
+        await authService.RegisterAsync(dto);
+
+        // Attempts 1 to 4: OTP_INVALID
+        for (var i = 1; i <= 4; i++)
+        {
+            var exInvalid = await Assert.ThrowsAsync<DomainException>(() =>
+                authService.VerifyOtpAsync("bruteforce.test@nexus.local", "000000"));
+            Assert.Equal("OTP_INVALID", exInvalid.ErrorCode);
+        }
+
+        // Attempt 5: OTP_MAX_ATTEMPTS_EXCEEDED
+        var exExceeded = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.VerifyOtpAsync("bruteforce.test@nexus.local", "000000"));
+        Assert.Equal("OTP_MAX_ATTEMPTS_EXCEEDED", exExceeded.ErrorCode);
+
+        // Subsequent attempt: OTP_EXPIRED (because OTP was invalidated)
+        var exExpired = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.VerifyOtpAsync("bruteforce.test@nexus.local", "000000"));
+        Assert.Equal("OTP_EXPIRED", exExpired.ErrorCode);
+    }
+
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, System.Collections.Generic.IEnumerable<string>? permissions, out DateTime expiresAt)
@@ -1474,6 +1657,8 @@ public sealed class AuthServiceTests
         private readonly ConcurrentDictionary<string, OtpEntry> _storage = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, int> _loginAttempts = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, DateTimeOffset> _lockouts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DateTimeOffset> _cooldowns = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, int> _otpAttempts = new(StringComparer.OrdinalIgnoreCase);
 
         private static string Key(string email, string purpose) => $"{purpose}:{email}";
 
@@ -1512,6 +1697,35 @@ public sealed class AuthServiceTests
             {
                 entry.Status = OtpStatus.Expired;
             }
+            _otpAttempts.TryRemove(Key(email, purpose), out _);
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> IsCooldownActiveAsync(string email, string purpose = "registration")
+        {
+            if (_cooldowns.TryGetValue(Key(email, purpose), out var expiresAt))
+            {
+                if (DateTimeOffset.UtcNow < expiresAt) return Task.FromResult(true);
+                _cooldowns.TryRemove(Key(email, purpose), out _);
+            }
+            return Task.FromResult(false);
+        }
+
+        public Task SetCooldownAsync(string email, TimeSpan duration, string purpose = "registration")
+        {
+            _cooldowns[Key(email, purpose)] = DateTimeOffset.UtcNow.Add(duration);
+            return Task.CompletedTask;
+        }
+
+        public Task<int> IncrementOtpAttemptsAsync(string email, TimeSpan window, string purpose = "registration")
+        {
+            var attempts = _otpAttempts.AddOrUpdate(Key(email, purpose), 1, (_, current) => current + 1);
+            return Task.FromResult(attempts);
+        }
+
+        public Task ResetOtpAttemptsAsync(string email, string purpose = "registration")
+        {
+            _otpAttempts.TryRemove(Key(email, purpose), out _);
             return Task.CompletedTask;
         }
 
@@ -1551,6 +1765,8 @@ public sealed class AuthServiceTests
     private sealed class TestEmailNotificationClient : IEmailNotificationClient
     {
         public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
+        public System.Collections.Generic.List<(string Email, string FullName, string ShopName)> SentApprovedEmails { get; } = new();
+        public System.Collections.Generic.List<(string Email, string FullName, string ShopName, string Reason)> SentRejectedEmails { get; } = new();
 
         public Task<bool> SendOtpEmailAsync(
             string email,
@@ -1561,6 +1777,44 @@ public sealed class AuthServiceTests
         {
             SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
             return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerApprovedEmailAsync(
+            string email,
+            string fullName,
+            string shopName,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            SentApprovedEmails.Add((email, fullName, shopName));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerRejectedEmailAsync(
+            string email,
+            string fullName,
+            string shopName,
+            string reason,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            SentRejectedEmails.Add((email, fullName, shopName, reason));
+            return Task.FromResult(true);
+        }
+    }
+
+    private sealed class TestWalletServiceClient : IWalletServiceClient
+    {
+        public System.Collections.Generic.List<(Guid UserId, string Currency)> Calls { get; } = new();
+        public bool ShouldThrow { get; set; }
+        public bool ReturnResult { get; set; } = true;
+
+        public Task<bool> CreateWalletAsync(Guid userId, string currency = "VND", System.Threading.CancellationToken cancellationToken = default)
+        {
+            if (ShouldThrow)
+            {
+                throw new System.Net.Http.HttpRequestException("WalletService connection failure simulated.");
+            }
+            Calls.Add((userId, currency));
+            return Task.FromResult(ReturnResult);
         }
     }
 }

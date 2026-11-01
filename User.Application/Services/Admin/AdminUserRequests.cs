@@ -78,3 +78,27 @@ public sealed class AssignAdminUserRolesDto
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
+
+public sealed class BanAdminUserDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+
+    [JsonPropertyName("ban_reason")]
+    public string? BanReasonSnake { set => Reason ??= value; }
+
+    [JsonPropertyName("banReason")]
+    public string? BanReasonCamel { set => Reason ??= value; }
+}
+
+public sealed class UnbanAdminUserDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+
+    [JsonPropertyName("unban_reason")]
+    public string? UnbanReasonSnake { set => Reason ??= value; }
+
+    [JsonPropertyName("unbanReason")]
+    public string? UnbanReasonCamel { set => Reason ??= value; }
+}

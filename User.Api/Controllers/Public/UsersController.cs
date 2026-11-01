@@ -3,6 +3,7 @@ namespace User.Api.Controllers;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using User.Application.Services.Profile;
@@ -20,13 +21,20 @@ public sealed class UsersController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Retrieves the public profile of a user by ID.</summary>
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetUserProfileById([FromRoute] Guid id, CancellationToken cancellationToken)
+    /// <summary>Retrieves the safe public profile of a user by ID (USER-07).</summary>
+    [HttpGet("{userId:guid}")]
+    [HttpGet("/api/v1/user/{userId:guid}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetUserPublicProfile([FromRoute] Guid userId, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[REST GetProfileById] Loading public profile for UserId: '{UserId}'", id);
-        var profile = await _profileService.GetPublicProfileAsync(id, cancellationToken);
+        _logger.LogInformation("[REST GetUserPublicProfile] Loading public profile for UserId: '{UserId}'", userId);
+        var profile = await _profileService.GetPublicProfileAsync(userId, cancellationToken);
 
         return Ok(profile);
     }
+
+    /// <summary>Backward-compatible wrapper for existing test invocations.</summary>
+    [NonAction]
+    public Task<IActionResult> GetUserProfileById(Guid id, CancellationToken cancellationToken)
+        => GetUserPublicProfile(id, cancellationToken);
 }

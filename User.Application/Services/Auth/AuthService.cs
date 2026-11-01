@@ -18,6 +18,7 @@ public class AuthService : IAuthService
     private readonly IRedisOtpService _otpService;
     private readonly IJwtTokenGenerator? _jwtTokenGenerator;
     private readonly IEmailNotificationClient? _emailNotificationClient;
+    private readonly IWalletServiceClient? _walletServiceClient;
     private readonly ILogger<AuthService> _logger;
 
     private static readonly Guid BuyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -27,13 +28,15 @@ public class AuthService : IAuthService
         IRedisOtpService otpService,
         ILogger<AuthService> logger,
         IJwtTokenGenerator? jwtTokenGenerator = null,
-        IEmailNotificationClient? emailNotificationClient = null)
+        IEmailNotificationClient? emailNotificationClient = null,
+        IWalletServiceClient? walletServiceClient = null)
     {
         _dbContext = dbContext;
         _otpService = otpService;
         _logger = logger;
         _jwtTokenGenerator = jwtTokenGenerator;
         _emailNotificationClient = emailNotificationClient;
+        _walletServiceClient = walletServiceClient;
     }
 
     public async Task<User> RegisterAsync(RegisterDto dto, CancellationToken cancellationToken = default)
@@ -94,7 +97,7 @@ public class AuthService : IAuthService
 
             if (existingUser.Status == UserStatus.Banned)
             {
-                throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+                throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(existingUser.BanReason), 403);
             }
 
             // Re-registration for unverified account (PendingVerification):
@@ -269,7 +272,7 @@ public class AuthService : IAuthService
 
         if (user.Status == UserStatus.Banned)
         {
-            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
         }
 
         var otpEntry = await _otpService.GetOtpAsync(normalizedEmail);
@@ -293,9 +296,20 @@ public class AuthService : IAuthService
 
         if (!string.Equals(otpEntry.Code, otp.Trim(), StringComparison.Ordinal))
         {
-            _logger.LogWarning("[AUTH] OTP verification failed for '{Email}': Provided '{Provided}' does not match expected OTP.", normalizedEmail, otp.Trim());
+            var attempts = await _otpService.IncrementOtpAttemptsAsync(normalizedEmail, TimeSpan.FromMinutes(5));
+            _logger.LogWarning("[AUTH] OTP verification failed for '{Email}': Provided '{Provided}' does not match expected OTP. Attempt {Attempts}/5.", normalizedEmail, otp.Trim(), attempts);
+
+            if (attempts >= 5)
+            {
+                await _otpService.InvalidateExistingOtpsAsync(normalizedEmail);
+                _logger.LogWarning("[AUTH] Maximum OTP verification attempts exceeded for '{Email}'. Invalidated OTP.", normalizedEmail);
+                throw new DomainException("OTP_MAX_ATTEMPTS_EXCEEDED", "Too many incorrect OTP attempts. The OTP code has been invalidated. Please request a new code.");
+            }
+
             throw new DomainException("OTP_INVALID", "OTP code is invalid.");
         }
+
+        await _otpService.ResetOtpAttemptsAsync(normalizedEmail);
 
         if (user.Status == UserStatus.Active)
         {
@@ -310,6 +324,26 @@ public class AuthService : IAuthService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("[AUTH] User '{Email}' successfully verified OTP. Status changed to Active.", normalizedEmail);
+
+        if (_walletServiceClient != null)
+        {
+            try
+            {
+                var walletCreated = await _walletServiceClient.CreateWalletAsync(user.Id, "VND", cancellationToken);
+                if (walletCreated)
+                {
+                    _logger.LogInformation("[AUTH] Dispatched initial wallet creation for User '{UserId}'.", user.Id);
+                }
+                else
+                {
+                    _logger.LogWarning("[AUTH] Wallet creation returned false or rejected for User '{UserId}'. User activation remains active.", user.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AUTH] Non-blocking wallet creation call failed for User '{UserId}'. User activation remains active.", user.Id);
+            }
+        }
 
         return user;
     }
@@ -327,16 +361,13 @@ public class AuthService : IAuthService
         ExtractUserRoles(user, roles);
         if (roles.Count == 0) roles.Add("buyer");
 
-        var permissions = new List<string>();
-        ExtractUserPermissions(user, roles, permissions);
-
         return new VerifyOtpApiResponse(
             IsVerified: true,
             Email: user.Email,
             UserId: user.Id.ToString(),
             Role: roles.FirstOrDefault() ?? "buyer",
             Roles: roles,
-            Permissions: permissions.Distinct().ToList()
+            Permissions: Array.Empty<string>()
         );
     }
 
@@ -382,7 +413,13 @@ public class AuthService : IAuthService
         if (user.Status == UserStatus.Banned)
         {
             _logger.LogWarning("[AUTH] Resend OTP rejected: User '{Email}' is banned.", normalizedEmail);
-            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
+        }
+
+        if (await _otpService.IsCooldownActiveAsync(normalizedEmail))
+        {
+            _logger.LogWarning("[AUTH] Resend OTP rejected: Cooldown is active for '{Email}'.", normalizedEmail);
+            throw new DomainException("OTP_COOLDOWN_ACTIVE", "Please wait 60 seconds before requesting a new OTP.", 429);
         }
 
         await _otpService.InvalidateExistingOtpsAsync(normalizedEmail);
@@ -390,6 +427,7 @@ public class AuthService : IAuthService
         var newOtpCode = Random.Shared.Next(100000, 999999).ToString();
         _logger.LogInformation("[OTP RESEND] Email: '{Email}' | NEW CODE: >>> {OtpCode} <<< | Valid: 5 mins", normalizedEmail, newOtpCode);
         await _otpService.SaveOtpAsync(normalizedEmail, newOtpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
+        await _otpService.SetCooldownAsync(normalizedEmail, TimeSpan.FromSeconds(60));
 
         if (_emailNotificationClient != null)
         {
@@ -425,17 +463,9 @@ public class AuthService : IAuthService
         var identifier = dto.UsernameOrEmail.Trim();
         var normalizedIdentifier = identifier.ToLowerInvariant();
 
-        if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
-        {
-            _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
-            throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
-        }
-
         var user = await _dbContext.Users
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
-                    .ThenInclude(r => r!.RolePermissions)
-                        .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(u => u.Email == normalizedIdentifier || u.Email == identifier || (u.Username != null && u.Username.ToLower() == normalizedIdentifier), cancellationToken);
 
         if (user == null || user.IsDeleted)
@@ -450,16 +480,16 @@ public class AuthService : IAuthService
             throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
-        if (user.Status == UserStatus.PendingVerification)
-        {
-            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' is PendingVerification. OTP verification required.", user.Email);
-            throw new DomainException("ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
-        }
-
         if (user.Status == UserStatus.Banned)
         {
-            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned.", user.Email);
-            throw new DomainException("ACCOUNT_BANNED", "Account has been locked or banned by an administrator.", 403);
+            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned. Reason: '{Reason}'.", user.Email, user.BanReason);
+            throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
+        }
+
+        if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
+        {
+            _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
+            throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
         }
 
         bool isPasswordValid = false;
@@ -487,6 +517,12 @@ public class AuthService : IAuthService
 
         await _otpService.ResetLoginAttemptsAsync(normalizedIdentifier);
 
+        if (user.Status == UserStatus.PendingVerification)
+        {
+            _logger.LogWarning("[AUTH] Login rejected: User '{Email}' is PendingVerification. OTP verification required.", user.Email);
+            throw new DomainException("ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
+        }
+
         var roles = new List<string>();
         ExtractUserRoles(user, roles);
 
@@ -495,15 +531,12 @@ public class AuthService : IAuthService
             roles.Add("buyer");
         }
 
-        var permissions = new List<string>();
-        ExtractUserPermissions(user, roles, permissions);
-
         if (_jwtTokenGenerator == null)
         {
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
-        var token = _jwtTokenGenerator.GenerateToken(user, roles, permissions, out var expiresAt);
+        var token = _jwtTokenGenerator.GenerateToken(user, roles, Array.Empty<string>(), out var expiresAt);
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
         if (expiresIn == 0) expiresIn = 3600;
 
@@ -535,7 +568,7 @@ public class AuthService : IAuthService
             FirstName: user.FirstName,
             LastName: user.LastName,
             Roles: roles,
-            Permissions: permissions.Distinct().ToList(),
+            Permissions: Array.Empty<string>(),
             UserId: user.Id.ToString(),
             Role: primaryRole
         );
@@ -550,7 +583,7 @@ public class AuthService : IAuthService
             Email: user.Email,
             Role: primaryRole,
             Roles: roles,
-            Permissions: permissions.Distinct().ToList());
+            Permissions: Array.Empty<string>());
     }
 
     public async Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default)
@@ -567,8 +600,6 @@ public class AuthService : IAuthService
             .Include(t => t.User)
                 .ThenInclude(u => u!.UserRoles)
                     .ThenInclude(ur => ur.Role)
-                        .ThenInclude(r => r!.RolePermissions)
-                            .ThenInclude(rp => rp.Permission)
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
         if (tokenEntity == null)
@@ -598,12 +629,15 @@ public class AuthService : IAuthService
 
         if (user.Status == UserStatus.Banned)
         {
-            _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' is banned. Revoking token.", tokenEntity.UserId);
+            _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' is banned. Revoking token. Reason: '{Reason}'.", tokenEntity.UserId, user.BanReason);
             tokenEntity.IsRevoked = true;
             tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
             tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
-            throw new DomainException("USER_BANNED", "User account has been banned.");
+            var banMessage = !string.IsNullOrWhiteSpace(user.BanReason)
+                ? $"User account has been banned. Reason: {user.BanReason.Trim()}."
+                : "User account has been banned.";
+            throw new DomainException("USER_BANNED", banMessage);
         }
 
         // --- Refresh Token Rotation (RTR) ---
@@ -640,16 +674,13 @@ public class AuthService : IAuthService
             roles.Add("buyer");
         }
 
-        var permissions = new List<string>();
-        ExtractUserPermissions(user, roles, permissions);
-
         if (_jwtTokenGenerator == null)
         {
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
         // 4. Issue new access token with updated claims
-        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, permissions, out var expiresAt);
+        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, Array.Empty<string>(), out var expiresAt);
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
         if (expiresIn == 0) expiresIn = 3600;
 
@@ -661,7 +692,7 @@ public class AuthService : IAuthService
             FirstName: user.FirstName,
             LastName: user.LastName,
             Roles: roles,
-            Permissions: permissions.Distinct().ToList(),
+            Permissions: Array.Empty<string>(),
             UserId: user.Id.ToString(),
             Role: primaryRole
         );
@@ -678,7 +709,7 @@ public class AuthService : IAuthService
             Email: user.Email,
             Role: primaryRole,
             Roles: roles,
-            Permissions: permissions.Distinct().ToList(),
+            Permissions: Array.Empty<string>(),
             User: userResponse);
     }
 
@@ -771,11 +802,18 @@ public class AuthService : IAuthService
             return new ForgotPasswordResultDto(normalizedEmail, genericMessage, otpExpiresInSeconds);
         }
 
+        if (await _otpService.IsCooldownActiveAsync(normalizedEmail, purpose: "password_reset"))
+        {
+            _logger.LogWarning("[FORGOT PASSWORD] Rejected: Cooldown is active for '{Email}'.", normalizedEmail);
+            throw new DomainException("OTP_COOLDOWN_ACTIVE", "Please wait 60 seconds before requesting a new OTP.", 429);
+        }
+
         var otpCode = Random.Shared.Next(100000, 999999).ToString();
         _logger.LogInformation("[PASSWORD RESET OTP] Email: '{Email}' | CODE: >>> {OtpCode} <<< | Valid: 10 mins", normalizedEmail, otpCode);
 
         await _otpService.InvalidateExistingOtpsAsync(normalizedEmail, purpose: "password_reset");
         await _otpService.SaveOtpAsync(normalizedEmail, otpCode, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(15), purpose: "password_reset");
+        await _otpService.SetCooldownAsync(normalizedEmail, TimeSpan.FromSeconds(60), purpose: "password_reset");
 
         if (_emailNotificationClient != null)
         {
@@ -874,11 +912,21 @@ public class AuthService : IAuthService
 
         if (otpEntry.Code != trimmedOtp)
         {
-            _logger.LogWarning("[RESET PASSWORD] Invalid OTP provided for '{Email}'.", normalizedEmail);
+            var attempts = await _otpService.IncrementOtpAttemptsAsync(normalizedEmail, TimeSpan.FromMinutes(10), purpose: "password_reset");
+            _logger.LogWarning("[RESET PASSWORD] Invalid OTP provided for '{Email}'. Attempt {Attempts}/5.", normalizedEmail, attempts);
+
+            if (attempts >= 5)
+            {
+                await _otpService.InvalidateExistingOtpsAsync(normalizedEmail, purpose: "password_reset");
+                _logger.LogWarning("[RESET PASSWORD] Maximum OTP verification attempts exceeded for '{Email}'. Invalidated reset OTP.", normalizedEmail);
+                throw new DomainException("OTP_MAX_ATTEMPTS_EXCEEDED", "Too many incorrect OTP attempts. The OTP code has been invalidated. Please request a new code.");
+            }
+
             throw new DomainException("OTP_INVALID", "OTP code is invalid.");
         }
 
-        // 7. Mark OTP as consumed
+        // 7. Reset attempts and Mark OTP as consumed
+        await _otpService.ResetOtpAttemptsAsync(normalizedEmail, purpose: "password_reset");
         await _otpService.MarkOtpConsumedAsync(normalizedEmail, purpose: "password_reset");
 
         // 8. Hash new password with BCrypt
@@ -1016,6 +1064,13 @@ public class AuthService : IAuthService
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 
+    private static string FormatBanMessage(string? banReason)
+    {
+        return !string.IsNullOrWhiteSpace(banReason)
+            ? $"Account has been locked or banned by an administrator. Reason: {banReason.Trim()}."
+            : "Account has been locked or banned by an administrator.";
+    }
+
     private static void ExtractUserRoles(User user, List<string> roles)
     {
         if (user.UserRoles == null || user.UserRoles.Count == 0) return;
@@ -1042,44 +1097,6 @@ public class AuthService : IAuthService
             if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
             {
                 roles.Add(roleName);
-            }
-        }
-    }
-
-    private static void ExtractUserPermissions(User user, IReadOnlyList<string> roles, List<string> permissions)
-    {
-        if (user.UserRoles != null)
-        {
-            foreach (var ur in user.UserRoles)
-            {
-                if (ur.Role?.RolePermissions == null) continue;
-                foreach (var rp in ur.Role.RolePermissions)
-                {
-                    if (rp.Permission != null && !string.IsNullOrWhiteSpace(rp.Permission.PermissionCode))
-                    {
-                        var code = rp.Permission.PermissionCode.Trim().ToUpperInvariant();
-                        if (!permissions.Contains(code, StringComparer.OrdinalIgnoreCase))
-                        {
-                            permissions.Add(code);
-                        }
-                    }
-                }
-            }
-        }
-
-        if (permissions.Count == 0)
-        {
-            if (roles.Contains("admin"))
-            {
-                permissions.AddRange(new[] { "USER.MANAGE", "ROLE.MANAGE", "SYSTEM.CONFIG", "AUDIT.VIEW" });
-            }
-            else if (roles.Contains("seller"))
-            {
-                permissions.AddRange(new[] { "PRODUCT.CREATE", "PRODUCT.UPDATE", "ORDER.VIEW", "SHOP.MANAGE" });
-            }
-            else
-            {
-                permissions.AddRange(new[] { "CART.VIEW", "CART.UPDATE", "ORDER.VIEW", "CHECKOUT.START" });
             }
         }
     }
