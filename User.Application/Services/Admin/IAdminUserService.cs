@@ -50,4 +50,18 @@ public interface IAdminUserService
         Guid? adminId = null,
         CancellationToken cancellationToken = default
     );
+
+    Task<AdminUserBannedResponseDto> BanUserAsync(
+        Guid targetUserId,
+        BanAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<AdminUserUnbannedResponseDto> UnbanUserAsync(
+        Guid targetUserId,
+        UnbanAdminUserDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default
+    );
 }

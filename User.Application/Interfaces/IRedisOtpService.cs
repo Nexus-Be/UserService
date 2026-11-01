@@ -24,4 +24,7 @@ public interface IRedisOtpService
     Task SetCooldownAsync(string email, TimeSpan duration, string purpose = "registration") => Task.CompletedTask;
     Task<int> IncrementOtpAttemptsAsync(string email, TimeSpan window, string purpose = "registration") => Task.FromResult(1);
     Task ResetOtpAttemptsAsync(string email, string purpose = "registration") => Task.CompletedTask;
+
+    Task RevokeUserTokensAsync(Guid userId, TimeSpan duration) => Task.CompletedTask;
+    Task UnbanUserAsync(Guid userId) => Task.CompletedTask;
 }

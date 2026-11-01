@@ -19,6 +19,7 @@ public sealed class RedisOtpService : IRedisOtpService
     private readonly ConcurrentDictionary<string, (string Value, DateTimeOffset ExpiresAt)> _inMemoryDrafts = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _inMemoryCooldowns = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset ExpiresAt)> _inMemoryOtpAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (string Value, DateTimeOffset ExpiresAt)> _inMemoryBans = new(StringComparer.OrdinalIgnoreCase);
     private const string KeyPrefix = "otp:registration:";
 
     public RedisOtpService(
@@ -365,9 +366,53 @@ public sealed class RedisOtpService : IRedisOtpService
         }
     }
 
+    public async Task RevokeUserTokensAsync(Guid userId, TimeSpan duration)
+    {
+        var key = FormatUserTokensRevokedKey(userId);
+        var bannedKey = FormatUserBannedKey(userId);
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = now.Add(duration);
+        var timestampStr = now.ToUnixTimeSeconds().ToString();
+
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(key, timestampStr, duration);
+            await db.StringSetAsync(bannedKey, "true", duration);
+            _logger.LogInformation("[REDIS] Revoked tokens and recorded ban for user '{UserId}' (TTL: {DurationDays}d).", userId, duration.TotalDays);
+        }
+        else
+        {
+            _inMemoryBans[key] = (timestampStr, expiresAt);
+            _inMemoryBans[bannedKey] = ("true", expiresAt);
+            _logger.LogWarning("[REDIS OFFLINE - IN-MEMORY FALLBACK] Recorded token revocation and ban for user '{UserId}'.", userId);
+        }
+    }
+
+    public async Task UnbanUserAsync(Guid userId)
+    {
+        var key = FormatUserTokensRevokedKey(userId);
+        var bannedKey = FormatUserBannedKey(userId);
+
+        if (_redis != null && _redis.IsConnected)
+        {
+            var db = _redis.GetDatabase();
+            await db.KeyDeleteAsync(new RedisKey[] { key, bannedKey });
+            _logger.LogInformation("[REDIS] Removed ban and token revocation markers for user '{UserId}'.", userId);
+        }
+        else
+        {
+            _inMemoryBans.TryRemove(key, out _);
+            _inMemoryBans.TryRemove(bannedKey, out _);
+            _logger.LogInformation("[REDIS OFFLINE - IN-MEMORY FALLBACK] Removed ban marker for user '{UserId}'.", userId);
+        }
+    }
+
     private static string FormatKey(string email, string purpose = "registration") => $"otp:{purpose}:{email.Trim().ToLowerInvariant()}";
     private static string FormatCooldownKey(string email, string purpose) => $"otp:cooldown:{purpose}:{email.Trim().ToLowerInvariant()}";
     private static string FormatOtpAttemptsKey(string email, string purpose) => $"otp:attempts:{purpose}:{email.Trim().ToLowerInvariant()}";
     private static string FormatAttemptKey(string identifier) => $"user:login_attempts:{identifier.Trim().ToLowerInvariant()}";
     private static string FormatLockoutKey(string identifier) => $"user:login_lockout:{identifier.Trim().ToLowerInvariant()}";
+    private static string FormatUserTokensRevokedKey(Guid userId) => $"user:tokens:revoked:{userId}";
+    private static string FormatUserBannedKey(Guid userId) => $"user:banned:{userId}";
 }
