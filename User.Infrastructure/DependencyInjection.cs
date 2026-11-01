@@ -58,7 +58,7 @@ public static class DependencyInjection
             ?? "http://localhost:8007/";
 
         // Internal service key handler is temporarily disabled. Inter-service calls use plain REST routes.
-        // services.AddTransient<Services.Common.InternalServiceAuthHandler>();
+        services.AddTransient<Services.Common.InternalServiceAuthHandler>();
         services.AddHttpClient<EmailNotificationClient>(client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
