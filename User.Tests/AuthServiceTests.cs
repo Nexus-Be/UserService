@@ -1615,6 +1615,8 @@ public sealed class AuthServiceTests
     private sealed class TestEmailNotificationClient : IEmailNotificationClient
     {
         public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
+        public System.Collections.Generic.List<(string Email, string FullName, string ShopName)> SentApprovedEmails { get; } = new();
+        public System.Collections.Generic.List<(string Email, string FullName, string ShopName, string Reason)> SentRejectedEmails { get; } = new();
 
         public Task<bool> SendOtpEmailAsync(
             string email,
@@ -1624,6 +1626,27 @@ public sealed class AuthServiceTests
             System.Threading.CancellationToken cancellationToken = default)
         {
             SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerApprovedEmailAsync(
+            string email,
+            string fullName,
+            string shopName,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            SentApprovedEmails.Add((email, fullName, shopName));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerRejectedEmailAsync(
+            string email,
+            string fullName,
+            string shopName,
+            string reason,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            SentRejectedEmails.Add((email, fullName, shopName, reason));
             return Task.FromResult(true);
         }
     }

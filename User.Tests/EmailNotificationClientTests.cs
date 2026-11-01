@@ -37,6 +37,50 @@ public sealed class EmailNotificationClientTests
     }
 
     [Fact]
+    public async Task SendSellerApprovedEmailAsync_posts_to_seller_approved_endpoint()
+    {
+        var capture = new CapturingHandler();
+
+        using var httpClient = new HttpClient(capture)
+        {
+            BaseAddress = new Uri("http://notification.local/")
+        };
+
+        var client = new EmailNotificationClient(httpClient, NullLogger<EmailNotificationClient>.Instance);
+
+        var sent = await client.SendSellerApprovedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop");
+
+        Assert.True(sent);
+        Assert.NotNull(capture.LastRequest);
+        Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
+        Assert.Equal("/api/v1/notifications/email/seller-approved", capture.LastRequest.RequestUri!.AbsolutePath);
+        Assert.Contains("shop@nexus.local", capture.LastBody);
+        Assert.Contains("Nexus Shop", capture.LastBody);
+    }
+
+    [Fact]
+    public async Task SendSellerRejectedEmailAsync_posts_to_seller_rejected_endpoint_with_reason()
+    {
+        var capture = new CapturingHandler();
+
+        using var httpClient = new HttpClient(capture)
+        {
+            BaseAddress = new Uri("http://notification.local/")
+        };
+
+        var client = new EmailNotificationClient(httpClient, NullLogger<EmailNotificationClient>.Instance);
+
+        var sent = await client.SendSellerRejectedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop", "Blurred ID card");
+
+        Assert.True(sent);
+        Assert.NotNull(capture.LastRequest);
+        Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
+        Assert.Equal("/api/v1/notifications/email/seller-rejected", capture.LastRequest.RequestUri!.AbsolutePath);
+        Assert.Contains("shop@nexus.local", capture.LastBody);
+        Assert.Contains("Blurred ID card", capture.LastBody);
+    }
+
+    [Fact]
     public async Task QueuedEmailNotificationClient_enqueues_message_and_returns_true()
     {
         var queue = new OtpEmailQueue();
@@ -66,6 +110,19 @@ public sealed class EmailNotificationClientTests
 
         var overflow = await client.SendOtpEmailAsync("queued@nexus.local", "Queued User", "112233", 5);
         Assert.False(overflow);
+    }
+
+    [Fact]
+    public async Task QueuedEmailNotificationClient_seller_approved_and_rejected_succeed_with_null_scope()
+    {
+        var queue = new OtpEmailQueue();
+        var client = new QueuedEmailNotificationClient(queue, NullLogger<QueuedEmailNotificationClient>.Instance);
+
+        var approvedSent = await client.SendSellerApprovedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop");
+        var rejectedSent = await client.SendSellerRejectedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop", "Reason");
+
+        Assert.True(approvedSent);
+        Assert.True(rejectedSent);
     }
 
     private sealed class CapturingHandler : HttpMessageHandler

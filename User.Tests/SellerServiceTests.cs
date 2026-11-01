@@ -167,8 +167,8 @@ public sealed class SellerServiceTests
         }
     }
 
-    private static SellerService CreateSellerService(AppDbContext dbContext, IRedisOtpService? otp = null, IFulfillmentServiceClient? fulfillment = null) =>
-        new(dbContext, otp ?? new FakeRedisOtpService(), null, fulfillment ?? new FakeFulfillmentServiceClient(), NullLogger<SellerService>.Instance);
+    private static SellerService CreateSellerService(AppDbContext dbContext, IRedisOtpService? otp = null, IFulfillmentServiceClient? fulfillment = null, IEmailNotificationClient? emailNotification = null) =>
+        new(dbContext, otp ?? new FakeRedisOtpService(), emailNotification, fulfillment ?? new FakeFulfillmentServiceClient(), NullLogger<SellerService>.Instance);
 
     [Fact]
     public async Task RegisterSellerAsync_ValidInput_SavesDraftInRedis_AndVerifiesOtp_CreatesSellerProfile()
@@ -1678,5 +1678,126 @@ public sealed class SellerServiceTests
             service.GetPublicSellerProfileAsync(Guid.Empty, CancellationToken.None));
 
         Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+    private sealed class FakeEmailNotificationClient : IEmailNotificationClient
+    {
+        public List<(string Email, string FullName, string OtpCode)> SentOtps { get; } = new();
+        public List<(string Email, string FullName, string ShopName)> SentApproved { get; } = new();
+        public List<(string Email, string FullName, string ShopName, string Reason)> SentRejected { get; } = new();
+
+        public Task<bool> SendOtpEmailAsync(string email, string fullName, string otpCode, int expiresInMinutes = 5, CancellationToken cancellationToken = default)
+        {
+            SentOtps.Add((email, fullName, otpCode));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerApprovedEmailAsync(string email, string fullName, string shopName, CancellationToken cancellationToken = default)
+        {
+            SentApproved.Add((email, fullName, shopName));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerRejectedEmailAsync(string email, string fullName, string shopName, string reason, CancellationToken cancellationToken = default)
+        {
+            SentRejected.Add((email, fullName, shopName, reason));
+            return Task.FromResult(true);
+        }
+    }
+
+    [Fact]
+    public async Task ApproveSellerRegistrationAsync_Dispatches_SellerApprovedEmail()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var emailClient = new FakeEmailNotificationClient();
+        var service = CreateSellerService(dbContext, emailNotification: emailClient);
+
+        var userId = Guid.NewGuid();
+        var user = new global::User.Domain.Entities.User
+        {
+            Id = userId,
+            Email = "seller_user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Minh",
+            LastName = "Nguyen",
+            Status = UserStatus.Active,
+            ReputationScore = new ReputationScore { UserId = userId, CurrentScore = 80 }
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Super Shop",
+            BusinessEmail = "biz_shop@nexus.local",
+            Hotline = "0988776655",
+            PickupAddress = "123 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var reviewerId = Guid.NewGuid();
+        var result = await service.ApproveSellerRegistrationAsync(regId, reviewerId, null, CancellationToken.None);
+
+        Assert.Equal("APPROVED", result.Status);
+        Assert.Single(emailClient.SentApproved);
+        Assert.Equal("biz_shop@nexus.local", emailClient.SentApproved[0].Email);
+        Assert.Equal("Minh Nguyen", emailClient.SentApproved[0].FullName);
+        Assert.Equal("Super Shop", emailClient.SentApproved[0].ShopName);
+    }
+
+    [Fact]
+    public async Task RejectSellerRegistrationAsync_Dispatches_SellerRejectedEmail_WithReason()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var emailClient = new FakeEmailNotificationClient();
+        var service = CreateSellerService(dbContext, emailNotification: emailClient);
+
+        var userId = Guid.NewGuid();
+        var user = new global::User.Domain.Entities.User
+        {
+            Id = userId,
+            Email = "reject_user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Huy",
+            LastName = "Le",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Rejected Shop",
+            BusinessEmail = "biz_reject@nexus.local",
+            Hotline = "0988776655",
+            PickupAddress = "123 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Status = SellerProfileStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var reviewerId = Guid.NewGuid();
+        var dto = new RejectSellerRegistrationDto { RejectionReason = "ID card back photo is blurry" };
+        var result = await service.RejectSellerRegistrationAsync(regId, reviewerId, dto, CancellationToken.None);
+
+        Assert.Equal("REJECTED", result.Status);
+        Assert.Single(emailClient.SentRejected);
+        Assert.Equal("biz_reject@nexus.local", emailClient.SentRejected[0].Email);
+        Assert.Equal("Huy Le", emailClient.SentRejected[0].FullName);
+        Assert.Equal("Rejected Shop", emailClient.SentRejected[0].ShopName);
+        Assert.Equal("ID card back photo is blurry", emailClient.SentRejected[0].Reason);
     }
 }

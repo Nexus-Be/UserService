@@ -720,6 +720,30 @@ public sealed class SellerService : ISellerService
 
         _logger.LogInformation("[SELLER APPROVAL] Successfully approved seller '{SellerId}' by Reviewer '{ReviewerId}'.", sellerProfile.Id, reviewerId);
 
+        // Dispatch approval email via Notification Service
+        if (_emailNotificationClient != null)
+        {
+            var recipientEmail = !string.IsNullOrWhiteSpace(sellerProfile.BusinessEmail)
+                ? sellerProfile.BusinessEmail.Trim()
+                : user.Email?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(recipientEmail))
+            {
+                try
+                {
+                    await _emailNotificationClient.SendSellerApprovedEmailAsync(
+                        recipientEmail,
+                        contactName,
+                        sellerProfile.ShopName,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[SELLER APPROVAL] Failed to dispatch approval notification email to '{Email}'.", recipientEmail);
+                }
+            }
+        }
+
         return new ApproveSellerRegistrationResponseDto(
             RegistrationId: sellerProfile.Id.ToString(),
             UserId: sellerProfile.UserId.ToString(),
@@ -791,6 +815,41 @@ public sealed class SellerService : ISellerService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[SELLER REJECTION] Rejected seller registration '{SellerId}' with reason: '{Reason}'.", sellerProfile.Id, reason);
+
+        // Dispatch rejection email via Notification Service
+        if (_emailNotificationClient != null)
+        {
+            var user = await _dbContext.Users.FindAsync(new object[] { sellerProfile.UserId }, cancellationToken);
+            var recipientEmail = !string.IsNullOrWhiteSpace(sellerProfile.BusinessEmail)
+                ? sellerProfile.BusinessEmail.Trim()
+                : user?.Email?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(recipientEmail))
+            {
+                var contactName = user != null
+                    ? $"{user.FirstName} {user.LastName}".Trim()
+                    : sellerProfile.ShopName;
+
+                if (string.IsNullOrWhiteSpace(contactName))
+                {
+                    contactName = sellerProfile.ShopName;
+                }
+
+                try
+                {
+                    await _emailNotificationClient.SendSellerRejectedEmailAsync(
+                        recipientEmail,
+                        contactName,
+                        sellerProfile.ShopName,
+                        reason,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[SELLER REJECTION] Failed to dispatch rejection notification email to '{Email}'.", recipientEmail);
+                }
+            }
+        }
 
         return new RejectSellerRegistrationResponseDto(
             RegistrationId: sellerProfile.Id.ToString(),
