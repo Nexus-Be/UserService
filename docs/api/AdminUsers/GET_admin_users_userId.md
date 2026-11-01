@@ -3,7 +3,7 @@
 > **Feature / Use Case:** AdminUsers — GetUserDetail
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Retrieves the administrative detail of a single user account.
 
 ---

@@ -3,7 +3,7 @@
 > **Feature / Use Case:** Auth — ForgotPassword
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Sends a password reset OTP code to the registered email address.
 
 ---

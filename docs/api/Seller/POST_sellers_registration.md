@@ -3,7 +3,7 @@
 > **Feature / Use Case:** Seller — RegisterSeller
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Submits a seller onboarding registration application and triggers business email verification OTP.
 
 ---

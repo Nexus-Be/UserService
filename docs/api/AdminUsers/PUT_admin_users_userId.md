@@ -3,7 +3,7 @@
 > **Feature / Use Case:** AdminUsers — UpdateUser
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Updates an existing user account by administrator.
 
 ---

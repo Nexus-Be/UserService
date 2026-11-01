@@ -3,7 +3,7 @@
 > **Feature / Use Case:** Auth — ResendOtp
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Resends the account verification OTP email with rate limiting cooldown.
 
 ---

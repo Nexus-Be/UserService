@@ -3,7 +3,7 @@
 > **Feature / Use Case:** AdminUsers — AssignUserRoles
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Replaces the assigned roles of a user account with segregation of duties validation.
 
 ---

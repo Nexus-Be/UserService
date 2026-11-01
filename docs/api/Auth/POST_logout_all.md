@@ -3,7 +3,7 @@
 > **Feature / Use Case:** Auth — LogoutAll
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-01
-> **Tác giả:** AI Assistant (UserService Architecture Team)
+> **Tác giả:** Vinh & AI Agent
 > **Mô tả chức năng:** Revokes all active sessions of the authenticated user across all devices.
 
 ---
