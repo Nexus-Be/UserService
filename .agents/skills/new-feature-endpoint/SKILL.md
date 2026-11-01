@@ -37,7 +37,7 @@ description: Add or change a REST endpoint in UserService (port 8001). Use when 
 - [ ] Create `.agents/plan/PLAN-YYYYMMDD-HHMM-<NAME>.md`.
 - [ ] Stop and ask if the contract is ambiguous.
 
-### 1. Contract
+### 1. Contract & Pre-Code Documentation
 
 - [ ] Route is `/api/v1/<plural>`; only `/api/v1/me` and `/api/v1/auth` may be singular.
 - [ ] One route attribute per action; no alias.
@@ -48,6 +48,7 @@ description: Add or change a REST endpoint in UserService (port 8001). Use when 
 - [ ] Enums are documented with integer database value and PascalCase API value.
 - [ ] List endpoints use `page` and `pageSize` and return `PagedData<T>`.
 - [ ] Internal API stays off: no `/api/v1/internal`, no `X-Internal-Service-Key`.
+- [ ] **MANDATORY PRE-CODE DOC:** Run skill `service-api-doc` to draft the technical doc at `docs/api/{Feature}/{METHOD}_{ENDPOINT}.md` using `docs/api/SERVICE_API_DOC_TEMPLATE.md` before writing code.
 
 ### 2. Persistence
 
