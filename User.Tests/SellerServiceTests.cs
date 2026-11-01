@@ -1800,4 +1800,144 @@ public sealed class SellerServiceTests
         Assert.Equal("Rejected Shop", emailClient.SentRejected[0].ShopName);
         Assert.Equal("ID card back photo is blurry", emailClient.SentRejected[0].Reason);
     }
+
+    [Fact]
+    public async Task GetSellerRegistrationDetailsAsync_WhenExists_ReturnsCorrectDetails()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var userId = Guid.NewGuid();
+        var user = new global::User.Domain.Entities.User
+        {
+            Id = userId,
+            Email = "detail_test@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Tran",
+            LastName = "Van B",
+            PhoneNumber = "0912345678",
+            IdentifyNumber = "987654321012",
+            Status = UserStatus.Active,
+            ReputationScore = new ReputationScore { Id = Guid.NewGuid(), UserId = userId, CurrentScore = 85 }
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Super Tech Store",
+            BusinessEmail = "biz_tech@nexus.local",
+            Hotline = "0912345678",
+            IdCardFrontUrl = "https://cdn.example.com/front.jpg",
+            IdCardBackUrl = "https://cdn.example.com/back.jpg",
+            BusinessLicenseUrl = "https://cdn.example.com/license.pdf",
+            PickupAddress = "456 Le Loi, District 1, HCMC",
+            ProvinceId = 202,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.GetSellerRegistrationDetailsAsync(regId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(regId.ToString(), result.RegistrationId);
+        Assert.Equal(userId.ToString(), result.UserId);
+        Assert.Equal("Super Tech Store", result.ShopName);
+        Assert.Equal("Tran Van B", result.ApplicantName);
+        Assert.Equal("detail_test@nexus.local", result.ApplicantEmail);
+        Assert.Equal("0912345678", result.ApplicantPhone);
+        Assert.Equal("987654321012", result.IdentityCardNumber);
+        Assert.Equal("https://cdn.example.com/front.jpg", result.IdCardFrontUrl);
+        Assert.Equal("https://cdn.example.com/back.jpg", result.IdCardBackUrl);
+        Assert.Equal("https://cdn.example.com/license.pdf", result.BusinessLicenseUrl);
+        Assert.Equal("456 Le Loi, District 1, HCMC", result.PickupAddress);
+        Assert.Equal(202, result.ProvinceId);
+        Assert.Equal(1442, result.DistrictId);
+        Assert.Equal("20101", result.WardCode);
+        Assert.Equal(85, result.ReputationScore);
+        Assert.Equal("Pending", result.Status);
+        Assert.Null(result.RejectionReason);
+    }
+
+    [Fact]
+    public async Task GetSellerRegistrationDetailsAsync_FallbackByUserId_ReturnsCorrectDetails()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var userId = Guid.NewGuid();
+        var user = new global::User.Domain.Entities.User
+        {
+            Id = userId,
+            Email = "fallback_user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Le",
+            LastName = "Thi C",
+            PhoneNumber = "0933445566",
+            IdentifyNumber = "112233445566",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Fashion Outlet",
+            BusinessEmail = "biz_fashion@nexus.local",
+            Hotline = "0933445566",
+            PickupAddress = "789 Nguyen Trai, District 5, HCMC",
+            ProvinceId = 202,
+            DistrictId = 1445,
+            WardCode = "20501",
+            Status = SellerProfileStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        // Pass userId as registrationId parameter
+        var result = await service.GetSellerRegistrationDetailsAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(regId.ToString(), result.RegistrationId);
+        Assert.Equal(userId.ToString(), result.UserId);
+        Assert.Equal("Fashion Outlet", result.ShopName);
+        Assert.Equal("Le Thi C", result.ApplicantName);
+    }
+
+    [Fact]
+    public async Task GetSellerRegistrationDetailsAsync_WhenNotFound_ThrowsDomainException_404()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var nonExistentId = Guid.NewGuid();
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.GetSellerRegistrationDetailsAsync(nonExistentId, CancellationToken.None));
+
+        Assert.Equal("SELLER_REGISTRATION_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal(404, ex.StatusCode);
+        Assert.Equal("Seller registration application not found.", ex.Message);
+    }
+
+    [Fact]
+    public async Task GetSellerRegistrationDetailsAsync_WhenEmptyGuid_ThrowsValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = CreateSellerService(dbContext);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.GetSellerRegistrationDetailsAsync(Guid.Empty, CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+        Assert.Equal("Registration identifier is required.", ex.Message);
+    }
 }

@@ -35,6 +35,7 @@
 * `GET /api/v1/sellers/profile`: Tra cứu hồ sơ người bán.
 * `PATCH /api/v1/sellers/profile`: Cập nhật hồ sơ và địa chỉ kho người bán.
 * `GET /api/v1/admin/seller-registrations`: Danh sách đơn đăng ký seller chờ duyệt.
+* `GET /api/v1/admin/seller-registrations/{registrationId}`: Xem chi tiết hồ sơ chứng từ, thông tin kho GHN của đơn đăng ký seller.
 * `HttpPost /api/v1/admin/seller-registrations/{id}/approve`: Duyệt đơn đăng ký seller.
 * `HttpPost /api/v1/admin/seller-registrations/{id}/reject`: Từ chối đơn đăng ký seller.
 

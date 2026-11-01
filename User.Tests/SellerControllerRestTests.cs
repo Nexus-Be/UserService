@@ -268,6 +268,68 @@ public sealed class SellerControllerRestTests
     }
 
     [Fact]
+    public async Task GetSellerRequestDetails_Returns200Ok_WithDetailsDto()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "detail_applicant@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Nguyen",
+            LastName = "Van A",
+            PhoneNumber = "0987654321",
+            IdentifyNumber = "123456789012",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var regId = Guid.NewGuid();
+        var profile = new SellerProfile
+        {
+            Id = regId,
+            UserId = userId,
+            ShopName = "Tech Gadget Store",
+            BusinessEmail = "biz@techstore.local",
+            Hotline = "0987654321",
+            IdCardFrontUrl = "https://cdn.example.com/front.jpg",
+            IdCardBackUrl = "https://cdn.example.com/back.jpg",
+            BusinessLicenseUrl = "https://cdn.example.com/license.pdf",
+            PickupAddress = "123 Main St, District 1, HCMC",
+            ProvinceId = 202,
+            DistrictId = 1442,
+            WardCode = "20101",
+            Status = SellerProfileStatus.Pending
+        };
+        dbContext.SellerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+
+        var sellerService = CreateSellerService(dbContext);
+        var controller = new AdminSellerRegistrationsController(sellerService, NullLogger<AdminSellerRegistrationsController>.Instance);
+
+        var result = await controller.GetSellerRequestDetails(regId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<SellerRegistrationDetailsDto>(okResult.Value);
+        Assert.Equal(regId.ToString(), response.RegistrationId);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Tech Gadget Store", response.ShopName);
+        Assert.Equal("Nguyen Van A", response.ApplicantName);
+        Assert.Equal("detail_applicant@nexus.local", response.ApplicantEmail);
+        Assert.Equal("0987654321", response.ApplicantPhone);
+        Assert.Equal("123456789012", response.IdentityCardNumber);
+        Assert.Equal("https://cdn.example.com/front.jpg", response.IdCardFrontUrl);
+        Assert.Equal("https://cdn.example.com/back.jpg", response.IdCardBackUrl);
+        Assert.Equal("https://cdn.example.com/license.pdf", response.BusinessLicenseUrl);
+        Assert.Equal("123 Main St, District 1, HCMC", response.PickupAddress);
+        Assert.Equal(202, response.ProvinceId);
+        Assert.Equal(1442, response.DistrictId);
+        Assert.Equal("20101", response.WardCode);
+        Assert.Equal("Pending", response.Status);
+    }
+
+    [Fact]
     public async Task ApproveSellerRegistration_Returns200Ok_WithApprovalResponse()
     {
         using var dbContext = CreateInMemoryDbContext();

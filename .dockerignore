@@ -9,6 +9,8 @@
 **/.gitnexus
 **/*.Tests
 **/TestResults
+**/docs
+**/specs
 
 # Config chỉ nạp qua biến môi trường khi chạy Docker
 .env
