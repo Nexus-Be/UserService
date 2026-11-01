@@ -11,6 +11,7 @@ using User.Api.Controllers;
 using User.Application.Services.Profile;
 using User.Domain.Entities;
 using User.Domain.Enums;
+using User.Domain.Exceptions;
 using User.Infrastructure.Persistence;
 using Xunit;
 
@@ -159,5 +160,55 @@ public sealed class UsersControllerRestTests
         Assert.Equal("publicjohn", publicProfile.Username);
         Assert.Equal("John", publicProfile.FirstName);
         Assert.Equal("Public", publicProfile.LastName);
+    }
+
+    [Fact]
+    public async Task GetUserPublicProfile_Direct_Returns_PublicUserProfileDto()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Username = "safeuser",
+            Email = "secret@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Safe",
+            LastName = "User",
+            PhoneNumber = "0987654321",
+            IdentifyNumber = "079201001234",
+            Address = "Confidential Address",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+        var controller = new UsersController(profileService, NullLogger<UsersController>.Instance);
+
+        var result = await controller.GetUserPublicProfile(userId, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var publicProfile = Assert.IsType<PublicUserProfileDto>(okResult.Value);
+        Assert.Equal(userId.ToString(), publicProfile.Id);
+        Assert.Equal("safeuser", publicProfile.Username);
+        Assert.Equal("Safe", publicProfile.FirstName);
+        Assert.Equal("User", publicProfile.LastName);
+    }
+
+    [Fact]
+    public async Task GetUserPublicProfile_UserNotFound_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+        var controller = new UsersController(profileService, NullLogger<UsersController>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            controller.GetUserPublicProfile(Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal(404, ex.StatusCode);
     }
 }
