@@ -113,23 +113,11 @@ public sealed class UpdateAdminUserDto
     [JsonPropertyName("firstName")]
     public string? FirstName { get; set; }
 
-    [JsonPropertyName("first_name")]
-    public string? FirstNameSnake { set => FirstName ??= value; }
-
     [JsonPropertyName("lastName")]
     public string? LastName { get; set; }
 
-    [JsonPropertyName("last_name")]
-    public string? LastNameSnake { set => LastName ??= value; }
-
     [JsonPropertyName("phoneNumber")]
     public string? PhoneNumber { get; set; }
-
-    [JsonPropertyName("phone_number")]
-    public string? PhoneNumberSnake { set => PhoneNumber ??= value; }
-
-    [JsonPropertyName("phone")]
-    public string? PhoneShort { set => PhoneNumber ??= value; }
 
     [JsonPropertyName("status")]
     public string? Status { get; set; }
