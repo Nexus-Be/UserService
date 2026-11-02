@@ -453,7 +453,7 @@ public sealed class AdminUserServiceTests
         Assert.Equal("079200000001", detail.IdentifyNumber);
         Assert.Equal("Male", detail.Gender);
         Assert.Equal(80, detail.ReputationScore);
-        Assert.Equal("GOOD", detail.TrustLevel);
+        Assert.Equal("Good", detail.TrustLevel);
         Assert.Contains("support staff", detail.Roles);
         Assert.Contains("user.view", detail.Permissions);
         Assert.Contains("order.create", detail.Permissions);
@@ -503,7 +503,7 @@ public sealed class AdminUserServiceTests
         Assert.True(detail.IsSeller);
         Assert.NotNull(detail.SellerProfile);
         Assert.Equal("Nexus Official Tech Store", detail.SellerProfile.ShopName);
-        Assert.Equal("APPROVED", detail.SellerProfile.Status);
+        Assert.Equal("Approved", detail.SellerProfile.Status);
         Assert.Equal("19001234", detail.SellerProfile.Hotline);
     }
 
@@ -740,7 +740,7 @@ public sealed class AdminUserServiceTests
         Assert.Equal("NewFirst", response.FirstName);
         Assert.Equal("NewLast", response.LastName);
         Assert.Equal("0911111111", response.PhoneNumber);
-        Assert.Equal("BANNED", response.Status);
+        Assert.Equal("Banned", response.Status);
         Assert.Equal(adminId.ToString(), response.UpdatedBy);
         Assert.Equal("User updated successfully.", response.Message);
 
@@ -804,7 +804,7 @@ public sealed class AdminUserServiceTests
 
         var response = await service.UpdateUserAsync(userId, dto, adminId, CancellationToken.None);
 
-        Assert.Equal("ACTIVE", response.Status);
+        Assert.Equal("Active", response.Status);
 
         var updatedDbUser = await dbContext.Users.FirstAsync(u => u.Id == userId);
         Assert.Equal(UserStatus.Active, updatedDbUser.Status);

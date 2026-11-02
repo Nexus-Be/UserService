@@ -385,7 +385,7 @@ public sealed class SellerService : ISellerService
             action: AuditAction.UserUpdate,
             entityName: nameof(SellerProfile),
             entityId: sellerProfile.Id.ToString(),
-            newValues: new { status = "PENDING", shopName = sellerProfile.ShopName, businessEmail = sellerProfile.BusinessEmail },
+            newValues: new { status = "Pending", shopName = sellerProfile.ShopName, businessEmail = sellerProfile.BusinessEmail },
             userId: userId.ToString());
 
         // 9. Local DB commit
@@ -397,7 +397,7 @@ public sealed class SellerService : ISellerService
         return new VerifySellerOtpResponseDto(
             SellerId: sellerProfile.Id.ToString(),
             UserId: userId.ToString(),
-            Status: "PENDING",
+            Status: "Pending",
             BusinessEmail: sellerProfile.BusinessEmail,
             ShopName: sellerProfile.ShopName,
             VerifiedAt: DateTimeOffset.UtcNow,
@@ -497,7 +497,7 @@ public sealed class SellerService : ISellerService
 
         if (sellerProfile != null)
         {
-            var statusStr = sellerProfile.Status.ToString().ToUpperInvariant();
+            var statusStr = sellerProfile.Status.ToString();
             var nextStep = sellerProfile.Status switch
             {
                 SellerProfileStatus.Pending => "AWAITING_STAFF_APPROVAL",
@@ -564,7 +564,7 @@ public sealed class SellerService : ISellerService
             WarehouseAddress: s.PickupAddress,
             PickupAddress: s.PickupAddress,
             ReputationScore: s.User?.ReputationScore?.CurrentScore ?? 50,
-            Status: s.Status.ToString().ToUpperInvariant(),
+            Status: s.Status.ToString(),
             CreatedAt: s.CreatedAt
         )).ToList();
 
@@ -759,7 +759,7 @@ public sealed class SellerService : ISellerService
             action: AuditAction.SellerApprove,
             entityName: nameof(SellerProfile),
             entityId: sellerProfile.Id.ToString(),
-            newValues: new { status = "APPROVED", note = dto?.Note },
+            newValues: new { status = "Approved", note = dto?.Note },
             userId: reviewerId?.ToString());
 
         // 4. Local commit with compensating rollback if DB fails
@@ -810,7 +810,7 @@ public sealed class SellerService : ISellerService
         return new ApproveSellerRegistrationResponseDto(
             RegistrationId: sellerProfile.Id.ToString(),
             UserId: sellerProfile.UserId.ToString(),
-            Status: "APPROVED",
+            Status: "Approved",
             ApprovedAt: sellerProfile.ReviewedAt.Value
         );
     }
@@ -872,7 +872,7 @@ public sealed class SellerService : ISellerService
             action: AuditAction.SellerReject,
             entityName: nameof(SellerProfile),
             entityId: sellerProfile.Id.ToString(),
-            newValues: new { status = "REJECTED", reason },
+            newValues: new { status = "Rejected", reason },
             userId: reviewerId?.ToString());
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -917,7 +917,7 @@ public sealed class SellerService : ISellerService
         return new RejectSellerRegistrationResponseDto(
             RegistrationId: sellerProfile.Id.ToString(),
             UserId: sellerProfile.UserId.ToString(),
-            Status: "REJECTED",
+            Status: "Rejected",
             RejectedAt: sellerProfile.ReviewedAt.Value,
             RejectionReason: reason
         );
@@ -969,7 +969,7 @@ public sealed class SellerService : ISellerService
             ProvinceId: sellerProfile.ProvinceId,
             DistrictId: sellerProfile.DistrictId,
             WardCode: sellerProfile.WardCode,
-            Status: sellerProfile.Status.ToString().ToUpperInvariant(),
+            Status: sellerProfile.Status.ToString(),
             RatingAvg: ratingAvg,
             ReputationScore: reputationScore,
             TrustLevel: trustLevel,

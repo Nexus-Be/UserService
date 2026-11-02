@@ -333,7 +333,7 @@ public sealed class AdminUserService : IAdminUserService
 
             var displayName = $"{u.FirstName} {u.LastName}".Trim();
             var repScore = u.ReputationScore?.CurrentScore ?? 50;
-            var trustLevel = (u.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString().ToUpperInvariant();
+            var trustLevel = (u.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString();
             var isSeller = roles.Contains("seller") || u.SellerProfile != null;
 
             return new AdminUserListItemDto(
@@ -351,7 +351,7 @@ public sealed class AdminUserService : IAdminUserService
                 TrustLevel: trustLevel,
                 IsSeller: isSeller,
                 Roles: roles,
-                Status: u.Status.ToString().ToUpperInvariant(),
+                Status: u.Status.ToString(),
                 CreatedAt: u.CreatedAt
             );
         }).ToList();
@@ -406,7 +406,7 @@ public sealed class AdminUserService : IAdminUserService
 
         // Reputation
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
-        var trustLevel = (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString().ToUpperInvariant();
+        var trustLevel = (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString();
 
         // Seller Profile
         AdminSellerProfileDetailDto? sellerProfileDto = null;
@@ -417,7 +417,7 @@ public sealed class AdminUserService : IAdminUserService
             var sp = user.SellerProfile;
             sellerProfileDto = new AdminSellerProfileDetailDto(
                 ShopName: sp.ShopName,
-                Status: sp.Status.ToString().ToUpperInvariant(),
+                Status: sp.Status.ToString(),
                 Hotline: sp.Hotline,
                 BusinessEmail: sp.BusinessEmail,
                 PickupAddress: sp.PickupAddress,
@@ -463,7 +463,7 @@ public sealed class AdminUserService : IAdminUserService
             Gender: user.Gender.ToString(),
             DateOfBirth: user.DateOfBirth,
             Address: user.Address,
-            Status: user.Status.ToString().ToUpperInvariant(),
+            Status: user.Status.ToString(),
             IsSeller: isSeller,
             ReputationScore: repScore,
             TrustLevel: trustLevel,
@@ -717,7 +717,7 @@ public sealed class AdminUserService : IAdminUserService
             ["FirstName"] = user.FirstName,
             ["LastName"] = user.LastName,
             ["PhoneNumber"] = user.PhoneNumber,
-            ["Status"] = user.Status.ToString().ToUpperInvariant()
+            ["Status"] = user.Status.ToString()
         };
 
         var changedColumns = new List<string>();
@@ -850,7 +850,7 @@ public sealed class AdminUserService : IAdminUserService
             ["FirstName"] = user.FirstName,
             ["LastName"] = user.LastName,
             ["PhoneNumber"] = user.PhoneNumber,
-            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["Status"] = user.Status.ToString(),
             ["Reason"] = dto.Reason.Trim()
         };
 
@@ -875,7 +875,7 @@ public sealed class AdminUserService : IAdminUserService
             FirstName: user.FirstName,
             LastName: user.LastName,
             PhoneNumber: user.PhoneNumber,
-            Status: user.Status.ToString().ToUpperInvariant(),
+            Status: user.Status.ToString(),
             UpdatedBy: adminId?.ToString() ?? "system",
             UpdatedAt: user.UpdatedAt,
             Message: "User updated successfully."
@@ -941,7 +941,7 @@ public sealed class AdminUserService : IAdminUserService
         var oldValues = new Dictionary<string, object?>
         {
             ["IsDeleted"] = user.IsDeleted,
-            ["Status"] = user.Status.ToString().ToUpperInvariant()
+            ["Status"] = user.Status.ToString()
         };
 
         // 3. Perform soft delete
@@ -1069,7 +1069,7 @@ public sealed class AdminUserService : IAdminUserService
         var now = DateTimeOffset.UtcNow;
         var oldValues = new Dictionary<string, object?>
         {
-            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["Status"] = user.Status.ToString(),
             ["BannedAt"] = user.BannedAt,
             ["BannedBy"] = user.BannedBy?.ToString(),
             ["BanReason"] = user.BanReason
@@ -1104,7 +1104,7 @@ public sealed class AdminUserService : IAdminUserService
         // 5. Audit Log
         var newValues = new Dictionary<string, object?>
         {
-            ["Status"] = UserStatus.Banned.ToString().ToUpperInvariant(),
+            ["Status"] = UserStatus.Banned.ToString(),
             ["BannedAt"] = now,
             ["BannedBy"] = adminId?.ToString(),
             ["BanReason"] = trimmedReason,
@@ -1191,7 +1191,7 @@ public sealed class AdminUserService : IAdminUserService
         var now = DateTimeOffset.UtcNow;
         var oldValues = new Dictionary<string, object?>
         {
-            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["Status"] = user.Status.ToString(),
             ["BannedAt"] = user.BannedAt,
             ["BannedBy"] = user.BannedBy?.ToString(),
             ["BanReason"] = user.BanReason
