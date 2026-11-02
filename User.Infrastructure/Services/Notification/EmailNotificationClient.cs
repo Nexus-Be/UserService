@@ -103,7 +103,8 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
                 email = email.Trim(),
                 fullName = fullName.Trim(),
                 shopName = shopName.Trim(),
-                reason = reason.Trim()
+                reason = reason.Trim(),
+                rejectReason = reason.Trim()
             };
 
             var response = await _httpClient.PostAsJsonAsync("api/v1/notifications/email/seller-rejected", payload, cancellationToken);

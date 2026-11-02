@@ -57,7 +57,7 @@ public static class DependencyInjection
             ?? "http://localhost:8007/";
 
         // Internal service key handler is temporarily disabled. Inter-service calls use plain REST routes.
-        services.AddTransient<Services.Common.InternalServiceAuthHandler>();
+        // services.AddTransient<Services.Common.InternalServiceAuthHandler>();
         services.AddHttpClient<IEmailNotificationClient, EmailNotificationClient>(client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
@@ -75,7 +75,7 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
-        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
+        });
 
         // REST Wallet Service Client (Sync non-blocking with 5s timeout)
         var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
