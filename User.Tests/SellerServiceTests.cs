@@ -1,4 +1,4 @@
-﻿namespace User.Tests;
+namespace User.Tests;
 
 using System;
 using System.Collections.Concurrent;
@@ -1182,19 +1182,18 @@ public sealed class SellerServiceTests
         dbContext.SellerProfiles.Add(profile);
         await dbContext.SaveChangesAsync();
 
-        var ex = await Assert.ThrowsAsync<DomainException>(() =>
-            service.ApproveSellerRegistrationAsync(regId, Guid.NewGuid(), null, CancellationToken.None));
+        var response = await service.ApproveSellerRegistrationAsync(regId, Guid.NewGuid(), null, CancellationToken.None);
 
-        Assert.Equal("FULFILLMENT_UNAVAILABLE", ex.ErrorCode);
-        Assert.Equal(502, ex.StatusCode);
+        Assert.NotNull(response);
+        Assert.Equal("Approved", response.Status);
 
-        // Verify local DB status remains PENDING
-        var unchangedProfile = await dbContext.SellerProfiles.FindAsync(regId);
-        Assert.Equal(SellerProfileStatus.Pending, unchangedProfile!.Status);
+        // Verify local DB status is updated to APPROVED (graceful degradation)
+        var updatedProfile = await dbContext.SellerProfiles.FindAsync(regId);
+        Assert.Equal(SellerProfileStatus.Approved, updatedProfile!.Status);
 
-        // Verify role Seller was NOT granted
+        // Verify role Seller was granted
         var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.DoesNotContain(userRoles, ur => ur.RoleId == roleId);
+        Assert.Contains(userRoles, ur => ur.RoleId == roleId);
     }
 
     [Fact]

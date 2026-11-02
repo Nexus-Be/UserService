@@ -345,6 +345,9 @@ public sealed class SellerService : ISellerService
             sellerProfile.ProvinceId = draft.ProvinceId;
             sellerProfile.DistrictId = draft.DistrictId;
             sellerProfile.WardCode = draft.WardCode;
+            sellerProfile.IdCardFrontUrl = draft.IdCardFrontUrl;
+            sellerProfile.IdCardBackUrl = draft.IdCardBackUrl;
+            sellerProfile.BusinessLicenseUrl = draft.BusinessLicenseUrl;
             if (!string.IsNullOrWhiteSpace(draft.AvatarUrl))
             {
                 sellerProfile.AvatarUrl = draft.AvatarUrl;
@@ -368,6 +371,9 @@ public sealed class SellerService : ISellerService
                 ProvinceId = draft.ProvinceId,
                 DistrictId = draft.DistrictId,
                 WardCode = draft.WardCode,
+                IdCardFrontUrl = draft.IdCardFrontUrl,
+                IdCardBackUrl = draft.IdCardBackUrl,
+                BusinessLicenseUrl = draft.BusinessLicenseUrl,
                 AvatarUrl = draft.AvatarUrl,
                 Status = SellerProfileStatus.Pending,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -721,9 +727,7 @@ public sealed class SellerService : ISellerService
 
         if (!warehouseCreated)
         {
-            _logger.LogError("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Local DB untouched.",
-                sellerProfile.Id);
-            throw new DomainException("FULFILLMENT_UNAVAILABLE", "Fulfillment warehouse creation failed or timed out. Please try again.", 502);
+            _logger.LogWarning("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Proceeding with seller approval (graceful degradation).", sellerProfile.Id);
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL

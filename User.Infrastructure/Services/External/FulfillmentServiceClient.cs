@@ -46,8 +46,8 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
 
         try
         {
-            _logger.LogInformation("[FULFILLMENT CLIENT] Creating warehouse for Seller '{SellerId}', Shop: '{ShopName}' at internal route /api/v1/internal/warehouses", sellerId, shopName);
-            var response = await _httpClient.PostAsJsonAsync("api/v1/internal/warehouses", payload, cancellationToken);
+            _logger.LogInformation("[FULFILLMENT CLIENT] Creating warehouse for Seller '{SellerId}', Shop: '{ShopName}' at route /api/v1/warehouses", sellerId, shopName);
+            var response = await _httpClient.PostAsJsonAsync("api/v1/warehouses", payload, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -94,7 +94,7 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Updating warehouse for Seller '{SellerId}'", sellerId);
-            var response = await _httpClient.PutAsJsonAsync($"api/v1/internal/warehouses/{sellerId}", payload, cancellationToken);
+            var response = await _httpClient.PutAsJsonAsync($"api/v1/warehouses/{sellerId}", payload, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -120,7 +120,7 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Compensating action: Deleting orphan warehouse for Seller '{SellerId}'", sellerId);
-            var response = await _httpClient.DeleteAsync($"api/v1/internal/warehouses/{sellerId}", cancellationToken);
+            var response = await _httpClient.DeleteAsync($"api/v1/warehouses/{sellerId}", cancellationToken);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
