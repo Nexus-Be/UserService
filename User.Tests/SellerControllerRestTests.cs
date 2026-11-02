@@ -600,7 +600,7 @@ public sealed class SellerControllerRestTests
         Assert.Equal(shopId.ToString(), response.ShopId);
         Assert.Equal(userId.ToString(), response.SellerId);
         Assert.Equal("Nexus Official Store", response.ShopName);
-        Assert.Equal("090*****67", response.Hotline);
+        Assert.Equal("0901234567", response.Hotline);
     }
     [Fact]
     public void AdminSellerRegistrationsController_HasStrictStaffRoleAttribute()

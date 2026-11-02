@@ -1536,7 +1536,7 @@ public sealed class SellerServiceTests
     }
 
     [Fact]
-    public async Task GetPublicSellerProfileAsync_ByShopId_ReturnsMaskedHotlineAndProfile()
+    public async Task GetPublicSellerProfileAsync_ByShopId_ReturnsUnmaskedHotlineAndProfile()
     {
         using var dbContext = CreateInMemoryDbContext();
         var service = CreateSellerService(dbContext);
@@ -1579,7 +1579,7 @@ public sealed class SellerServiceTests
         Assert.Equal(userId.ToString(), result.SellerId);
         Assert.Equal("Nexus Official Store", result.ShopName);
         Assert.Equal("https://cdn.san.vn/avatars/shop.jpg", result.LogoUrl);
-        Assert.Equal("090*****67", result.Hotline);
+        Assert.Equal("0901234567", result.Hotline);
         Assert.Equal(5.0, result.RatingAvg);
         Assert.Equal(0, result.TotalProducts);
     }
@@ -1624,7 +1624,7 @@ public sealed class SellerServiceTests
         Assert.Equal(shopId.ToString(), result.ShopId);
         Assert.Equal(userId.ToString(), result.SellerId);
         Assert.Equal("Another Good Shop", result.ShopName);
-        Assert.Equal("098*****21", result.Hotline);
+        Assert.Equal("0987654321", result.Hotline);
     }
 
     [Fact]

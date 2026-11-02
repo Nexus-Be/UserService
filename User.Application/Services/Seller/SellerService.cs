@@ -1179,29 +1179,11 @@ public sealed class SellerService : ISellerService
             ShopName: sellerProfile.ShopName,
             LogoUrl: sellerProfile.AvatarUrl ?? sellerProfile.User?.AvatarUrl,
             Description: null,
-            Hotline: MaskHotline(sellerProfile.Hotline),
+            Hotline: sellerProfile.Hotline,
             RatingAvg: ratingAvg,
             TotalProducts: 0,
             CreatedAt: sellerProfile.CreatedAt
         );
     }
 
-    private static string MaskHotline(string? hotline)
-    {
-        if (string.IsNullOrWhiteSpace(hotline))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = hotline.Trim();
-        if (trimmed.Length < 6)
-        {
-            return trimmed;
-        }
-
-        var prefix = trimmed.Substring(0, 3);
-        var suffix = trimmed.Substring(trimmed.Length - 2);
-        var maskLength = Math.Max(1, trimmed.Length - 5);
-        return $"{prefix}{new string('*', maskLength)}{suffix}";
-    }
 }
