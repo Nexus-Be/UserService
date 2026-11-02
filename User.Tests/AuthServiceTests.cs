@@ -1,4 +1,4 @@
-namespace User.Tests;
+﻿namespace User.Tests;
 
 using System;
 using System.Collections.Concurrent;
@@ -1797,6 +1797,24 @@ public sealed class AuthServiceTests
             System.Threading.CancellationToken cancellationToken = default)
         {
             SentRejectedEmails.Add((email, fullName, shopName, reason));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendUserBannedEmailAsync(
+            string email,
+            string fullName,
+            string reason,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendUserUnbannedEmailAsync(
+            string email,
+            string fullName,
+            string? reason = null,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
             return Task.FromResult(true);
         }
     }

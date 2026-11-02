@@ -96,3 +96,57 @@ public sealed record SellerRegistrationDetailsDto(
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
 );
+
+public sealed record SellerBankInfoDto(
+    [property: JsonPropertyName("bankName")] string? BankName = null,
+    [property: JsonPropertyName("bankAccountNumber")] string? BankAccountNumber = null,
+    [property: JsonPropertyName("bankAccountHolder")] string? BankAccountHolder = null,
+    [property: JsonPropertyName("bankBranch")] string? BankBranch = null
+);
+
+public sealed record SellerSettlementInfoDto(
+    [property: JsonPropertyName("settlementCycle")] string SettlementCycle = "Weekly",
+    [property: JsonPropertyName("autoPayoutEnabled")] bool AutoPayoutEnabled = true,
+    [property: JsonPropertyName("payoutStatus")] string PayoutStatus = "Active"
+);
+
+public sealed record AdminSellerProfileResponseDto(
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("shopId")] string ShopId,
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
+    [property: JsonPropertyName("businessEmail")] string? BusinessEmail,
+    [property: JsonPropertyName("hotline")] string Hotline,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("pickupAddress")] string PickupAddress,
+    [property: JsonPropertyName("warehouseAddress")] string WarehouseAddress,
+    [property: JsonPropertyName("provinceId")] int ProvinceId,
+    [property: JsonPropertyName("districtId")] int DistrictId,
+    [property: JsonPropertyName("wardCode")] string WardCode,
+    [property: JsonPropertyName("identityCardNumber")] string? IdentityCardNumber,
+    [property: JsonPropertyName("idCardFrontUrl")] string? IdCardFrontUrl,
+    [property: JsonPropertyName("idCardBackUrl")] string? IdCardBackUrl,
+    [property: JsonPropertyName("businessLicenseUrl")] string? BusinessLicenseUrl,
+    [property: JsonPropertyName("ownerFullName")] string OwnerFullName,
+    [property: JsonPropertyName("ownerEmail")] string OwnerEmail,
+    [property: JsonPropertyName("ownerPhoneNumber")] string? OwnerPhoneNumber,
+    [property: JsonPropertyName("ownerGender")] string OwnerGender,
+    [property: JsonPropertyName("ownerDateOfBirth")] DateTimeOffset? OwnerDateOfBirth,
+    [property: JsonPropertyName("ownerAddress")] string? OwnerAddress,
+    [property: JsonPropertyName("bankInfo")] SellerBankInfoDto BankInfo,
+    [property: JsonPropertyName("settlementInfo")] SellerSettlementInfoDto SettlementInfo,
+    [property: JsonPropertyName("ratingAvg")] double RatingAvg,
+    [property: JsonPropertyName("reputationScore")] int ReputationScore,
+    [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("totalPositiveReviews")] int TotalPositiveReviews,
+    [property: JsonPropertyName("totalNegativeReviews")] int TotalNegativeReviews,
+    [property: JsonPropertyName("penaltyCount")] int PenaltyCount,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("rejectionReason")] string? RejectionReason,
+    [property: JsonPropertyName("reviewedBy")] string? ReviewedBy,
+    [property: JsonPropertyName("reviewedByName")] string? ReviewedByName,
+    [property: JsonPropertyName("reviewedAt")] DateTimeOffset? ReviewedAt,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
+);

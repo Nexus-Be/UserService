@@ -21,7 +21,7 @@ public sealed class UsersController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Retrieves the safe public profile of a user by ID (USER-07).</summary>
+    /// <summary>[Public] Retrieves the safe public profile of a user by ID.</summary>
     [HttpGet("{userId:guid}")]
     [AllowAnonymous]
     public async Task<IActionResult> GetUserPublicProfile([FromRoute] Guid userId, CancellationToken cancellationToken)

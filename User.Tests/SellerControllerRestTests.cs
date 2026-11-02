@@ -202,7 +202,7 @@ public sealed class SellerControllerRestTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var verifyResp = Assert.IsType<VerifySellerOtpResponseDto>(okResult.Value);
-        Assert.Equal("PENDING", verifyResp.Status);
+        Assert.Equal("Pending", verifyResp.Status);
         Assert.Equal("Green Leaf Store", verifyResp.ShopName);
     }
 
@@ -373,7 +373,7 @@ public sealed class SellerControllerRestTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var response = Assert.IsType<ApproveSellerRegistrationResponseDto>(okResult.Value);
-        Assert.Equal("APPROVED", response.Status);
+        Assert.Equal("Approved", response.Status);
         Assert.Equal(regId.ToString(), response.RegistrationId);
     }
 
@@ -420,7 +420,7 @@ public sealed class SellerControllerRestTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var response = Assert.IsType<RejectSellerRegistrationResponseDto>(okResult.Value);
-        Assert.Equal("REJECTED", response.Status);
+        Assert.Equal("Rejected", response.Status);
         Assert.Equal("Invalid business license", response.RejectionReason);
     }
 
@@ -469,7 +469,7 @@ public sealed class SellerControllerRestTests
         Assert.Equal(sellerProfile.Id.ToString(), response.SellerId);
         Assert.Equal("Hoang Audio Store", response.ShopName);
         Assert.Equal("+84909112233", response.Hotline);
-        Assert.Equal("APPROVED", response.Status);
+        Assert.Equal("Approved", response.Status);
     }
 
     [Fact]
@@ -600,7 +600,7 @@ public sealed class SellerControllerRestTests
         Assert.Equal(shopId.ToString(), response.ShopId);
         Assert.Equal(userId.ToString(), response.SellerId);
         Assert.Equal("Nexus Official Store", response.ShopName);
-        Assert.Equal("090*****67", response.Hotline);
+        Assert.Equal("0901234567", response.Hotline);
     }
     [Fact]
     public void AdminSellerRegistrationsController_HasStrictStaffRoleAttribute()

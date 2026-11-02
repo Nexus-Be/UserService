@@ -1,0 +1,108 @@
+# USER SERVICE - PATCH /api/v1/admin/users/{userId}/unban
+
+> **Feature / Use Case:** AdminUsers — UnbanUser
+> **Trạng thái:** ✅ VERIFIED
+> **Ngày tạo:** 2026-11-01
+> **Tác giả:** Hiển Vinh & AI Agent
+> **Mô tả chức năng:** Unbans a previously suspended user account.
+
+---
+
+## 1. Thông tin Định tuyến & RBAC (Routing & Authorization)
+- **HTTP Method:** `PATCH`
+- **Route Endpoint:** `/api/v1/admin/users/{userId}/unban`
+- **Quyền hạn (RBAC Policy):** `RequireRole("admin")`
+- **Quy tắc Sở hữu (Resource Ownership):** Admin authority strictly enforced
+- **Controller:** `User.Api/Controllers/Public/AdminUsersController.cs`
+- **Application Contract:** `User.Application/Services/Admin/IAdminUserService.cs`
+
+---
+
+## 2. Đầu vào & Quy chuẩn Validation (Input & Validation Schema)
+### 2.1 Route Parameters
+| Tham số | Vị trí | Kiểu C# | Bắt buộc | Ràng buộc / Giới hạn | Ghi chú |
+| :--- | :--- | :--- | :---: | :--- | :--- |
+| `userId` | Route | `Guid` | Có | UUIDv4 format | Target user ID |
+
+### 2.3 Request Body Record DTO
+- **Vị trí file:** `User.Application/Services/Admin/AdminUserRequests.cs`
+- **Tên C# Record:** `UnbanAdminUserDto`
+- **Khai báo C# & DataAnnotations:**
+```csharp
+public sealed class UnbanAdminUserDto
+{
+    public string? Reason { get; set; }
+}
+```
+- **JSON Request Body mẫu (camelCase):**
+```json
+{
+  "reason": "Appeal accepted after verification"
+}
+```
+
+---
+
+## 3. Đầu ra & Hợp đồng DTO thuần (Response Contract - Pure DTO)
+> **LƯU Ý:** UserService CHỈ trả về DTO thuần hoặc `PagedData<T>`, KHÔNG bọc qua `ApiResponse<T>`. Vỏ `ApiResponse<T>` sẽ do API Gateway tự động đóng gói tại biên.
+
+- **Vị trí file:** `User.Application/Services/Admin/AdminUserResponses.cs`
+- **Tên C# Record:** `AdminUserUnbannedResponseDto`
+- **Mã HTTP thành công:** `200 OK`
+- **Khai báo C# Record:**
+```csharp
+public sealed record AdminUserUnbannedResponseDto(
+    string UserId,
+    string Status,
+    DateTimeOffset UnbannedAt,
+    string UnbannedBy,
+    string Message
+);
+```
+- **JSON Response Body mẫu (Pure DTO - camelCase):**
+```json
+{
+  "userId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "status": "Active",
+  "unbannedAt": "2026-11-01T14:00:00Z",
+  "unbannedBy": "admin-guid-1234",
+  "message": "User account has been unbanned successfully."
+}
+```
+
+---
+
+## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)
+> **Quy chuẩn:** 100% tiếng Anh, Sentence case cho `message`, SCREAMING_SNAKE_CASE cho `errorCode` (không dùng tiền tố `ERR_`).
+
+| HTTP Status | Error Code | Message (Sentence case) | Điều kiện kích hoạt (Trigger Condition) |
+| :---: | :--- | :--- | :--- |
+| `400 Bad Request` | `VAL_INVALID_INPUT` | `Target user ID is required.` | Malformed user GUID |
+| `401 Unauthorized` | `UNAUTHORIZED` | `Authentication is required.` | Missing bearer token |
+| `403 Forbidden` | `FORBIDDEN` | `You do not have permission to access or modify this resource.` | Caller is not an Admin |
+| `404 Not Found` | `USER_NOT_FOUND` | `User account not found.` | Target user does not exist in DB |
+| `409 Conflict` | `USER_NOT_BANNED` | `User account is not currently banned.` | Target user status is not Banned |
+
+### 4.1 Bảng Ánh xạ Enum liên quan
+| Tên Enum C# | Giá trị DB (Integer) | Giá trị API (PascalCase) | Ý nghĩa nghiệp vụ |
+| :--- | :---: | :--- | :--- |
+| `UserStatus.Active` | `1` | "Active" | Restored active status |
+
+---
+
+## 5. Kế hoạch Thực thi & Checklist Kiểm chứng (Pre-Code Plan & Checklist)
+### 5.1 Các bước thực thi nghiệp vụ (Execution Flow Plan)
+1. **Bước 1:** Extract adminId from token claims.
+2. **Bước 2:** Locate user in database; ensure status is Banned.
+3. **Bước 3:** Restore user status: Status = UserStatus.Active, BannedAt = null, BanReason = null.
+4. **Bước 4:** Record unban action in AuditLogs.
+5. **Bước 5:** Return AdminUserUnbannedResponseDto with 200 OK.
+
+### 5.2 Checklist hoàn thành
+- [x] **Pre-Code:** Đã đối soát code có sẵn trong UserService để tái sử dụng DTO/Enum/Naming.
+- [x] **Pre-Code:** Tài liệu API nội bộ này đã được viết và lưu tại `docs/api/AdminUsers/PATCH_admin_users_userId_unban.md`.
+- [x] **Persistence:** Entity & EF Core Configuration đã hoàn thiện.
+- [x] **Application:** Interface, Service, Request/Response DTOs đã viết xong trong `Services/AdminUsers/`.
+- [x] **Api:** Thin Controller đã ghép cặp 1-to-1, trả DTO thuần, XML summary 1 dòng.
+- [x] **Tests:** Đã viết unit/integration tests bao phủ happy path và các mã lỗi trong Error Matrix.
+- [x] **Verify:** `dotnet build User.sln -c Release` và `dotnet test User.sln -c Release` vượt qua 100% với 0 lỗi.

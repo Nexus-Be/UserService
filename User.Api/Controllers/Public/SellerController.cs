@@ -23,7 +23,7 @@ public sealed class SellerController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Submits a seller onboarding registration application and triggers business email verification OTP.</summary>
+    /// <summary>[Buyer] Submits a seller onboarding registration application and triggers business email verification OTP.</summary>
     [HttpPost("registration")]
     [RequireRole]
     public async Task<IActionResult> RegisterSeller(
@@ -41,7 +41,7 @@ public sealed class SellerController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    /// <summary>Verifies seller registration OTP code and moves application into Pending review state.</summary>
+    /// <summary>[Buyer] Verifies seller registration OTP code and moves application into Pending review state.</summary>
     [HttpPost("otp/verify")]
     [RequireRole]
     public async Task<IActionResult> VerifySellerOtp(
@@ -59,7 +59,7 @@ public sealed class SellerController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Resends OTP verification code for pending seller registration draft.</summary>
+    /// <summary>[Buyer] Resends OTP verification code for pending seller registration draft.</summary>
     [HttpPost("otp/resend")]
     [RequireRole]
     public async Task<IActionResult> ResendSellerOtp(
@@ -77,7 +77,7 @@ public sealed class SellerController : ControllerBase
         return Ok(new { message = "Verification code resent successfully." });
     }
 
-    /// <summary>Retrieves onboarding registration status of current user.</summary>
+    /// <summary>[Buyer] Retrieves onboarding registration status of current user.</summary>
     [HttpGet("status")]
     [RequireRole]
     public async Task<IActionResult> GetSellerRegistrationStatus(CancellationToken cancellationToken)
@@ -93,7 +93,7 @@ public sealed class SellerController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Retrieves own seller profile.</summary>
+    /// <summary>[Seller / Admin] Retrieves own seller profile.</summary>
     [HttpGet("profile")]
     [RequireRole("seller", "admin")]
     public async Task<IActionResult> GetSellerOwnProfile(CancellationToken cancellationToken)
@@ -108,7 +108,7 @@ public sealed class SellerController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Updates own seller profile and warehouse address.</summary>
+    /// <summary>[Seller / Admin] Updates own seller profile and warehouse address.</summary>
     [HttpPatch("profile")]
     [RequireRole("seller", "admin")]
     public async Task<IActionResult> UpdateSellerOwnProfile(
@@ -125,7 +125,7 @@ public sealed class SellerController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Retrieves public shop profile for a seller by shop ID or seller user ID.</summary>
+    /// <summary>[Public] Retrieves public shop profile for a seller by shop ID or seller user ID.</summary>
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetPublicSellerProfile([FromRoute] Guid id, CancellationToken cancellationToken)
     {

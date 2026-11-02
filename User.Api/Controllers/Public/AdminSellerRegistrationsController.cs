@@ -25,7 +25,7 @@ public sealed class AdminSellerRegistrationsController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Lists pending seller registration applications for review.</summary>
+    /// <summary>[Staff] Lists pending seller registration applications for review.</summary>
     [HttpGet]
     public async Task<IActionResult> ListSellerRegistrations(
         [FromQuery] PageQuery pagination,
@@ -39,7 +39,7 @@ public sealed class AdminSellerRegistrationsController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Retrieves full details of a seller registration application for review.</summary>
+    /// <summary>[Staff] Retrieves full details of a seller registration application for review.</summary>
     [HttpGet("{registrationId:guid}")]
     public async Task<IActionResult> GetSellerRequestDetails(
         [FromRoute] Guid registrationId,
@@ -50,7 +50,7 @@ public sealed class AdminSellerRegistrationsController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Approves a seller registration and assigns seller role.</summary>
+    /// <summary>[Staff] Approves a seller registration and assigns seller role.</summary>
     [HttpPut("{id:guid}/approve")]
     public async Task<IActionResult> ApproveSellerRegistration(
         [FromRoute] Guid id,
@@ -67,7 +67,7 @@ public sealed class AdminSellerRegistrationsController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Rejects a seller registration with a required reason.</summary>
+    /// <summary>[Staff] Rejects a seller registration with a required reason.</summary>
     [HttpPut("{id:guid}/reject")]
     public async Task<IActionResult> RejectSellerRegistration(
         [FromRoute] Guid id,
