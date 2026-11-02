@@ -18,3 +18,7 @@
 * Enums: `UserStatus` (`Active = 1`, `PendingVerification = 2`, `Banned = 3`), `SellerVerificationStatus` (`Pending = 0`, `Approved = 1`, `Rejected = 2`).
 * REST Outbound: 100% serialized as `PascalCase` strings (`"Active"`, `"PendingVerification"`, `"Approved"`).
 * REST Inbound: Handled via `PascalCaseJsonStringEnumConverter(allowIntegerValues: false)`.
+
+## 5. Metadata Tài Liệu & Tác Giả Chuẩn Mặc Định
+* Mọi file đặc tả kỹ thuật, tài liệu API hoặc plan trong dự án bắt buộc sử dụng chuẩn tác giả mặc định:
+  `> **Tác giả:** Hiển Vinh & AI Agent`

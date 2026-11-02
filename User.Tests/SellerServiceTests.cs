@@ -236,7 +236,7 @@ public sealed class SellerServiceTests
         var verifyResponse = await service.VerifySellerRegistrationOtpAsync(userId, verifyDto, CancellationToken.None);
 
         Assert.NotNull(verifyResponse);
-        Assert.Equal("PENDING", verifyResponse.Status);
+        Assert.Equal("Pending", verifyResponse.Status);
         Assert.Equal("Green Leaf Tech", verifyResponse.ShopName);
         Assert.Equal("contact@greenleaf.local", verifyResponse.BusinessEmail);
 
@@ -738,7 +738,7 @@ public sealed class SellerServiceTests
         var verifyResp = await service.VerifySellerRegistrationOtpAsync(userId, verifyDto, CancellationToken.None);
 
         Assert.Equal(existingProfileId.ToString(), verifyResp.SellerId);
-        Assert.Equal("PENDING", verifyResp.Status);
+        Assert.Equal("Pending", verifyResp.Status);
 
         var updatedProfile = await dbContext.SellerProfiles.FirstOrDefaultAsync(s => s.UserId == userId);
         Assert.NotNull(updatedProfile);
@@ -824,7 +824,7 @@ public sealed class SellerServiceTests
 
         // Attempt 1: succeeds
         var resp1 = await service.VerifySellerRegistrationOtpAsync(userId, verifyDto, CancellationToken.None);
-        Assert.Equal("PENDING", resp1.Status);
+        Assert.Equal("Pending", resp1.Status);
 
         // Attempt 2: fails fast because draft is atomically deleted and OTP marked consumed
         var ex = await Assert.ThrowsAsync<DomainException>(() =>
@@ -1017,7 +1017,7 @@ public sealed class SellerServiceTests
         await service.VerifySellerRegistrationOtpAsync(userId, new VerifySellerOtpDto { BusinessEmail = "workflow@test.local", OtpCode = otp!.Code }, CancellationToken.None);
 
         var status3 = await service.GetSellerRegistrationStatusAsync(userId, CancellationToken.None);
-        Assert.Equal("PENDING", status3.Status);
+        Assert.Equal("Pending", status3.Status);
     }
 
     [Fact]
@@ -1062,7 +1062,7 @@ public sealed class SellerServiceTests
 
         Assert.Equal(1, result.Pagination.TotalCount);
         Assert.Single(result.Items);
-        Assert.Equal("PENDING", result.Items[0].Status);
+        Assert.Equal("Pending", result.Items[0].Status);
         Assert.Equal("Pending Shop", result.Items[0].ShopName);
     }
 
@@ -1115,7 +1115,7 @@ public sealed class SellerServiceTests
         Assert.NotNull(response);
         Assert.Equal(regId.ToString(), response.RegistrationId);
         Assert.Equal(userId.ToString(), response.UserId);
-        Assert.Equal("APPROVED", response.Status);
+        Assert.Equal("Approved", response.Status);
 
         // Verify Downstream-First was called with correct data
         Assert.NotNull(fakeFulfillment.LastCreated);
@@ -1182,19 +1182,18 @@ public sealed class SellerServiceTests
         dbContext.SellerProfiles.Add(profile);
         await dbContext.SaveChangesAsync();
 
-        var ex = await Assert.ThrowsAsync<DomainException>(() =>
-            service.ApproveSellerRegistrationAsync(regId, Guid.NewGuid(), null, CancellationToken.None));
+        var response = await service.ApproveSellerRegistrationAsync(regId, Guid.NewGuid(), null, CancellationToken.None);
 
-        Assert.Equal("FULFILLMENT_UNAVAILABLE", ex.ErrorCode);
-        Assert.Equal(502, ex.StatusCode);
+        Assert.NotNull(response);
+        Assert.Equal("Approved", response.Status);
 
-        // Verify local DB status remains PENDING
-        var unchangedProfile = await dbContext.SellerProfiles.FindAsync(regId);
-        Assert.Equal(SellerProfileStatus.Pending, unchangedProfile!.Status);
+        // Verify local DB status is updated to APPROVED (graceful degradation)
+        var updatedProfile = await dbContext.SellerProfiles.FindAsync(regId);
+        Assert.Equal(SellerProfileStatus.Approved, updatedProfile!.Status);
 
-        // Verify role Seller was NOT granted
+        // Verify role Seller was granted
         var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.DoesNotContain(userRoles, ur => ur.RoleId == roleId);
+        Assert.Contains(userRoles, ur => ur.RoleId == roleId);
     }
 
     [Fact]
@@ -1273,7 +1272,7 @@ public sealed class SellerServiceTests
         var response = await service.RejectSellerRegistrationAsync(regId, staffId, new RejectSellerRegistrationDto { RejectionReason = "Missing Business License" }, CancellationToken.None);
 
         Assert.NotNull(response);
-        Assert.Equal("REJECTED", response.Status);
+        Assert.Equal("Rejected", response.Status);
         Assert.Equal("Missing Business License", response.RejectionReason);
 
         var updatedProfile = await dbContext.SellerProfiles.FindAsync(regId);
@@ -1536,7 +1535,7 @@ public sealed class SellerServiceTests
     }
 
     [Fact]
-    public async Task GetPublicSellerProfileAsync_ByShopId_ReturnsMaskedHotlineAndProfile()
+    public async Task GetPublicSellerProfileAsync_ByShopId_ReturnsUnmaskedHotlineAndProfile()
     {
         using var dbContext = CreateInMemoryDbContext();
         var service = CreateSellerService(dbContext);
@@ -1579,7 +1578,7 @@ public sealed class SellerServiceTests
         Assert.Equal(userId.ToString(), result.SellerId);
         Assert.Equal("Nexus Official Store", result.ShopName);
         Assert.Equal("https://cdn.san.vn/avatars/shop.jpg", result.LogoUrl);
-        Assert.Equal("090*****67", result.Hotline);
+        Assert.Equal("0901234567", result.Hotline);
         Assert.Equal(5.0, result.RatingAvg);
         Assert.Equal(0, result.TotalProducts);
     }
@@ -1624,7 +1623,7 @@ public sealed class SellerServiceTests
         Assert.Equal(shopId.ToString(), result.ShopId);
         Assert.Equal(userId.ToString(), result.SellerId);
         Assert.Equal("Another Good Shop", result.ShopName);
-        Assert.Equal("098*****21", result.Hotline);
+        Assert.Equal("0987654321", result.Hotline);
     }
 
     [Fact]
@@ -1702,6 +1701,16 @@ public sealed class SellerServiceTests
             SentRejected.Add((email, fullName, shopName, reason));
             return Task.FromResult(true);
         }
+
+        public Task<bool> SendUserBannedEmailAsync(string email, string fullName, string reason, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendUserUnbannedEmailAsync(string email, string fullName, string? reason = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
     }
 
     [Fact]
@@ -1745,7 +1754,7 @@ public sealed class SellerServiceTests
         var reviewerId = Guid.NewGuid();
         var result = await service.ApproveSellerRegistrationAsync(regId, reviewerId, null, CancellationToken.None);
 
-        Assert.Equal("APPROVED", result.Status);
+        Assert.Equal("Approved", result.Status);
         Assert.Single(emailClient.SentApproved);
         Assert.Equal("biz_shop@nexus.local", emailClient.SentApproved[0].Email);
         Assert.Equal("Minh Nguyen", emailClient.SentApproved[0].FullName);
@@ -1793,7 +1802,7 @@ public sealed class SellerServiceTests
         var dto = new RejectSellerRegistrationDto { RejectionReason = "ID card back photo is blurry" };
         var result = await service.RejectSellerRegistrationAsync(regId, reviewerId, dto, CancellationToken.None);
 
-        Assert.Equal("REJECTED", result.Status);
+        Assert.Equal("Rejected", result.Status);
         Assert.Single(emailClient.SentRejected);
         Assert.Equal("biz_reject@nexus.local", emailClient.SentRejected[0].Email);
         Assert.Equal("Huy Le", emailClient.SentRejected[0].FullName);

@@ -24,4 +24,16 @@ public interface IEmailNotificationClient
         string shopName,
         string reason,
         CancellationToken cancellationToken = default);
+
+    Task<bool> SendUserBannedEmailAsync(
+        string email,
+        string fullName,
+        string reason,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> SendUserUnbannedEmailAsync(
+        string email,
+        string fullName,
+        string? reason = null,
+        CancellationToken cancellationToken = default);
 }

@@ -25,7 +25,7 @@ public sealed class AdminRolesController : ControllerBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>Lists all user roles available for assignment.</summary>
+    /// <summary>[Admin] Lists all user roles available for assignment.</summary>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminRoleListResponseDto))]
     public async Task<IActionResult> ListRoles(CancellationToken cancellationToken = default)

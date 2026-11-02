@@ -345,6 +345,9 @@ public sealed class SellerService : ISellerService
             sellerProfile.ProvinceId = draft.ProvinceId;
             sellerProfile.DistrictId = draft.DistrictId;
             sellerProfile.WardCode = draft.WardCode;
+            sellerProfile.IdCardFrontUrl = draft.IdCardFrontUrl;
+            sellerProfile.IdCardBackUrl = draft.IdCardBackUrl;
+            sellerProfile.BusinessLicenseUrl = draft.BusinessLicenseUrl;
             if (!string.IsNullOrWhiteSpace(draft.AvatarUrl))
             {
                 sellerProfile.AvatarUrl = draft.AvatarUrl;
@@ -368,6 +371,9 @@ public sealed class SellerService : ISellerService
                 ProvinceId = draft.ProvinceId,
                 DistrictId = draft.DistrictId,
                 WardCode = draft.WardCode,
+                IdCardFrontUrl = draft.IdCardFrontUrl,
+                IdCardBackUrl = draft.IdCardBackUrl,
+                BusinessLicenseUrl = draft.BusinessLicenseUrl,
                 AvatarUrl = draft.AvatarUrl,
                 Status = SellerProfileStatus.Pending,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -385,7 +391,7 @@ public sealed class SellerService : ISellerService
             action: AuditAction.UserUpdate,
             entityName: nameof(SellerProfile),
             entityId: sellerProfile.Id.ToString(),
-            newValues: new { status = "PENDING", shopName = sellerProfile.ShopName, businessEmail = sellerProfile.BusinessEmail },
+            newValues: new { status = "Pending", shopName = sellerProfile.ShopName, businessEmail = sellerProfile.BusinessEmail },
             userId: userId.ToString());
 
         // 9. Local DB commit
@@ -397,7 +403,7 @@ public sealed class SellerService : ISellerService
         return new VerifySellerOtpResponseDto(
             SellerId: sellerProfile.Id.ToString(),
             UserId: userId.ToString(),
-            Status: "PENDING",
+            Status: "Pending",
             BusinessEmail: sellerProfile.BusinessEmail,
             ShopName: sellerProfile.ShopName,
             VerifiedAt: DateTimeOffset.UtcNow,
@@ -497,7 +503,7 @@ public sealed class SellerService : ISellerService
 
         if (sellerProfile != null)
         {
-            var statusStr = sellerProfile.Status.ToString().ToUpperInvariant();
+            var statusStr = sellerProfile.Status.ToString();
             var nextStep = sellerProfile.Status switch
             {
                 SellerProfileStatus.Pending => "AWAITING_STAFF_APPROVAL",
@@ -564,7 +570,7 @@ public sealed class SellerService : ISellerService
             WarehouseAddress: s.PickupAddress,
             PickupAddress: s.PickupAddress,
             ReputationScore: s.User?.ReputationScore?.CurrentScore ?? 50,
-            Status: s.Status.ToString().ToUpperInvariant(),
+            Status: s.Status.ToString(),
             CreatedAt: s.CreatedAt
         )).ToList();
 
@@ -721,9 +727,7 @@ public sealed class SellerService : ISellerService
 
         if (!warehouseCreated)
         {
-            _logger.LogError("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Local DB untouched.",
-                sellerProfile.Id);
-            throw new DomainException("FULFILLMENT_UNAVAILABLE", "Fulfillment warehouse creation failed or timed out. Please try again.", 502);
+            _logger.LogWarning("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Proceeding with seller approval (graceful degradation).", sellerProfile.Id);
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL
@@ -759,7 +763,7 @@ public sealed class SellerService : ISellerService
             action: AuditAction.SellerApprove,
             entityName: nameof(SellerProfile),
             entityId: sellerProfile.Id.ToString(),
-            newValues: new { status = "APPROVED", note = dto?.Note },
+            newValues: new { status = "Approved", note = dto?.Note },
             userId: reviewerId?.ToString());
 
         // 4. Local commit with compensating rollback if DB fails
@@ -810,7 +814,7 @@ public sealed class SellerService : ISellerService
         return new ApproveSellerRegistrationResponseDto(
             RegistrationId: sellerProfile.Id.ToString(),
             UserId: sellerProfile.UserId.ToString(),
-            Status: "APPROVED",
+            Status: "Approved",
             ApprovedAt: sellerProfile.ReviewedAt.Value
         );
     }
@@ -872,7 +876,7 @@ public sealed class SellerService : ISellerService
             action: AuditAction.SellerReject,
             entityName: nameof(SellerProfile),
             entityId: sellerProfile.Id.ToString(),
-            newValues: new { status = "REJECTED", reason },
+            newValues: new { status = "Rejected", reason },
             userId: reviewerId?.ToString());
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -917,7 +921,7 @@ public sealed class SellerService : ISellerService
         return new RejectSellerRegistrationResponseDto(
             RegistrationId: sellerProfile.Id.ToString(),
             UserId: sellerProfile.UserId.ToString(),
-            Status: "REJECTED",
+            Status: "Rejected",
             RejectedAt: sellerProfile.ReviewedAt.Value,
             RejectionReason: reason
         );
@@ -969,7 +973,7 @@ public sealed class SellerService : ISellerService
             ProvinceId: sellerProfile.ProvinceId,
             DistrictId: sellerProfile.DistrictId,
             WardCode: sellerProfile.WardCode,
-            Status: sellerProfile.Status.ToString().ToUpperInvariant(),
+            Status: sellerProfile.Status.ToString(),
             RatingAvg: ratingAvg,
             ReputationScore: reputationScore,
             TrustLevel: trustLevel,
@@ -1179,29 +1183,107 @@ public sealed class SellerService : ISellerService
             ShopName: sellerProfile.ShopName,
             LogoUrl: sellerProfile.AvatarUrl ?? sellerProfile.User?.AvatarUrl,
             Description: null,
-            Hotline: MaskHotline(sellerProfile.Hotline),
+            Hotline: sellerProfile.Hotline,
             RatingAvg: ratingAvg,
             TotalProducts: 0,
             CreatedAt: sellerProfile.CreatedAt
         );
     }
 
-    private static string MaskHotline(string? hotline)
+    public async Task<AdminSellerProfileResponseDto> GetAdminSellerProfileAsync(
+        Guid sellerId,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(hotline))
+        if (sellerId == Guid.Empty)
         {
-            return string.Empty;
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Seller identifier is required.");
         }
 
-        var trimmed = hotline.Trim();
-        if (trimmed.Length < 6)
+        var profile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(s => s.User)
+                .ThenInclude(u => u!.ReputationScore)
+            .Include(s => s.User)
+                .ThenInclude(u => u!.ReviewsReceived)
+            .Include(s => s.ReviewedByUser)
+            .FirstOrDefaultAsync(s => s.Id == sellerId || s.UserId == sellerId, cancellationToken);
+
+        if (profile == null)
         {
-            return trimmed;
+            _logger.LogWarning("[ADMIN SELLER PROFILE] Seller profile not found for identifier: '{SellerId}'.", sellerId);
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found.", 404);
         }
 
-        var prefix = trimmed.Substring(0, 3);
-        var suffix = trimmed.Substring(trimmed.Length - 2);
-        var maskLength = Math.Max(1, trimmed.Length - 5);
-        return $"{prefix}{new string('*', maskLength)}{suffix}";
+        var reviews = profile.User?.ReviewsReceived?.Where(r => !r.IsDisabled).ToList();
+        double ratingAvg = 5.0;
+        int totalPositiveReviews = 0;
+        int totalNegativeReviews = 0;
+        if (reviews != null && reviews.Count > 0)
+        {
+            ratingAvg = Math.Round(reviews.Average(r => r.Rating), 2);
+            totalPositiveReviews = reviews.Count(r => r.Rating >= 4.0);
+            totalNegativeReviews = reviews.Count(r => r.Rating <= 2.0);
+        }
+
+        var reputationScore = profile.User?.ReputationScore?.CurrentScore ?? 50;
+        var trustLevel = profile.User?.ReputationScore?.TrustLevel.ToString() ?? TrustLevel.Standard.ToString();
+
+        var ownerFullName = profile.User != null
+            ? $"{profile.User.FirstName} {profile.User.LastName}".Trim()
+            : string.Empty;
+        var ownerEmail = profile.User?.Email ?? profile.BusinessEmail ?? string.Empty;
+        var ownerPhoneNumber = profile.User?.PhoneNumber;
+        var ownerGender = profile.User?.Gender.ToString() ?? "Unspecified";
+        var ownerDateOfBirth = profile.User?.DateOfBirth;
+        var ownerAddress = profile.User?.Address;
+        var identityCardNumber = profile.User?.IdentifyNumber;
+
+        var reviewedByName = profile.ReviewedByUser != null
+            ? $"{profile.ReviewedByUser.FirstName} {profile.ReviewedByUser.LastName}".Trim()
+            : null;
+
+        var bankInfo = new SellerBankInfoDto();
+        var settlementInfo = new SellerSettlementInfoDto();
+
+        return new AdminSellerProfileResponseDto(
+            SellerId: profile.Id.ToString(),
+            ShopId: profile.Id.ToString(),
+            UserId: profile.UserId.ToString(),
+            ShopName: profile.ShopName,
+            AvatarUrl: profile.AvatarUrl,
+            BusinessEmail: profile.BusinessEmail,
+            Hotline: profile.Hotline,
+            Description: null,
+            PickupAddress: profile.PickupAddress,
+            WarehouseAddress: profile.PickupAddress,
+            ProvinceId: profile.ProvinceId,
+            DistrictId: profile.DistrictId,
+            WardCode: profile.WardCode,
+            IdentityCardNumber: identityCardNumber,
+            IdCardFrontUrl: profile.IdCardFrontUrl,
+            IdCardBackUrl: profile.IdCardBackUrl,
+            BusinessLicenseUrl: profile.BusinessLicenseUrl,
+            OwnerFullName: ownerFullName,
+            OwnerEmail: ownerEmail,
+            OwnerPhoneNumber: ownerPhoneNumber,
+            OwnerGender: ownerGender,
+            OwnerDateOfBirth: ownerDateOfBirth,
+            OwnerAddress: ownerAddress,
+            BankInfo: bankInfo,
+            SettlementInfo: settlementInfo,
+            RatingAvg: ratingAvg,
+            ReputationScore: reputationScore,
+            TrustLevel: trustLevel,
+            TotalPositiveReviews: totalPositiveReviews,
+            TotalNegativeReviews: totalNegativeReviews,
+            PenaltyCount: 0,
+            Status: profile.Status.ToString(),
+            RejectionReason: profile.RejectionReason,
+            ReviewedBy: profile.ReviewedBy?.ToString(),
+            ReviewedByName: reviewedByName,
+            ReviewedAt: profile.ReviewedAt,
+            CreatedAt: profile.CreatedAt,
+            UpdatedAt: profile.UpdatedAt
+        );
     }
 }

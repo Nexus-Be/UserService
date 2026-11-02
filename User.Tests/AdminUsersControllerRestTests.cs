@@ -207,7 +207,7 @@ public sealed class AdminUsersControllerRestTests
         Assert.Equal("Van Updated", response.FirstName);
         Assert.Equal("Nguyen Updated", response.LastName);
         Assert.Equal("0909999888", response.PhoneNumber);
-        Assert.Equal("ACTIVE", response.Status);
+        Assert.Equal("Active", response.Status);
         Assert.Equal(adminId.ToString(), response.UpdatedBy);
     }
 

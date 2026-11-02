@@ -28,7 +28,7 @@ public sealed class AdminUsersController : ControllerBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>Creates a user account on behalf of an administrator.</summary>
+    /// <summary>[Admin] Creates a user account on behalf of an administrator.</summary>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(AdminUserCreatedResponseDto))]
     public async Task<IActionResult> CreateUser(
@@ -47,7 +47,7 @@ public sealed class AdminUsersController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    /// <summary>Lists user accounts with pagination and filters.</summary>
+    /// <summary>[Admin] Lists user accounts with pagination and filters.</summary>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PagedData<AdminUserListItemDto>))]
     public async Task<IActionResult> ListUsers(
@@ -67,7 +67,7 @@ public sealed class AdminUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Retrieves the administrative detail of a single user.</summary>
+    /// <summary>[Admin] Retrieves the administrative detail of a single user.</summary>
     [HttpGet("{userId:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserDetailDto))]
     public async Task<IActionResult> GetUserDetail(
@@ -81,7 +81,7 @@ public sealed class AdminUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Replaces the assigned roles of a user account.</summary>
+    /// <summary>[Admin] Replaces the assigned roles of a user account.</summary>
     [HttpPut("{userId:guid}/roles")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserRolesResponseDto))]
     public async Task<IActionResult> AssignUserRoles(
@@ -100,7 +100,7 @@ public sealed class AdminUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Updates an existing user account.</summary>
+    /// <summary>[Admin] Updates an existing user account.</summary>
     [HttpPut("{userId:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserUpdatedResponseDto))]
     public async Task<IActionResult> UpdateUser(
@@ -119,7 +119,7 @@ public sealed class AdminUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Deletes a user account.</summary>
+    /// <summary>[Admin] Deletes a user account.</summary>
     [HttpDelete("{userId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteUser(
@@ -138,7 +138,7 @@ public sealed class AdminUsersController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Bans a user account for regulatory or policy violations (ADMIN-05).</summary>
+    /// <summary>[Admin] Bans a user account for regulatory or policy violations.</summary>
     [HttpPatch("{userId:guid}/ban")]
     [RequireRole("admin")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserBannedResponseDto))]
@@ -158,7 +158,7 @@ public sealed class AdminUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Unbans a previously suspended user account (ADMIN-06).</summary>
+    /// <summary>[Admin] Unbans a previously suspended user account.</summary>
     [HttpPatch("{userId:guid}/unban")]
     [RequireRole("admin")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserUnbannedResponseDto))]

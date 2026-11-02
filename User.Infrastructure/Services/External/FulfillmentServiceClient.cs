@@ -94,7 +94,11 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Updating warehouse for Seller '{SellerId}'", sellerId);
+<<<<<<< HEAD
             var response = await _httpClient.PutAsJsonAsync($"api/v1/warehouses/seller/{sellerId}", payload, cancellationToken);
+=======
+            var response = await _httpClient.PutAsJsonAsync($"api/v1/warehouses/{sellerId}", payload, cancellationToken);
+>>>>>>> 46e36d276657da60715e997ab14e46e33a2467dc
 
             if (response.IsSuccessStatusCode)
             {
@@ -120,7 +124,11 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Compensating action: Deleting orphan warehouse for Seller '{SellerId}'", sellerId);
+<<<<<<< HEAD
             var response = await _httpClient.DeleteAsync($"api/v1/warehouses/seller/{sellerId}", cancellationToken);
+=======
+            var response = await _httpClient.DeleteAsync($"api/v1/warehouses/{sellerId}", cancellationToken);
+>>>>>>> 46e36d276657da60715e997ab14e46e33a2467dc
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)

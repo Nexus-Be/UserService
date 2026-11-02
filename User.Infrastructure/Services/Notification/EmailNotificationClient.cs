@@ -124,4 +124,72 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
             return false;
         }
     }
+
+    public async Task<bool> SendUserBannedEmailAsync(
+        string email,
+        string fullName,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var payload = new
+            {
+                email = email.Trim(),
+                fullName = fullName.Trim(),
+                reason = reason.Trim()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/v1/notifications/email/user-banned", payload, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("[REST Email Notification] User banned email dispatched successfully to '{Email}'.", email);
+                return true;
+            }
+
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("[REST Email Notification] Failed to send user banned email to '{Email}'. Status: {StatusCode}, Details: {Details}",
+                email, response.StatusCode, errorBody);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[REST Email Notification] Connection error while dispatching user banned email to '{Email}'.", email);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendUserUnbannedEmailAsync(
+        string email,
+        string fullName,
+        string? reason = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var payload = new
+            {
+                email = email.Trim(),
+                fullName = fullName.Trim(),
+                reason = reason?.Trim()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/v1/notifications/email/user-unbanned", payload, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("[REST Email Notification] User unbanned email dispatched successfully to '{Email}'.", email);
+                return true;
+            }
+
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("[REST Email Notification] Failed to send user unbanned email to '{Email}'. Status: {StatusCode}, Details: {Details}",
+                email, response.StatusCode, errorBody);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[REST Email Notification] Connection error while dispatching user unbanned email to '{Email}'.", email);
+            return false;
+        }
+    }
 }
