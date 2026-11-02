@@ -6,7 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using User.Application.Interfaces;
-using User.Infrastructure.BackgroundWorkers;
 using User.Infrastructure.Persistence;
 using User.Infrastructure.Services.Notification;
 using User.Infrastructure.Services.Redis;
@@ -59,15 +58,11 @@ public static class DependencyInjection
 
         // Internal service key handler is temporarily disabled. Inter-service calls use plain REST routes.
         services.AddTransient<Services.Common.InternalServiceAuthHandler>();
-        services.AddHttpClient<EmailNotificationClient>(client =>
+        services.AddHttpClient<IEmailNotificationClient, EmailNotificationClient>(client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-
-        services.AddSingleton<OtpEmailQueue>();
-        services.AddSingleton<IEmailNotificationClient, QueuedEmailNotificationClient>();
-        services.AddHostedService<OtpEmailDispatchWorker>();
 
         // REST Fulfillment Service Client (Internal sync with 5s timeout)
         var fulfillmentBaseUrl = Environment.GetEnvironmentVariable("FULFILLMENT_SERVICE_URL")

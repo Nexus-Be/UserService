@@ -23,6 +23,7 @@ description: Add or modify outbound typed REST clients in UserService (port 8001
 2. **Strict Inward-Only Scoping:** Do not reference assemblies, project files, or databases of other services.
 3. **Public Endpoint Conventions:** The internal API key mechanism is disabled. Target routes use standard prefixes (e.g., `POST api/v1/notifications/email/otp`). Do not send `X-Internal-Service-Key`.
 4. **Timeout & Failure Handling:** Enforce `client.Timeout = TimeSpan.FromSeconds(10)`. Wrap outbound calls in `try-catch`, log failure details, and prevent downstream network outages from aborting core registration or authentication flows when a fallback exists.
+5. **Distributed Tracing Continuity (W3C TraceContext):** Outbound HTTP calls via `HttpClient` automatically propagate the W3C `traceparent` header inherited from `Activity.Current` on the active HTTP request thread, preserving end-to-end tracing in Tempo.
 
 ## Implementation Steps
 
@@ -95,7 +96,7 @@ var notificationBaseUrl = Environment.GetEnvironmentVariable("NOTIFICATION_SERVI
     ?? configuration["Services:Notification:BaseUrl"]
     ?? "http://localhost:8007/";
 
-services.AddHttpClient<EmailNotificationClient>(client =>
+services.AddHttpClient<IEmailNotificationClient, EmailNotificationClient>(client =>
 {
     client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
     client.Timeout = TimeSpan.FromSeconds(10);
