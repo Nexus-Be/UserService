@@ -6,7 +6,7 @@
 > - Nhóm Thẩm định & duyệt hồ sơ Seller (`/api/v1/admin/seller-registrations`): **Chỉ dành cho Support Staff** (`[RequireRole("staff")]`).
 > **Nguồn sự thật:** code (`User.Api/Controllers/AuthController.cs`, `User.Api/Controllers/UsersController.cs`, `User.Api/Controllers/AdminUsersController.cs`, `User.Api/Controllers/AdminRolesController.cs`, `User.Api/Controllers/AdminSellerRegistrationsController.cs`, `User.Api/Controllers/SellerController.cs`).
 > **Cập nhật lần cuối:** 2026-11-02.
-> **Tác giả:** Vinh & AI Agent
+> **Tác giả:** Hiển Vinh & AI Agent
 
 ---
 
@@ -34,8 +34,8 @@
 * `PUT /api/v1/admin/users/{userId}`: Cập nhật thông tin người dùng bởi quản trị viên (Admin-only).
 * `PUT /api/v1/admin/users/{userId}/roles`: Phân quyền vai trò người dùng (Admin-only).
 * `DELETE /api/v1/admin/users/{userId}`: Xóa mềm người dùng và thu hồi tokens (Admin-only).
-* `PATCH /api/v1/admin/users/{userId}/ban`: Khóa tài khoản vi phạm quy chế (ADMIN-05 - Admin-only).
-* `PATCH /api/v1/admin/users/{userId}/unban`: Mở khóa tài khoản đã bị đình chỉ (ADMIN-06 - Admin-only).
+* `PATCH /api/v1/admin/users/{userId}/ban`: Khóa tài khoản vi phạm quy chế (Admin-only).
+* `PATCH /api/v1/admin/users/{userId}/unban`: Mở khóa tài khoản đã bị đình chỉ (Admin-only).
 * `GET /api/v1/admin/roles`: Danh sách toàn bộ vai trò hệ thống (`AdminRolesController` - Admin-only).
 
 ### 1.4. Quản trị Hồ sơ Đăng ký Người bán (`AdminSellerRegistrationsController` — `/api/v1/admin/seller-registrations`)

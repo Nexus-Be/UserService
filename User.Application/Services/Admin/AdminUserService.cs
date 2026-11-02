@@ -1,4 +1,4 @@
-namespace User.Application.Services.Admin;
+﻿namespace User.Application.Services.Admin;
 
 using System;
 using System.Collections.Generic;
@@ -20,15 +20,18 @@ public sealed class AdminUserService : IAdminUserService
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<AdminUserService> _logger;
     private readonly IRedisOtpService? _redisOtpService;
+    private readonly IEmailNotificationClient? _emailNotificationClient;
 
     public AdminUserService(
         IUserDbContext dbContext,
         ILogger<AdminUserService> logger,
-        IRedisOtpService? redisOtpService = null)
+        IRedisOtpService? redisOtpService = null,
+        IEmailNotificationClient? emailNotificationClient = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _redisOtpService = redisOtpService;
+        _emailNotificationClient = emailNotificationClient;
     }
 
     public async Task<AdminUserCreatedResponseDto> CreateUserAsync(
@@ -126,8 +129,10 @@ public sealed class AdminUserService : IAdminUserService
                         requestedRoles.Add(RoleType.Admin);
                         break;
                     case "seller":
-                        requestedRoles.Add(RoleType.Seller);
-                        break;
+                        _logger.LogWarning("[ADMIN USER CREATE] Attempt to create seller account directly by Admin '{AdminId}' rejected.", adminId);
+                        throw new BusinessRuleValidationException(
+                            "CANNOT_CREATE_SELLER",
+                            "Seller accounts cannot be created directly by administrator. Sellers must register through the seller onboarding process.");
                     case "buyer":
                     default:
                         requestedRoles.Add(RoleType.Buyer);
@@ -1143,6 +1148,30 @@ public sealed class AdminUserService : IAdminUserService
         _logger.LogInformation("[ADMIN USER BAN] Successfully banned user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
             targetUserId, activeTokens.Count, trimmedReason);
 
+        // Dispatch ban notification email via Notification Service
+        if (_emailNotificationClient != null && !string.IsNullOrWhiteSpace(user.Email))
+        {
+            var recipientEmail = user.Email.Trim();
+            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                fullName = recipientEmail;
+            }
+
+            try
+            {
+                await _emailNotificationClient.SendUserBannedEmailAsync(
+                    recipientEmail,
+                    fullName,
+                    trimmedReason,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN USER BAN] Failed to dispatch ban notification email to '{Email}'.", recipientEmail);
+            }
+        }
+
         return new AdminUserBannedResponseDto(
             UserId: user.Id.ToString(),
             Status: user.Status.ToString(),
@@ -1249,6 +1278,30 @@ public sealed class AdminUserService : IAdminUserService
 
         _logger.LogInformation("[ADMIN USER UNBAN] Successfully unbanned user '{UserId}'. Restored status to '{Status}'.",
             targetUserId, restoredStatus);
+
+        // Dispatch unban notification email via Notification Service
+        if (_emailNotificationClient != null && !string.IsNullOrWhiteSpace(user.Email))
+        {
+            var recipientEmail = user.Email.Trim();
+            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                fullName = recipientEmail;
+            }
+
+            try
+            {
+                await _emailNotificationClient.SendUserUnbannedEmailAsync(
+                    recipientEmail,
+                    fullName,
+                    reason,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN USER UNBAN] Failed to dispatch unban notification email to '{Email}'.", recipientEmail);
+            }
+        }
 
         return new AdminUserUnbannedResponseDto(
             UserId: user.Id.ToString(),

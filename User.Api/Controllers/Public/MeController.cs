@@ -21,7 +21,7 @@ public sealed class MeController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Retrieves the authenticated user's own profile.</summary>
+    /// <summary>[Authenticated] Retrieves the authenticated user's own profile.</summary>
     [HttpGet]
     [RequireRole]
     public async Task<IActionResult> GetCurrentUserProfile(CancellationToken cancellationToken)
@@ -37,7 +37,7 @@ public sealed class MeController : ControllerBase
         return Ok(profile);
     }
 
-    /// <summary>Updates the authenticated user's own profile.</summary>
+    /// <summary>[Authenticated] Updates the authenticated user's own profile.</summary>
     [HttpPatch]
     [RequireRole]
     public async Task<IActionResult> UpdateCurrentUserProfile([FromBody] UpdateProfileApiRequest request, CancellationToken cancellationToken)

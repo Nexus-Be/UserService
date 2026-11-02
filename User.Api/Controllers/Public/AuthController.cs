@@ -23,7 +23,7 @@ public sealed class AuthController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Registers a new user account and sends a verification OTP.</summary>
+    /// <summary>[Public] Registers a new user account and sends a verification OTP.</summary>
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterApiRequest request, CancellationToken cancellationToken)
     {
@@ -32,7 +32,7 @@ public sealed class AuthController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, response);
     }
 
-    /// <summary>Tests user registration by creating a pending Buyer user and dispatching an OTP email.</summary>
+    /// <summary>[Public / Dev] Tests user registration by creating a pending Buyer user and dispatching an OTP email.</summary>
     [HttpPost("/api/v1/users/auth/test")]
     public async Task<IActionResult> RegisterTest([FromBody] RegisterTestApiRequest request, CancellationToken cancellationToken)
     {
@@ -41,7 +41,7 @@ public sealed class AuthController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, response);
     }
 
-    /// <summary>Verifies the OTP sent to a newly registered account.</summary>
+    /// <summary>[Public] Verifies the OTP sent to a newly registered account.</summary>
     [HttpPost("otp/verify")]
     public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpApiRequest request, CancellationToken cancellationToken)
     {
@@ -50,7 +50,7 @@ public sealed class AuthController : ControllerBase
         return Ok(response);
     }
 
-    /// <summary>Resends the account verification OTP email.</summary>
+    /// <summary>[Public] Resends the account verification OTP email.</summary>
     [HttpPost("otp/resend")]
     public async Task<IActionResult> ResendOtp([FromBody] ResendOtpApiRequest request, CancellationToken cancellationToken)
     {
@@ -63,7 +63,7 @@ public sealed class AuthController : ControllerBase
         ));
     }
 
-    /// <summary>Authenticates a user and issues access and refresh tokens.</summary>
+    /// <summary>[Public] Authenticates a user and issues access and refresh tokens.</summary>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginApiRequest request, CancellationToken cancellationToken)
     {
@@ -85,7 +85,7 @@ public sealed class AuthController : ControllerBase
         ));
     }
 
-    /// <summary>Issues a new access token from a valid refresh token.</summary>
+    /// <summary>[Public] Issues a new access token from a valid refresh token.</summary>
     [HttpPost("refresh")]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenApiRequest request, CancellationToken cancellationToken)
     {
@@ -106,7 +106,7 @@ public sealed class AuthController : ControllerBase
         ));
     }
 
-    /// <summary>Revokes the supplied refresh token session.</summary>
+    /// <summary>[Authenticated] Revokes the supplied refresh token session.</summary>
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] LogoutApiRequest? request, CancellationToken cancellationToken)
     {
@@ -126,7 +126,7 @@ public sealed class AuthController : ControllerBase
         return Ok(new LogoutApiResponse(Success: true));
     }
 
-    /// <summary>Revokes all active sessions of the authenticated user.</summary>
+    /// <summary>[Authenticated] Revokes all active sessions of the authenticated user.</summary>
     [HttpPost("logout-all")]
     [RequireRole]
     public async Task<IActionResult> LogoutAll(CancellationToken cancellationToken)
@@ -142,7 +142,7 @@ public sealed class AuthController : ControllerBase
         return Ok(new LogoutAllApiResponse(count));
     }
 
-    /// <summary>Sends a password reset OTP to the registered email.</summary>
+    /// <summary>[Public] Sends a password reset OTP to the registered email.</summary>
     [HttpPost("password/forgot")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordApiRequest request, CancellationToken cancellationToken)
     {
@@ -152,7 +152,7 @@ public sealed class AuthController : ControllerBase
         return Ok(new ForgotPasswordApiResponse(result.Email));
     }
 
-    /// <summary>Resets the account password using a valid OTP code.</summary>
+    /// <summary>[Public] Resets the account password using a valid OTP code.</summary>
     [HttpPut("password/reset")]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordApiRequest request, CancellationToken cancellationToken)
     {
@@ -163,7 +163,7 @@ public sealed class AuthController : ControllerBase
         return Ok(new ResetPasswordApiResponse(result.Success));
     }
 
-    /// <summary>Changes the password of the authenticated user.</summary>
+    /// <summary>[Authenticated] Changes the password of the authenticated user.</summary>
     [HttpPatch("password")]
     [RequireRole]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordApiRequest request, CancellationToken cancellationToken)

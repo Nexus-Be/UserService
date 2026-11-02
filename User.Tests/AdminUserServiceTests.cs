@@ -1,4 +1,4 @@
-namespace User.Tests;
+﻿namespace User.Tests;
 
 using System;
 using System.Collections.Generic;
@@ -224,6 +224,30 @@ public sealed class AdminUserServiceTests
         var userId = Guid.Parse(response.UserId);
         var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
         Assert.Equal(2, userRoles.Count);
+    }
+
+    [Fact]
+    public async Task CreateUserAsync_WhenSellerRoleRequested_ThrowsCannotCreateSellerException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        await SeedSystemRolesAsync(dbContext);
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new CreateAdminUserDto
+        {
+            Email = "seller.attempt@nexus.local",
+            Password = "Password123!",
+            FirstName = "Shop",
+            LastName = "Owner",
+            RoleCodes = new List<string> { "seller" }
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.CreateUserAsync(dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("CANNOT_CREATE_SELLER", ex.ErrorCode);
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Contains("Seller accounts cannot be created directly by administrator", ex.Message);
     }
 
     [Fact]
@@ -1462,5 +1486,92 @@ public sealed class AdminUserServiceTests
             service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None));
 
         Assert.Equal("USER_ALREADY_DELETED", ex.ErrorCode);
+    }
+
+    private sealed class AdminFakeEmailNotificationClient : global::User.Application.Interfaces.IEmailNotificationClient
+    {
+        public List<(string Email, string FullName, string Reason)> BannedEmails { get; } = new();
+        public List<(string Email, string FullName, string? Reason)> UnbannedEmails { get; } = new();
+
+        public Task<bool> SendOtpEmailAsync(string email, string fullName, string otpCode, int expiresInMinutes = 5, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> SendSellerApprovedEmailAsync(string email, string fullName, string shopName, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> SendSellerRejectedEmailAsync(string email, string fullName, string shopName, string reason, CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<bool> SendUserBannedEmailAsync(string email, string fullName, string reason, CancellationToken cancellationToken = default)
+        {
+            BannedEmails.Add((email, fullName, reason));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendUserUnbannedEmailAsync(string email, string fullName, string? reason = null, CancellationToken cancellationToken = default)
+        {
+            UnbannedEmails.Add((email, fullName, reason));
+            return Task.FromResult(true);
+        }
+    }
+
+    [Fact]
+    public async Task BanUserAsync_Dispatches_UserBannedEmail()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var emailClient = new AdminFakeEmailNotificationClient();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance, emailNotificationClient: emailClient);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "violation@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "John",
+            LastName = "Doe",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Terms of Service violation" };
+        var response = await service.BanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.Equal("Banned", response.Status);
+        Assert.Single(emailClient.BannedEmails);
+        Assert.Equal("violation@nexus.local", emailClient.BannedEmails[0].Email);
+        Assert.Equal("John Doe", emailClient.BannedEmails[0].FullName);
+        Assert.Equal("Terms of Service violation", emailClient.BannedEmails[0].Reason);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_Dispatches_UserUnbannedEmail()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var emailClient = new AdminFakeEmailNotificationClient();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance, emailNotificationClient: emailClient);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "appealed@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Jane",
+            LastName = "Smith",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new UnbanAdminUserDto { Reason = "Appeal accepted after investigation" };
+        var response = await service.UnbanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.Equal("Active", response.Status);
+        Assert.Single(emailClient.UnbannedEmails);
+        Assert.Equal("appealed@nexus.local", emailClient.UnbannedEmails[0].Email);
+        Assert.Equal("Jane Smith", emailClient.UnbannedEmails[0].FullName);
+        Assert.Equal("Appeal accepted after investigation", emailClient.UnbannedEmails[0].Reason);
     }
 }

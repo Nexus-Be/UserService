@@ -1,4 +1,4 @@
-namespace User.Tests;
+﻿namespace User.Tests;
 
 using System;
 using System.Collections.Concurrent;
@@ -1700,6 +1700,16 @@ public sealed class SellerServiceTests
         public Task<bool> SendSellerRejectedEmailAsync(string email, string fullName, string shopName, string reason, CancellationToken cancellationToken = default)
         {
             SentRejected.Add((email, fullName, shopName, reason));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendUserBannedEmailAsync(string email, string fullName, string reason, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendUserUnbannedEmailAsync(string email, string fullName, string? reason = null, CancellationToken cancellationToken = default)
+        {
             return Task.FromResult(true);
         }
     }

@@ -91,4 +91,54 @@ public sealed class QueuedEmailNotificationClient : IEmailNotificationClient
             return false;
         }
     }
+
+    public async Task<bool> SendUserBannedEmailAsync(
+        string email,
+        string fullName,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        if (_scopeFactory == null)
+        {
+            _logger.LogInformation("[QueuedEmailNotificationClient] Dispatch skipped because scope factory is null (Test mode).");
+            return true;
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var client = scope.ServiceProvider.GetRequiredService<EmailNotificationClient>();
+            return await client.SendUserBannedEmailAsync(email, fullName, reason, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to dispatch user banned email to '{Email}'.", email);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendUserUnbannedEmailAsync(
+        string email,
+        string fullName,
+        string? reason = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_scopeFactory == null)
+        {
+            _logger.LogInformation("[QueuedEmailNotificationClient] Dispatch skipped because scope factory is null (Test mode).");
+            return true;
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var client = scope.ServiceProvider.GetRequiredService<EmailNotificationClient>();
+            return await client.SendUserUnbannedEmailAsync(email, fullName, reason, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to dispatch user unbanned email to '{Email}'.", email);
+            return false;
+        }
+    }
 }
