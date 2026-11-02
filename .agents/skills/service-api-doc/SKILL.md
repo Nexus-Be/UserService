@@ -13,7 +13,11 @@ This skill governs the **mandatory pre-code documentation lifecycle** within Use
 
 ## 1. Ranh giới Tài liệu UserService
 
-* **Vị trí lưu trữ:** `docs/api/{Feature}/{HTTP_METHOD}_{ENDPOINT_SLUG}.md`
+* **Vị trí lưu trữ:**
+  - API đã hoàn tất & kiểm chứng: `docs/api/A_Active/User/{Feature}/{HTTP_METHOD}_{ENDPOINT_SLUG}.md`
+  - API trong quá trình đặc tả/chờ làm: `docs/api/B_none/User/{HTTP_METHOD}_{ENDPOINT_SLUG}.md`
+* **File mẫu chuẩn:** `docs/api/API_DOC_TEMPLATE.md`
+* **Quy chuẩn Tác giả mặc định:** `> **Tác giả:** Hiển Vinh & AI Agent`
 * **Thời điểm lập:** **BẮT BUỘC TRƯỚC KHI VIẾT CODE (Pre-Code)**.
 * **Định dạng dữ liệu trả về:** **Pure DTO** hoặc `PagedData<T>` (tuyệt đối không bọc qua `ApiResponse<T>`).
 * **Rào chắn Inward-Only:** Chỉ trỏ tới tài nguyên nội bộ của UserService (`User.Domain`, `User.Application`, `User.Infrastructure`, `User.Api`). Không tham chiếu tới `docs/api/` ở Root.
