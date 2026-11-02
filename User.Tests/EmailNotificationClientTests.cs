@@ -81,52 +81,84 @@ public sealed class EmailNotificationClientTests
     }
 
     [Fact]
-    public async Task QueuedEmailNotificationClient_enqueues_message_and_returns_true()
+    public async Task SendOtpEmailAsync_returns_false_when_response_is_error_status()
     {
-        var queue = new OtpEmailQueue();
-        var client = new QueuedEmailNotificationClient(queue, NullLogger<QueuedEmailNotificationClient>.Instance);
+        var capture = new CapturingHandler(HttpStatusCode.InternalServerError);
 
-        var sent = await client.SendOtpEmailAsync("queued@nexus.local", "Queued User", "112233", 10);
-        var message = await queue.DequeueAsync(CancellationToken.None);
-
-        Assert.True(sent);
-        Assert.Equal("queued@nexus.local", message.Email);
-        Assert.Equal("Queued User", message.FullName);
-        Assert.Equal("112233", message.OtpCode);
-        Assert.Equal(10, message.ExpiresInMinutes);
-    }
-
-    [Fact]
-    public async Task QueuedEmailNotificationClient_returns_false_when_queue_is_full()
-    {
-        var queue = new OtpEmailQueue();
-        var client = new QueuedEmailNotificationClient(queue, NullLogger<QueuedEmailNotificationClient>.Instance);
-
-        for (var index = 0; index < 1000; index++)
+        using var httpClient = new HttpClient(capture)
         {
-            var accepted = await client.SendOtpEmailAsync("queued@nexus.local", "Queued User", "112233", 5);
-            Assert.True(accepted);
-        }
+            BaseAddress = new Uri("http://notification.local/")
+        };
 
-        var overflow = await client.SendOtpEmailAsync("queued@nexus.local", "Queued User", "112233", 5);
-        Assert.False(overflow);
+        var client = new EmailNotificationClient(httpClient, NullLogger<EmailNotificationClient>.Instance);
+
+        var sent = await client.SendOtpEmailAsync("buyer@nexus.local", "Buyer Test", "654321", 5);
+
+        Assert.False(sent);
     }
 
     [Fact]
-    public async Task QueuedEmailNotificationClient_seller_approved_and_rejected_succeed_with_null_scope()
+    public async Task SendOtpEmailAsync_returns_false_when_exception_is_thrown()
     {
-        var queue = new OtpEmailQueue();
-        var client = new QueuedEmailNotificationClient(queue, NullLogger<QueuedEmailNotificationClient>.Instance);
+        var capture = new CapturingHandler(throwException: true);
 
-        var approvedSent = await client.SendSellerApprovedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop");
-        var rejectedSent = await client.SendSellerRejectedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop", "Reason");
+        using var httpClient = new HttpClient(capture)
+        {
+            BaseAddress = new Uri("http://notification.local/")
+        };
 
-        Assert.True(approvedSent);
-        Assert.True(rejectedSent);
+        var client = new EmailNotificationClient(httpClient, NullLogger<EmailNotificationClient>.Instance);
+
+        var sent = await client.SendOtpEmailAsync("buyer@nexus.local", "Buyer Test", "654321", 5);
+
+        Assert.False(sent);
+    }
+
+    [Fact]
+    public async Task SendSellerApprovedEmailAsync_returns_false_when_response_is_error_status()
+    {
+        var capture = new CapturingHandler(HttpStatusCode.BadRequest);
+
+        using var httpClient = new HttpClient(capture)
+        {
+            BaseAddress = new Uri("http://notification.local/")
+        };
+
+        var client = new EmailNotificationClient(httpClient, NullLogger<EmailNotificationClient>.Instance);
+
+        var sent = await client.SendSellerApprovedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop");
+
+        Assert.False(sent);
+    }
+
+    [Fact]
+    public async Task SendSellerRejectedEmailAsync_returns_false_when_response_is_error_status()
+    {
+        var capture = new CapturingHandler(HttpStatusCode.ServiceUnavailable);
+
+        using var httpClient = new HttpClient(capture)
+        {
+            BaseAddress = new Uri("http://notification.local/")
+        };
+
+        var client = new EmailNotificationClient(httpClient, NullLogger<EmailNotificationClient>.Instance);
+
+        var sent = await client.SendSellerRejectedEmailAsync("shop@nexus.local", "Seller Test", "Nexus Shop", "Reason");
+
+        Assert.False(sent);
     }
 
     private sealed class CapturingHandler : HttpMessageHandler
     {
+        private readonly HttpStatusCode _statusCode;
+        private readonly bool _throwException;
+
+        public CapturingHandler(HttpStatusCode statusCode = HttpStatusCode.OK, bool throwException = false)
+        {
+            _statusCode = statusCode;
+            _throwException = throwException;
+        }
+
         public HttpRequestMessage? LastRequest { get; private set; }
         public string? LastBody { get; private set; }
 
@@ -134,12 +166,17 @@ public sealed class EmailNotificationClientTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (_throwException)
+            {
+                throw new HttpRequestException("Simulated connection error.");
+            }
+
             LastRequest = request;
             LastBody = request.Content is null
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            return new HttpResponseMessage(HttpStatusCode.OK);
+            return new HttpResponseMessage(_statusCode);
         }
     }
 }
