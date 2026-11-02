@@ -89,3 +89,13 @@ publish/
 .agents/review/
 
 
+
+# Developer Local Rules & Skills (Personal Obsidian & Workflow)
+.agents/rules/01_codebase_guardrails.md
+.agents/rules/02_testing_token_optimization.md
+.agents/rules/03_obsidian_mentor_sync.md
+.agents/rules/04_user_lead_knowledge_base.md
+.agents/skills/api-contract/
+.agents/skills/outbox-event/
+.agents/skills/system-flow/
+.agents/skills/workflow/
