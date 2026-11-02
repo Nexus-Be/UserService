@@ -1186,4 +1186,100 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    public async Task<AdminSellerProfileResponseDto> GetAdminSellerProfileAsync(
+        Guid sellerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sellerId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Seller identifier is required.");
+        }
+
+        var profile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(s => s.User)
+                .ThenInclude(u => u!.ReputationScore)
+            .Include(s => s.User)
+                .ThenInclude(u => u!.ReviewsReceived)
+            .Include(s => s.ReviewedByUser)
+            .FirstOrDefaultAsync(s => s.Id == sellerId || s.UserId == sellerId, cancellationToken);
+
+        if (profile == null)
+        {
+            _logger.LogWarning("[ADMIN SELLER PROFILE] Seller profile not found for identifier: '{SellerId}'.", sellerId);
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found.", 404);
+        }
+
+        var reviews = profile.User?.ReviewsReceived?.Where(r => !r.IsDisabled).ToList();
+        double ratingAvg = 5.0;
+        int totalPositiveReviews = 0;
+        int totalNegativeReviews = 0;
+        if (reviews != null && reviews.Count > 0)
+        {
+            ratingAvg = Math.Round(reviews.Average(r => r.Rating), 2);
+            totalPositiveReviews = reviews.Count(r => r.Rating >= 4.0);
+            totalNegativeReviews = reviews.Count(r => r.Rating <= 2.0);
+        }
+
+        var reputationScore = profile.User?.ReputationScore?.CurrentScore ?? 50;
+        var trustLevel = profile.User?.ReputationScore?.TrustLevel.ToString() ?? TrustLevel.Standard.ToString();
+
+        var ownerFullName = profile.User != null
+            ? $"{profile.User.FirstName} {profile.User.LastName}".Trim()
+            : string.Empty;
+        var ownerEmail = profile.User?.Email ?? profile.BusinessEmail ?? string.Empty;
+        var ownerPhoneNumber = profile.User?.PhoneNumber;
+        var ownerGender = profile.User?.Gender.ToString() ?? "Unspecified";
+        var ownerDateOfBirth = profile.User?.DateOfBirth;
+        var ownerAddress = profile.User?.Address;
+        var identityCardNumber = profile.User?.IdentifyNumber;
+
+        var reviewedByName = profile.ReviewedByUser != null
+            ? $"{profile.ReviewedByUser.FirstName} {profile.ReviewedByUser.LastName}".Trim()
+            : null;
+
+        var bankInfo = new SellerBankInfoDto();
+        var settlementInfo = new SellerSettlementInfoDto();
+
+        return new AdminSellerProfileResponseDto(
+            SellerId: profile.Id.ToString(),
+            ShopId: profile.Id.ToString(),
+            UserId: profile.UserId.ToString(),
+            ShopName: profile.ShopName,
+            AvatarUrl: profile.AvatarUrl,
+            BusinessEmail: profile.BusinessEmail,
+            Hotline: profile.Hotline,
+            Description: null,
+            PickupAddress: profile.PickupAddress,
+            WarehouseAddress: profile.PickupAddress,
+            ProvinceId: profile.ProvinceId,
+            DistrictId: profile.DistrictId,
+            WardCode: profile.WardCode,
+            IdentityCardNumber: identityCardNumber,
+            IdCardFrontUrl: profile.IdCardFrontUrl,
+            IdCardBackUrl: profile.IdCardBackUrl,
+            BusinessLicenseUrl: profile.BusinessLicenseUrl,
+            OwnerFullName: ownerFullName,
+            OwnerEmail: ownerEmail,
+            OwnerPhoneNumber: ownerPhoneNumber,
+            OwnerGender: ownerGender,
+            OwnerDateOfBirth: ownerDateOfBirth,
+            OwnerAddress: ownerAddress,
+            BankInfo: bankInfo,
+            SettlementInfo: settlementInfo,
+            RatingAvg: ratingAvg,
+            ReputationScore: reputationScore,
+            TrustLevel: trustLevel,
+            TotalPositiveReviews: totalPositiveReviews,
+            TotalNegativeReviews: totalNegativeReviews,
+            PenaltyCount: 0,
+            Status: profile.Status.ToString(),
+            RejectionReason: profile.RejectionReason,
+            ReviewedBy: profile.ReviewedBy?.ToString(),
+            ReviewedByName: reviewedByName,
+            ReviewedAt: profile.ReviewedAt,
+            CreatedAt: profile.CreatedAt,
+            UpdatedAt: profile.UpdatedAt
+        );
+    }
 }

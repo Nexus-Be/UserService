@@ -4,7 +4,8 @@
 > Phân quyền chặt chẽ theo Segregation of Duties (SoD):
 > - Nhóm Quản trị hệ thống & tài khoản (`/api/v1/admin/users`, `/api/v1/admin/roles`): **Chỉ dành cho Admin** (`[RequireRole("admin")]`).
 > - Nhóm Thẩm định & duyệt hồ sơ Seller (`/api/v1/admin/seller-registrations`): **Chỉ dành cho Support Staff** (`[RequireRole("staff")]`).
-> **Nguồn sự thật:** code (`User.Api/Controllers/AuthController.cs`, `User.Api/Controllers/UsersController.cs`, `User.Api/Controllers/AdminUsersController.cs`, `User.Api/Controllers/AdminRolesController.cs`, `User.Api/Controllers/AdminSellerRegistrationsController.cs`, `User.Api/Controllers/SellerController.cs`).
+> - Nhóm Tra cứu hồ sơ người bán quản trị (`/api/v1/admin/sellers`): **Dành cho Admin & Support Staff** (`[RequireRole("admin", "staff")]`).
+> **Nguồn sự thật:** code (`User.Api/Controllers/AuthController.cs`, `User.Api/Controllers/UsersController.cs`, `User.Api/Controllers/AdminUsersController.cs`, `User.Api/Controllers/AdminRolesController.cs`, `User.Api/Controllers/AdminSellerRegistrationsController.cs`, `User.Api/Controllers/AdminSellersController.cs`, `User.Api/Controllers/SellerController.cs`).
 > **Cập nhật lần cuối:** 2026-11-02.
 > **Tác giả:** Hiển Vinh & AI Agent
 
@@ -46,7 +47,12 @@
 * `PUT /api/v1/admin/seller-registrations/{id}/approve`: Duyệt đơn đăng ký seller (Staff-only).
 * `PUT /api/v1/admin/seller-registrations/{id}/reject`: Từ chối đơn đăng ký seller (Staff-only).
 
-### 1.5. Nhà bán hàng (`SellerController` — `/api/v1/sellers`)
+### 1.5. Quản trị Hồ sơ Người bán (`AdminSellersController` — `/api/v1/admin/sellers`)
+> **Phân quyền:** Dành cho quản trị viên và nhân viên hỗ trợ (`[RequireRole("admin", "staff")]`).
+
+* `GET /api/v1/admin/sellers/{sellerId}`: Tra cứu thông tin chi tiết hồ sơ người bán và định danh KYC dành cho quản trị viên/nhân viên (`SELLER-09`).
+
+### 1.6. Nhà bán hàng (`SellerController` — `/api/v1/sellers`)
 * `POST /api/v1/sellers/registration`: Đăng ký nâng cấp tài khoản lên Seller (Authenticated).
 * `POST /api/v1/sellers/otp/verify`: Xác thực OTP email doanh nghiệp (Authenticated).
 * `POST /api/v1/sellers/otp/resend`: Gửi lại mã OTP doanh nghiệp (Authenticated).
@@ -59,6 +65,6 @@
 
 ## 2. NGUYÊN TẮC BẤT BIẾN
 
-* **100% Plural Route Convention**: Mọi route tập hợp tài nguyên dùng danh từ số nhiều (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/admin/seller-registrations`). Ngoại lệ duy nhất là contextual singleton `/api/v1/me` và nhóm xác thực phi tài nguyên `/api/v1/auth`.
+* **100% Plural Route Convention**: Mọi route tập hợp tài nguyên dùng danh từ số nhiều (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/admin/seller-registrations`, `/api/v1/admin/sellers`). Ngoại lệ duy nhất là contextual singleton `/api/v1/me` và nhóm xác thực phi tài nguyên `/api/v1/auth`.
 * **Envelope & Errors**: Phản hồi bọc trong phong bì `ApiResponse<T>` hoặc `ApiResponse<PagedData<T>>`.
 * **Giao tiếp liên service**: Gửi email OTP gọi trực tiếp sang NotificationService qua `IEmailNotificationClient` (`POST /api/v1/notifications/email/otp`).
