@@ -140,7 +140,6 @@ public sealed class AdminUsersController : ControllerBase
 
     /// <summary>Bans a user account for regulatory or policy violations (ADMIN-05).</summary>
     [HttpPatch("{userId:guid}/ban")]
-    [HttpPatch("/api/v1/admin/user/{userId:guid}/ban")]
     [RequireRole("admin")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserBannedResponseDto))]
     public async Task<IActionResult> BanUser(
@@ -161,7 +160,6 @@ public sealed class AdminUsersController : ControllerBase
 
     /// <summary>Unbans a previously suspended user account (ADMIN-06).</summary>
     [HttpPatch("{userId:guid}/unban")]
-    [HttpPatch("/api/v1/admin/user/{userId:guid}/unban")]
     [RequireRole("admin")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserUnbannedResponseDto))]
     public async Task<IActionResult> UnbanUser(

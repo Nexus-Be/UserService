@@ -23,7 +23,6 @@ public sealed class UsersController : ControllerBase
 
     /// <summary>Retrieves the safe public profile of a user by ID (USER-07).</summary>
     [HttpGet("{userId:guid}")]
-    [HttpGet("/api/v1/user/{userId:guid}")]
     [AllowAnonymous]
     public async Task<IActionResult> GetUserPublicProfile([FromRoute] Guid userId, CancellationToken cancellationToken)
     {
