@@ -14,7 +14,7 @@ using User.Application.Common.Models;
 
 [ApiController]
 [Route("api/v1/admin/users")]
-[RequireRole("admin", "staff")]
+[RequireRole("admin")]
 public sealed class AdminUsersController : ControllerBase
 {
     private readonly IAdminUserService _adminUserService;

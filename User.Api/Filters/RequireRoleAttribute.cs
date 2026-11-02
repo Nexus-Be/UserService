@@ -45,9 +45,25 @@ public sealed class RequireRoleAttribute : Attribute, IAuthorizationFilter
         {
             var userRoles = httpContext.GetUserRoles();
             var isAuthorized = _allowedRoles.Any(role =>
-                userRoles.Contains(role.Trim().ToLowerInvariant(), StringComparer.OrdinalIgnoreCase) ||
-                httpContext.IsAdmin() ||
-                httpContext.HasRole("staff"));
+            {
+                var target = role.Trim().ToLowerInvariant();
+                if (userRoles.Contains(target, StringComparer.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (target == "staff" && (userRoles.Contains("support_staff", StringComparer.OrdinalIgnoreCase) || userRoles.Contains("support staff", StringComparer.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+
+                if (target == "admin" && userRoles.Contains("administrator", StringComparer.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                return false;
+            });
 
             if (!isAuthorized)
             {

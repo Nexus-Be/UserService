@@ -13,7 +13,7 @@ using User.Application.Services.Seller;
 
 [ApiController]
 [Route("api/v1/admin/seller-registrations")]
-[RequireRole("admin", "staff")]
+[RequireRole("staff")]
 public sealed class AdminSellerRegistrationsController : ControllerBase
 {
     private readonly ISellerService _sellerService;

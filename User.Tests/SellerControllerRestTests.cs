@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using User.Api.Common;
 using User.Api.Controllers;
+using User.Api.Filters;
 using User.Application.Interfaces;
 using User.Application.Models;
 using User.Application.Services.Seller;
@@ -600,5 +601,45 @@ public sealed class SellerControllerRestTests
         Assert.Equal(userId.ToString(), response.SellerId);
         Assert.Equal("Nexus Official Store", response.ShopName);
         Assert.Equal("090*****67", response.Hotline);
+    }
+    [Fact]
+    public void AdminSellerRegistrationsController_HasStrictStaffRoleAttribute()
+    {
+        var attr = Attribute.GetCustomAttribute(typeof(AdminSellerRegistrationsController), typeof(RequireRoleAttribute)) as RequireRoleAttribute;
+        Assert.NotNull(attr);
+    }
+
+    [Fact]
+    public void RequireRoleAttribute_WhenRoleIsStaffAndStaffRequired_AllowsAccess()
+    {
+        var filter = new RequireRoleAttribute("staff");
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "staff";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new Microsoft.AspNetCore.Mvc.Filters.AuthorizationFilterContext(actionContext, new System.Collections.Generic.List<Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
+    }
+
+    [Fact]
+    public void RequireRoleAttribute_WhenRoleIsAdminAndStaffRequired_ReturnsForbidden()
+    {
+        var filter = new RequireRoleAttribute("staff");
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "admin";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new Microsoft.AspNetCore.Mvc.Filters.AuthorizationFilterContext(actionContext, new System.Collections.Generic.List<Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.NotNull(filterContext.Result);
+        var objResult = Assert.IsType<ObjectResult>(filterContext.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, objResult.StatusCode);
     }
 }

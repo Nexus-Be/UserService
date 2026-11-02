@@ -16,6 +16,8 @@ using User.Domain.Enums;
 using User.Application.Common.Models;
 using User.Infrastructure.Persistence;
 using Xunit;
+using Microsoft.AspNetCore.Mvc.Filters;
+using User.Api.Filters;
 
 public sealed class AdminUsersControllerRestTests
 {
@@ -364,5 +366,48 @@ public sealed class AdminUsersControllerRestTests
 
         var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
         Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
+    }
+    [Fact]
+    public void AdminControllers_HaveStrictAdminRoleAttribute()
+    {
+        var usersAttr = Attribute.GetCustomAttribute(typeof(AdminUsersController), typeof(RequireRoleAttribute)) as RequireRoleAttribute;
+        Assert.NotNull(usersAttr);
+
+        var rolesAttr = Attribute.GetCustomAttribute(typeof(AdminRolesController), typeof(RequireRoleAttribute)) as RequireRoleAttribute;
+        Assert.NotNull(rolesAttr);
+    }
+
+    [Fact]
+    public void RequireRoleAttribute_WhenRoleIsStaffAndAdminRequired_ReturnsForbidden()
+    {
+        var filter = new RequireRoleAttribute("admin");
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "staff";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.NotNull(filterContext.Result);
+        var objResult = Assert.IsType<ObjectResult>(filterContext.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, objResult.StatusCode);
+    }
+
+    [Fact]
+    public void RequireRoleAttribute_WhenRoleIsAdminAndAdminRequired_AllowsAccess()
+    {
+        var filter = new RequireRoleAttribute("admin");
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "admin";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
     }
 }
