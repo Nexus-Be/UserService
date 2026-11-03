@@ -731,7 +731,7 @@ public sealed class SellerService : ISellerService
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL
-        // 1. Assign Seller role to user
+        // 1. Assign Seller role to user (reactivate if soft-deleted record exists to respect unique index)
         var sellerRole = await _dbContext.Roles
             .FirstOrDefaultAsync(r => r.RoleCode == RoleType.Seller, cancellationToken);
 
@@ -740,14 +740,29 @@ public sealed class SellerService : ISellerService
             var alreadyHasRole = user.UserRoles.Any(ur => ur.RoleId == sellerRole.Id);
             if (!alreadyHasRole)
             {
-                _dbContext.UserRoles.Add(new UserRole
+                var existingSoftDeletedUr = await _dbContext.UserRoles
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(ur => ur.UserId == sellerProfile.UserId && ur.RoleId == sellerRole.Id, cancellationToken);
+
+                if (existingSoftDeletedUr != null)
                 {
-                    Id = Guid.NewGuid(),
-                    UserId = sellerProfile.UserId,
-                    RoleId = sellerRole.Id,
-                    AssignedAt = DateTimeOffset.UtcNow,
-                    AssignedBy = reviewerId
-                });
+                    existingSoftDeletedUr.IsDeleted = false;
+                    existingSoftDeletedUr.DeletedAt = null;
+                    existingSoftDeletedUr.UpdatedAt = DateTimeOffset.UtcNow;
+                    existingSoftDeletedUr.AssignedAt = DateTimeOffset.UtcNow;
+                    existingSoftDeletedUr.AssignedBy = reviewerId;
+                }
+                else
+                {
+                    _dbContext.UserRoles.Add(new UserRole
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = sellerProfile.UserId,
+                        RoleId = sellerRole.Id,
+                        AssignedAt = DateTimeOffset.UtcNow,
+                        AssignedBy = reviewerId
+                    });
+                }
                 _logger.LogInformation("[SELLER APPROVAL] Assigned role 'Seller' to UserId: '{UserId}'.", sellerProfile.UserId);
             }
         }

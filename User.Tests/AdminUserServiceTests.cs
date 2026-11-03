@@ -605,6 +605,49 @@ public sealed class AdminUserServiceTests
         var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
 
         var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "promote.staff@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        var testUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id };
+        dbContext.UserRoles.Add(testUr);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "staff" },
+            Reason = "Promoted to support staff"
+        };
+        var adminId = Guid.NewGuid();
+
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(targetUserId.ToString(), result.UserId);
+        Assert.Contains("supportstaff", result.Roles);
+
+        var auditLog = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == targetUserId.ToString());
+        Assert.NotNull(auditLog);
+        Assert.Equal(AuditAction.RoleAssign, auditLog.Action);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenAttemptingToAssignSellerDirectly_ThrowsCannotAssignSellerRoleDirectlyException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
         var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
         dbContext.Roles.AddRange(rBuyer, rSeller);
 
@@ -612,7 +655,7 @@ public sealed class AdminUserServiceTests
         var user = new User
         {
             Id = targetUserId,
-            Email = "promote.seller@nexus.local",
+            Email = "seller.direct@nexus.local",
             PasswordHash = "hash",
             FirstName = "Target",
             LastName = "User",
@@ -626,19 +669,70 @@ public sealed class AdminUserServiceTests
         var dto = new AssignAdminUserRolesDto
         {
             RoleCodes = new List<string> { "seller" },
-            Reason = "Approved seller registration"
+            Reason = "Attempt direct seller assignment"
+        };
+        var adminId = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_ASSIGN_SELLER_ROLE_DIRECTLY", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenReactivatingSoftDeletedRole_ReactivatesExistingRecordWithoutDuplicateKeyError()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "reactivate.staff@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Reactivate",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+
+        var activeBuyerUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id, IsDeleted = false };
+        var softDeletedStaffUr = new UserRole
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            RoleId = rStaff.Id,
+            IsDeleted = true,
+            DeletedAt = DateTimeOffset.UtcNow.AddDays(-1)
+        };
+        dbContext.UserRoles.AddRange(activeBuyerUr, softDeletedStaffUr);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer", "staff" },
+            Reason = "Re-granting staff role"
         };
         var adminId = Guid.NewGuid();
 
         var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(targetUserId.ToString(), result.UserId);
-        Assert.Contains("seller", result.Roles);
+        Assert.Contains("supportstaff", result.Roles);
+        Assert.Contains("buyer", result.Roles);
 
-        var auditLog = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == targetUserId.ToString());
-        Assert.NotNull(auditLog);
-        Assert.Equal(AuditAction.RoleAssign, auditLog.Action);
+        var reactivatedUr = await dbContext.UserRoles
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(ur => ur.Id == softDeletedStaffUr.Id);
+
+        Assert.NotNull(reactivatedUr);
+        Assert.False(reactivatedUr.IsDeleted);
+        Assert.Null(reactivatedUr.DeletedAt);
     }
 
     [Fact]

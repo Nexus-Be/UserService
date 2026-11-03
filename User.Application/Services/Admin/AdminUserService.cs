@@ -1,4 +1,4 @@
-﻿namespace User.Application.Services.Admin;
+namespace User.Application.Services.Admin;
 
 using System;
 using System.Collections.Generic;
@@ -262,6 +262,7 @@ public sealed class AdminUserService : IAdminUserService
         var (safePage, safeLimit) = PaginationConstants.Normalize(page, limit);
 
         var query = _dbContext.Users
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
@@ -292,6 +293,11 @@ public sealed class AdminUserService : IAdminUserService
             {
                 query = query.Where(u => u.Status == UserStatus.PendingVerification);
             }
+        }
+
+        else
+        {
+            query = query.Where(u => !u.IsDeleted);
         }
 
         // 3. Role filter
@@ -371,6 +377,7 @@ public sealed class AdminUserService : IAdminUserService
         _logger.LogInformation("[AdminUserService.GetUserDetailAsync] Fetching user profile detail for UserId: {UserId}", userId);
 
         var user = await _dbContext.Users
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role!)
@@ -615,7 +622,16 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Update UserRoles
+        // 5. Seller Role Guard: Seller role cannot be directly assigned; it must go through seller onboarding approval
+        if (!currentRoles.Contains(RoleType.Seller) && requestedRoles.Contains(RoleType.Seller))
+        {
+            _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to assign seller role directly to User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
+            throw new BusinessRuleValidationException(
+                "CANNOT_ASSIGN_SELLER_ROLE_DIRECTLY",
+                "Seller role cannot be assigned directly. It must be granted through the seller registration approval workflow.");
+        }
+
+        // 6. Update UserRoles
         var allDbRoles = await _dbContext.Roles
             .Where(r => !r.IsDeleted)
             .ToListAsync(cancellationToken);
@@ -636,7 +652,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // Add new roles
+        // Add new roles (reactivate if soft-deleted record exists to respect unique index)
         foreach (var reqRole in requestedRoles)
         {
             var alreadyHas = targetUser.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == reqRole);
@@ -645,17 +661,32 @@ public sealed class AdminUserService : IAdminUserService
                 var dbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == reqRole);
                 if (dbRole != null)
                 {
-                    _dbContext.UserRoles.Add(new UserRole
+                    var existingSoftDeletedUr = await _dbContext.UserRoles
+                        .IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(ur => ur.UserId == targetUser.Id && ur.RoleId == dbRole.Id, cancellationToken);
+
+                    if (existingSoftDeletedUr != null)
                     {
-                        Id = Guid.NewGuid(),
-                        UserId = targetUser.Id,
-                        RoleId = dbRole.Id,
-                        AssignedAt = DateTimeOffset.UtcNow,
-                        AssignedBy = adminId ?? Guid.Empty,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow,
-                        IsDeleted = false
-                    });
+                        existingSoftDeletedUr.IsDeleted = false;
+                        existingSoftDeletedUr.DeletedAt = null;
+                        existingSoftDeletedUr.UpdatedAt = DateTimeOffset.UtcNow;
+                        existingSoftDeletedUr.AssignedAt = DateTimeOffset.UtcNow;
+                        existingSoftDeletedUr.AssignedBy = adminId ?? Guid.Empty;
+                    }
+                    else
+                    {
+                        _dbContext.UserRoles.Add(new UserRole
+                        {
+                            Id = Guid.NewGuid(),
+                            UserId = targetUser.Id,
+                            RoleId = dbRole.Id,
+                            AssignedAt = DateTimeOffset.UtcNow,
+                            AssignedBy = adminId ?? Guid.Empty,
+                            CreatedAt = DateTimeOffset.UtcNow,
+                            UpdatedAt = DateTimeOffset.UtcNow,
+                            IsDeleted = false
+                        });
+                    }
                 }
             }
         }
