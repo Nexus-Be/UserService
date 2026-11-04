@@ -75,7 +75,11 @@ description: Add or change a REST endpoint in UserService (port 8001). Use when 
 - [ ] Controller lives in `User.Api/Controllers/Public/` and is named `{Feature}Controller`.
 - [ ] `[ApiController]`, one `[Route]`, one route attribute per action, one-line XML `<summary>`.
 - [ ] Only `I{Feature}Service` is injected.
-- [ ] Identity comes from `this.TryGetUserId(...)`, ownership from `this.EnsureOwnership(...)`.
+- [ ] Caller identity and roles: `UserContextMiddleware` automatically decodes gateway headers into `HttpContext.User`.
+  - Extract caller ID via `this.TryGetUserId(out var userId, out var authError)` (returns HTTP 401 ProblemDetails if unauthenticated).
+  - Enforce role restrictions via `[RequireRole("seller", "admin")]` or `this.HasRole(...)` (returns HTTP 403 ProblemDetails if unauthorized).
+  - Enforce resource ownership via `this.EnsureOwnership(...)` or pass `userId` to the service. Never accept client-supplied `userId`/`sellerId`/`buyerId`.
+  - Outbound cross-service HTTP calls automatically propagate identity headers via `IdentityPropagationHandler` configured on typed clients in `Infrastructure/DependencyInjection.cs`.
 - [ ] DTOs are returned directly; delete returns `NoContent()`.
 - [ ] No `ResultFilter`, no manual envelope, no business branching in the controller.
 

@@ -49,6 +49,9 @@ public static class DependencyInjection
         services.AddSingleton<IRedisOtpService, RedisOtpService>();
         services.AddSingleton<IJwtTokenGenerator, Services.Jwt.JwtTokenGenerator>();
 
+        // Identity propagation delegating handler for outgoing inter-service HTTP requests
+        services.AddTransient<Services.Common.IdentityPropagationHandler>();
+
         // REST Email Notification Client
         var notificationBaseUrl = Environment.GetEnvironmentVariable("NOTIFICATION_SERVICE_URL")
             ?? configuration["NOTIFICATION_SERVICE_URL"]
@@ -62,7 +65,7 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(10);
-        });
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
         // REST Fulfillment Service Client (Internal sync with 5s timeout)
         var fulfillmentBaseUrl = Environment.GetEnvironmentVariable("FULFILLMENT_SERVICE_URL")
@@ -75,7 +78,7 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
-        });
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
         // REST Wallet Service Client (Sync non-blocking with 5s timeout)
         var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
@@ -88,7 +91,7 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(walletBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
-        });
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
         return services;
     }
