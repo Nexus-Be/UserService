@@ -105,3 +105,24 @@ public sealed record SellerRegistrationDraft(
     string? BusinessLicenseUrl,
     string? AvatarUrl
 );
+
+public sealed class SuspendSellerDto
+{
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = string.Empty;
+
+    [JsonPropertyName("durationDays")]
+    public int? DurationDays { get; set; }
+
+    [JsonPropertyName("policyClauseCode")]
+    public string? PolicyClauseCode { get; set; }
+
+    [JsonPropertyName("evidenceUrls")]
+    public System.Collections.Generic.List<string>? EvidenceUrls { get; set; }
+}
+
+public sealed class ReactivateSellerDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using User.Api.Extensions;
 using User.Api.Filters;
 using User.Application.Services.Seller;
 
@@ -34,6 +35,42 @@ public sealed class AdminSellersController : ControllerBase
     {
         _logger.LogInformation("[REST Admin GetAdminSellerProfile] Fetching seller profile for identifier: '{SellerId}'", sellerId);
         var result = await _sellerService.GetAdminSellerProfileAsync(sellerId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[Admin / Staff] Suspends a seller shop from selling.</summary>
+    [HttpPut("{sellerId:guid}/suspend")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(SuspendSellerResponseDto))]
+    public async Task<IActionResult> SuspendSeller(
+        [FromRoute] Guid sellerId,
+        [FromBody] SuspendSellerDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (!this.TryGetUserId(out var adminId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST Admin SuspendSeller] Suspending seller '{SellerId}' by admin '{AdminId}'", sellerId, adminId);
+        var result = await _sellerService.SuspendSellerAsync(sellerId, dto, adminId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[Admin / Staff] Reactivates a suspended seller shop.</summary>
+    [HttpPut("{sellerId:guid}/reactivate")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ReactivateSellerResponseDto))]
+    public async Task<IActionResult> ReactivateSeller(
+        [FromRoute] Guid sellerId,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] ReactivateSellerDto? dto,
+        CancellationToken cancellationToken)
+    {
+        if (!this.TryGetUserId(out var adminId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST Admin ReactivateSeller] Reactivating seller '{SellerId}' by admin '{AdminId}'", sellerId, adminId);
+        var result = await _sellerService.ReactivateSellerAsync(sellerId, dto, adminId, cancellationToken);
         return Ok(result);
     }
 }

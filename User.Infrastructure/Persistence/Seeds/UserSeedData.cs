@@ -485,6 +485,7 @@ public static class UserSeedData
             {
                 Id = Guid.Parse("60000000-aaaa-bbbb-cccc-000000000001"),
                 UserId = buyerUserId,
+                TargetRole = TargetRole.Buyer,
                 ViolationType = PenaltyViolationType.PaymentTimeout,
                 Reason = "Quá hạn thanh toán thử nghiệm trong môi trường sandbox",
                 PenaltyApplied = PenaltyType.Warning,

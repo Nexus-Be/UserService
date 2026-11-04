@@ -939,6 +939,7 @@ public sealed class AdminUserService : IAdminUserService
             .IgnoreQueryFilters()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
@@ -1062,6 +1063,7 @@ public sealed class AdminUserService : IAdminUserService
             .IgnoreQueryFilters()
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
@@ -1121,6 +1123,34 @@ public sealed class AdminUserService : IAdminUserService
         {
             user.UpdatedBy = adminId.Value;
         }
+
+        // 3.1. Suspend associated seller profile if present
+        if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status != SellerProfileStatus.Suspended)
+        {
+            user.SellerProfile.Suspend(trimmedReason, adminId);
+        }
+
+        // 3.2. Record account-level sanction in UserPenalties ledger
+        var accountPenalty = new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            TargetRole = TargetRole.Account,
+            ViolationType = PenaltyViolationType.Fraud,
+            Reason = trimmedReason,
+            PenaltyApplied = PenaltyType.BanAccount,
+            PointsDeducted = 0,
+            Status = PenaltyStatus.Active,
+            IssuedAt = now,
+            ExpiresAt = null,
+            CreatedBy = adminId,
+            PolicyClauseCode = dto?.PolicyClauseCode ?? "ACCOUNT_TERMS_VIOLATION",
+            EvidenceUrls = dto?.EvidenceUrls ?? new List<string>(),
+            CreatedAt = now,
+            UpdatedAt = now,
+            IsDeleted = false
+        };
+        _dbContext.UserPenalties.Add(accountPenalty);
 
         // 4. Revoke active refresh tokens in PostgreSQL
         var activeTokens = await _dbContext.RefreshTokens
@@ -1228,6 +1258,7 @@ public sealed class AdminUserService : IAdminUserService
         // 1. Find user in DB
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
@@ -1270,6 +1301,22 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Account unbanned by administrator.";
+
+        // Reactivate seller profile if it was suspended due to ban
+        if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+        {
+            user.SellerProfile.Reactivate();
+        }
+
+        // Revoke active account penalties
+        var activeAccountPenalties = await _dbContext.UserPenalties
+            .Where(p => p.UserId == targetUserId && p.TargetRole == TargetRole.Account && p.Status == PenaltyStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        foreach (var penalty in activeAccountPenalties)
+        {
+            penalty.Revoke(adminId ?? Guid.Empty, reason);
+        }
 
         var newValues = new Dictionary<string, object?>
         {

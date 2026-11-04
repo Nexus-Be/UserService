@@ -19,4 +19,6 @@ public interface ISellerService
     Task<SellerOwnProfileUpdatedResponseDto> UpdateSellerOwnProfileAsync(Guid userId, UpdateSellerOwnProfileDto dto, CancellationToken cancellationToken = default);
     Task<PublicSellerProfileResponseDto> GetPublicSellerProfileAsync(Guid id, CancellationToken cancellationToken = default);
     Task<AdminSellerProfileResponseDto> GetAdminSellerProfileAsync(Guid sellerId, CancellationToken cancellationToken = default);
+    Task<SuspendSellerResponseDto> SuspendSellerAsync(Guid sellerId, SuspendSellerDto dto, Guid? adminId = null, CancellationToken cancellationToken = default);
+    Task<ReactivateSellerResponseDto> ReactivateSellerAsync(Guid sellerId, ReactivateSellerDto? dto = null, Guid? adminId = null, CancellationToken cancellationToken = default);
 }

@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using User.Domain.Base;
 using User.Domain.Enums;
 
@@ -36,4 +39,46 @@ public class User : AuditableEntity<Guid>
     public ICollection<UserReport> ReportsResolved { get; set; } = new List<UserReport>();
     public ICollection<UserPenalty> PenaltiesReceived { get; set; } = new List<UserPenalty>();
     public ICollection<UserPenalty> PenaltiesIssued { get; set; } = new List<UserPenalty>();
+    public ICollection<UserPenalty> PenaltiesRevoked { get; set; } = new List<UserPenalty>();
+
+    public bool CanPlaceOrder()
+    {
+        if (Status != UserStatus.Active || IsDeleted)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var hasActiveBuyerRestriction = PenaltiesReceived.Any(p =>
+            !p.IsDeleted &&
+            p.Status == PenaltyStatus.Active &&
+            (p.ExpiresAt == null || p.ExpiresAt.Value > now) &&
+            (p.TargetRole == TargetRole.Buyer || p.TargetRole == TargetRole.Account) &&
+            (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
+        return !hasActiveBuyerRestriction;
+    }
+
+    public bool CanSell()
+    {
+        if (Status != UserStatus.Active || IsDeleted)
+        {
+            return false;
+        }
+
+        if (SellerProfile == null || SellerProfile.IsDeleted || SellerProfile.Status != SellerProfileStatus.Approved)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var hasActiveSellerSanction = PenaltiesReceived.Any(p =>
+            !p.IsDeleted &&
+            p.Status == PenaltyStatus.Active &&
+            (p.ExpiresAt == null || p.ExpiresAt.Value > now) &&
+            (p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account) &&
+            (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
+        return !hasActiveSellerSanction;
+    }
 }

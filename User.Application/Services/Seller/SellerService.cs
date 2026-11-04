@@ -1301,4 +1301,146 @@ public sealed class SellerService : ISellerService
             UpdatedAt: profile.UpdatedAt
         );
     }
+
+    public async Task<SuspendSellerResponseDto> SuspendSellerAsync(
+        Guid sellerId,
+        SuspendSellerDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for suspending seller is required.");
+        }
+
+        var trimmedReason = dto.Reason.Trim();
+        if (trimmedReason.Length > 1000)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Suspension reason cannot exceed 1000 characters.");
+        }
+
+        var profile = await _dbContext.SellerProfiles
+            .Include(sp => sp.User)
+            .FirstOrDefaultAsync(sp => sp.Id == sellerId || sp.UserId == sellerId, cancellationToken);
+
+        if (profile == null)
+        {
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found.", 404);
+        }
+
+        if (profile.Status == SellerProfileStatus.Suspended)
+        {
+            throw new DomainException("SELLER_ALREADY_SUSPENDED", "Seller profile is already suspended.", 400);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        DateTimeOffset? expiresAt = dto.DurationDays.HasValue && dto.DurationDays.Value > 0
+            ? now.AddDays(dto.DurationDays.Value)
+            : null;
+
+        var oldStatus = profile.Status.ToString();
+        profile.Suspend(trimmedReason, adminId);
+
+        var penalty = new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = profile.UserId,
+            TargetRole = TargetRole.Seller,
+            ViolationType = PenaltyViolationType.Other,
+            Reason = trimmedReason,
+            PenaltyApplied = PenaltyType.Restriction,
+            PointsDeducted = 0,
+            Status = PenaltyStatus.Active,
+            IssuedAt = now,
+            ExpiresAt = expiresAt,
+            CreatedBy = adminId,
+            PolicyClauseCode = dto.PolicyClauseCode ?? "SELLER_OPERATIONAL_VIOLATION",
+            EvidenceUrls = dto.EvidenceUrls ?? new System.Collections.Generic.List<string>(),
+            CreatedAt = now,
+            UpdatedAt = now,
+            IsDeleted = false
+        };
+        _dbContext.UserPenalties.Add(penalty);
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerReject,
+            entityName: "SellerProfile",
+            entityId: profile.Id.ToString(),
+            oldValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = oldStatus },
+            newValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = SellerProfileStatus.Suspended.ToString(), ["Reason"] = trimmedReason, ["ExpiresAt"] = expiresAt },
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status", "RejectionReason", "ReviewedBy", "ReviewedAt" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER SUSPEND] Suspended seller '{SellerId}' (UserId: '{UserId}') by admin '{AdminId}'. Reason: {Reason}",
+            profile.Id, profile.UserId, adminId, trimmedReason);
+
+        return new SuspendSellerResponseDto(
+            SellerId: profile.Id.ToString(),
+            ShopName: profile.ShopName,
+            Status: profile.Status.ToString(),
+            SuspendedAt: now,
+            ExpiresAt: expiresAt,
+            Reason: trimmedReason
+        );
+    }
+
+    public async Task<ReactivateSellerResponseDto> ReactivateSellerAsync(
+        Guid sellerId,
+        ReactivateSellerDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await _dbContext.SellerProfiles
+            .Include(sp => sp.User)
+            .FirstOrDefaultAsync(sp => sp.Id == sellerId || sp.UserId == sellerId, cancellationToken);
+
+        if (profile == null)
+        {
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found.", 404);
+        }
+
+        if (profile.Status != SellerProfileStatus.Suspended)
+        {
+            throw new DomainException("SELLER_NOT_SUSPENDED", "Seller profile is not currently suspended.", 400);
+        }
+
+        var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Seller reactivated by administrator.";
+        var now = DateTimeOffset.UtcNow;
+        var oldStatus = profile.Status.ToString();
+
+        profile.Reactivate();
+
+        var activeSellerPenalties = await _dbContext.UserPenalties
+            .Where(p => p.UserId == profile.UserId && p.TargetRole == TargetRole.Seller && p.Status == PenaltyStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        foreach (var p in activeSellerPenalties)
+        {
+            p.Revoke(adminId ?? Guid.Empty, reason);
+        }
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerApprove,
+            entityName: "SellerProfile",
+            entityId: profile.Id.ToString(),
+            oldValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = oldStatus },
+            newValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = SellerProfileStatus.Approved.ToString(), ["Reason"] = reason },
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER REACTIVATE] Reactivated seller '{SellerId}' (UserId: '{UserId}') by admin '{AdminId}'.",
+            profile.Id, profile.UserId, adminId);
+
+        return new ReactivateSellerResponseDto(
+            SellerId: profile.Id.ToString(),
+            ShopName: profile.ShopName,
+            Status: profile.Status.ToString(),
+            ReactivatedAt: now,
+            Reason: reason
+        );
+    }
 }
