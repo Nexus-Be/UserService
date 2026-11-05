@@ -38,8 +38,9 @@ public sealed class AdminSellersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>[Admin / Staff] Suspends a seller shop from selling.</summary>
+    /// <summary>[Admin] Suspends a seller shop from selling.</summary>
     [HttpPut("{sellerId:guid}/suspend")]
+    [RequireRole("admin")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(SuspendSellerResponseDto))]
     public async Task<IActionResult> SuspendSeller(
         [FromRoute] Guid sellerId,
@@ -56,8 +57,9 @@ public sealed class AdminSellersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>[Admin / Staff] Reactivates a suspended seller shop.</summary>
+    /// <summary>[Admin] Reactivates a suspended seller shop.</summary>
     [HttpPut("{sellerId:guid}/reactivate")]
+    [RequireRole("admin")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ReactivateSellerResponseDto))]
     public async Task<IActionResult> ReactivateSeller(
         [FromRoute] Guid sellerId,

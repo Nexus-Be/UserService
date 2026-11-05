@@ -1,3 +1,4 @@
+using User.Domain.Exceptions;
 namespace User.Tests;
 
 using System;
@@ -343,5 +344,126 @@ public sealed class SanctionsAndMultiRolePenaltiesTests
         // Check LOGIN: should be allowed
         var loginCheck = await penaltyService.CheckUserActionPermissionAsync(userId, "login");
         Assert.True(loginCheck.IsAllowed);
+    }
+
+    [Fact]
+    public async Task UnbanUser_WhenIndependentSellerPenaltyStillActive_ShouldNOTReactivateShop()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            Email = "dualban@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Dual",
+            LastName = "Ban",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Independent Violation Shop",
+            PickupAddress = "Street 9",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0944444444",
+            Status = SellerProfileStatus.Suspended
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+
+        // Account penalty (will be unbanned)
+        dbContext.UserPenalties.Add(new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TargetRole = TargetRole.Account,
+            ViolationType = PenaltyViolationType.Fraud,
+            Reason = "Account ban",
+            PenaltyApplied = PenaltyType.BanAccount,
+            Status = PenaltyStatus.Active
+        });
+
+        // Independent active seller penalty (should KEEP shop suspended)
+        dbContext.UserPenalties.Add(new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TargetRole = TargetRole.Seller,
+            ViolationType = PenaltyViolationType.Other,
+            Reason = "Late shipment violation",
+            PenaltyApplied = PenaltyType.Restriction,
+            Status = PenaltyStatus.Active,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(10)
+        });
+        await dbContext.SaveChangesAsync();
+
+        // Act: Unban account
+        var unbanResult = await adminService.UnbanUserAsync(userId, new UnbanAdminUserDto { Reason = "Unbanned" }, adminId);
+
+        // Assert: User account is unbanned to Active
+        Assert.NotNull(unbanResult);
+        Assert.Equal("Active", unbanResult.Status);
+
+        // BUT Seller Profile MUST REMAIN Suspended because of independent seller penalty!
+        var updatedProfile = await dbContext.SellerProfiles.FirstAsync(sp => sp.UserId == userId);
+        Assert.Equal(SellerProfileStatus.Suspended, updatedProfile.Status);
+    }
+
+    [Fact]
+    public async Task ReactivateSeller_WhenUserAccountIsBanned_ShouldThrowDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var sellerService = new SellerService(
+            dbContext,
+            otpService: null!,
+            emailNotificationClient: null,
+            fulfillmentClient: null!,
+            NullLogger<SellerService>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var sellerId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            Email = "bannedowner@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Banned",
+            LastName = "Owner",
+            Status = UserStatus.Banned
+        };
+        dbContext.Users.Add(user);
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = sellerId,
+            UserId = userId,
+            ShopName = "Banned Owner Shop",
+            PickupAddress = "Street 10",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0955555555",
+            Status = SellerProfileStatus.Suspended
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        // Act & Assert: Reactivating shop of banned account must fail
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            sellerService.ReactivateSellerAsync(sellerId, new ReactivateSellerDto { Reason = "Trying to reactivate" }, adminId));
+
+        Assert.Equal("CANNOT_REACTIVATE_BANNED_USER_SHOP", ex.ErrorCode);
     }
 }

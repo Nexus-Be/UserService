@@ -547,6 +547,10 @@ public sealed class AdminUserService : IAdminUserService
             throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
         }
 
+        var allDbRoles = await _dbContext.Roles
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+
         // 2. Resolve requested role list
         var requestedRoles = new HashSet<RoleType>();
         if (dto.RoleCodes != null && dto.RoleCodes.Count > 0)
@@ -572,18 +576,36 @@ public sealed class AdminUserService : IAdminUserService
                     case "buyer":
                         requestedRoles.Add(RoleType.Buyer);
                         break;
+                    default:
+                        throw new BusinessRuleValidationException("VAL_INVALID_ROLE", $"Role code '{code}' is not recognized.");
                 }
             }
         }
 
-        // Handle RoleIds if passed as int or string
+        // Handle RoleIds if passed as GUID or integer string
         if (dto.RoleIds != null && dto.RoleIds.Count > 0)
         {
             foreach (var rId in dto.RoleIds)
             {
-                if (int.TryParse(rId, out var parsedInt) && Enum.IsDefined(typeof(RoleType), parsedInt))
+                if (string.IsNullOrWhiteSpace(rId)) continue;
+                var trimmedId = rId.Trim();
+
+                if (Guid.TryParse(trimmedId, out var parsedGuid))
+                {
+                    var matchedRole = allDbRoles.FirstOrDefault(r => r.Id == parsedGuid);
+                    if (matchedRole == null)
+                    {
+                        throw new BusinessRuleValidationException("VAL_INVALID_ROLE", $"Role with ID '{trimmedId}' was not found.");
+                    }
+                    requestedRoles.Add(matchedRole.RoleCode);
+                }
+                else if (int.TryParse(trimmedId, out var parsedInt) && Enum.IsDefined(typeof(RoleType), parsedInt))
                 {
                     requestedRoles.Add((RoleType)parsedInt);
+                }
+                else
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_ROLE", $"Role identifier '{trimmedId}' is invalid.");
                 }
             }
         }
@@ -622,7 +644,7 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Seller Role Guard: Seller role cannot be directly assigned; it must go through seller onboarding approval
+        // 5. Seller Role Guards
         if (!currentRoles.Contains(RoleType.Seller) && requestedRoles.Contains(RoleType.Seller))
         {
             _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to assign seller role directly to User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
@@ -631,11 +653,15 @@ public sealed class AdminUserService : IAdminUserService
                 "Seller role cannot be assigned directly. It must be granted through the seller registration approval workflow.");
         }
 
-        // 6. Update UserRoles
-        var allDbRoles = await _dbContext.Roles
-            .Where(r => !r.IsDeleted)
-            .ToListAsync(cancellationToken);
+        if (currentRoles.Contains(RoleType.Seller) && !requestedRoles.Contains(RoleType.Seller))
+        {
+            _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to revoke seller role directly from User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
+            throw new BusinessRuleValidationException(
+                "CANNOT_REVOKE_SELLER_ROLE_DIRECTLY",
+                "Seller role cannot be removed directly from this endpoint. Please use the dedicated seller suspension endpoint: PUT /api/v1/admin/sellers/{sellerId}/suspend.");
+        }
 
+        // 6. Update UserRoles
         var oldRoleNames = targetUser.UserRoles
             .Where(ur => !ur.IsDeleted && ur.Role != null)
             .Select(ur => ur.Role!.RoleCode.ToString())
@@ -693,7 +719,23 @@ public sealed class AdminUserService : IAdminUserService
 
         var newRoleNames = requestedRoles.Select(r => r.ToString().ToLowerInvariant()).ToList();
 
-        // 6. Ghi AuditLog
+        // 7. Revoke active refresh tokens to force session refresh with updated roles
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+        }
+
+        // 8. Ghi AuditLog
         _dbContext.AddAuditLog(
             action: AuditAction.RoleAssign,
             entityName: "UserRoles",

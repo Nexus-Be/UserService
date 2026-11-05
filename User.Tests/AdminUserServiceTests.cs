@@ -1,4 +1,4 @@
-﻿namespace User.Tests;
+namespace User.Tests;
 
 using System;
 using System.Collections.Generic;
@@ -677,6 +677,175 @@ public sealed class AdminUserServiceTests
             service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None));
 
         Assert.Equal("CANNOT_ASSIGN_SELLER_ROLE_DIRECTLY", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenAttemptingToRevokeSellerDirectly_ThrowsCannotRevokeSellerRoleDirectlyException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.AddRange(rBuyer, rSeller);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "seller.revoke@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Seller",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.UserRoles.AddRange(
+            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id },
+            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rSeller.Id }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer" },
+            Reason = "Attempt direct seller role revocation"
+        };
+        var adminId = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_REVOKE_SELLER_ROLE_DIRECTLY", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenPassingGuidRoleIds_ResolvesRolesCorrectly()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "guid.roles@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleIds = new List<string> { rStaff.Id.ToString() },
+            Reason = "Assign SupportStaff via GUID RoleId"
+        };
+        var adminId = Guid.NewGuid();
+
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains("supportstaff", result.Roles);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenInvalidRoleCodePassed_ThrowsInvalidRoleException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        dbContext.Roles.Add(rBuyer);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "invalid.role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "super_manager_xyz" },
+            Reason = "Assign bogus role"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_ROLE", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenRolesUpdated_RevokesActiveRefreshTokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "token.revoke@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id });
+
+        var token1 = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            TokenHash = "token_hash_1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var token2 = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            TokenHash = "token_hash_2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.RefreshTokens.AddRange(token1, token2);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "staff" },
+            Reason = "Promote to staff, revoke existing tokens"
+        };
+
+        await service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None);
+
+        var refreshedTokens = await dbContext.RefreshTokens.Where(t => t.UserId == targetUserId).ToListAsync();
+        Assert.All(refreshedTokens, t => Assert.True(t.IsRevoked));
     }
 
     [Fact]
