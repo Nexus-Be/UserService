@@ -31,6 +31,21 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         _redisOtpService = redisOtpService;
     }
 
+    // =========================================================================================
+    // SECTION 1: TRA CỨU VÀ QUẢN LÝ ÁN PHẠT KỶ LUẬT (SANCTIONS MANAGEMENT & ENFORCEMENT)
+    // =========================================================================================
+
+    /// <summary>
+    /// Tra cứu danh sách các biên bản xử phạt vi phạm có phân trang và bộ lọc.
+    /// Hỗ trợ lọc theo Người dùng, Vai trò mục tiêu (Buyer/Seller/Account), và Trạng thái án phạt.
+    /// </summary>
+    /// <param name="page">Số trang hiện tại (bắt đầu từ 1).</param>
+    /// <param name="limit">Số bản ghi mỗi trang (mặc định 20, tối đa 100).</param>
+    /// <param name="userId">Lọc theo ID người dùng chịu phạt.</param>
+    /// <param name="targetRole">Lọc theo vai trò mục tiêu: Buyer, Seller, hoặc Account.</param>
+    /// <param name="status">Lọc theo trạng thái: Active, Expired, Revoked.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Danh sách biên bản xử phạt phân trang kèm metadata.</returns>
     public async Task<PagedData<AdminPenaltyListItemDto>> GetPenaltiesAsync(
         int page = 1,
         int limit = 20,
@@ -86,6 +101,13 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         return PagedData<AdminPenaltyListItemDto>.From(items, page, limit, totalItems);
     }
 
+    /// <summary>
+    /// Xem thông tin chi tiết một biên bản xử phạt vi phạm theo ID.
+    /// Bao gồm lý do vi phạm, điều khoản chính sách, bằng chứng chứng minh, và thông tin người ra quyết định.
+    /// </summary>
+    /// <param name="penaltyId">ID biên bản xử phạt.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Chi tiết biên bản vi phạm.</returns>
     public async Task<AdminPenaltyDetailDto> GetPenaltyDetailAsync(
         Guid penaltyId,
         CancellationToken cancellationToken = default)
@@ -131,6 +153,16 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         );
     }
 
+    /// <summary>
+    /// Thu hồi án phạt vi phạm trước thời hạn bởi Quản trị viên (Admin).
+    /// Khôi phục trạng thái hoạt động của tài khoản hoặc gian hàng tùy theo TargetRole bị phạt.
+    /// Tự động ghi nhận AuditLog tập trung.
+    /// </summary>
+    /// <param name="penaltyId">ID biên bản xử phạt cần thu hồi.</param>
+    /// <param name="dto">Lý do thu hồi án phạt.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận thu hồi án phạt và trạng thái hoạt động đã khôi phục.</returns>
     public async Task<AdminPenaltyRevokedResponseDto> RevokePenaltyAsync(
         Guid penaltyId,
         RevokePenaltyDto dto,
@@ -251,6 +283,19 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         );
     }
 
+    // =========================================================================================
+    // SECTION 2: KIỂM TRA QUYỀN HÀNH VI THỜI GIAN THỰC CHO LIÊN SERVICE (INTER-SERVICE GATEKEEPER)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Internal Gatekeeper] Đánh giá thời gian thực người dùng có quyền thực hiện hành vi hay không (Buy, Sell, Login, Comment).
+    /// Kiểm tra trạng thái tài khoản UserStatus, trạng thái gian hàng ShopStatus, và các án phạt Active trong UserPenalties.
+    /// Dành cho API Gateway và OrderService gọi trực tiếp để chặn hành vi vi phạm tức thì.
+    /// </summary>
+    /// <param name="userId">ID người dùng cần kiểm tra.</param>
+    /// <param name="action">Hành vi mục tiêu (Buy, Sell, Login, Comment).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Kết quả cho phép hoặc bị cấm kèm lý do và danh sách các án phạt đang hiệu lực.</returns>
     public async Task<UserActionPermissionCheckResponseDto> CheckUserActionPermissionAsync(
         Guid userId,
         string action,

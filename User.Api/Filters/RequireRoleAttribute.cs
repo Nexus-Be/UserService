@@ -52,6 +52,12 @@ public sealed class RequireRoleAttribute : Attribute, IAuthorizationFilter
                     return true;
                 }
 
+                // Seller automatically inherits all Buyer capabilities (Hierarchical RBAC)
+                if (target == "buyer" && userRoles.Contains("seller", StringComparer.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
                 if (target == "staff" && (userRoles.Contains("support_staff", StringComparer.OrdinalIgnoreCase) || userRoles.Contains("support staff", StringComparer.OrdinalIgnoreCase)))
                 {
                     return true;

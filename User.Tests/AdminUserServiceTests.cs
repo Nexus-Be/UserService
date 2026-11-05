@@ -201,7 +201,7 @@ public sealed class AdminUserServiceTests
     }
 
     [Fact]
-    public async Task CreateUserAsync_MultipleRoles_AssignsAllRoles()
+    public async Task CreateUserAsync_WhenBothAdminAndStaffRequested_ThrowsSodViolationException()
     {
         using var dbContext = CreateInMemoryDbContext();
         await SeedSystemRolesAsync(dbContext);
@@ -216,14 +216,10 @@ public sealed class AdminUserServiceTests
             RoleCodes = new List<string> { "staff", "admin" }
         };
 
-        var response = await service.CreateUserAsync(dto, Guid.NewGuid(), CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.CreateUserAsync(dto, Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Contains("support staff", response.Roles);
-        Assert.Contains("administrator", response.Roles);
-
-        var userId = Guid.Parse(response.UserId);
-        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.Equal(2, userRoles.Count);
+        Assert.Equal("SOD_VIOLATION", ex.ErrorCode);
     }
 
     [Fact]
@@ -974,7 +970,7 @@ public sealed class AdminUserServiceTests
 
         var dto = new AssignAdminUserRolesDto
         {
-            RoleCodes = new List<string> { "buyer", "staff" },
+            RoleCodes = new List<string> { "staff" },
             Reason = "Re-granting staff role"
         };
         var adminId = Guid.NewGuid();
@@ -982,8 +978,8 @@ public sealed class AdminUserServiceTests
         var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
 
         Assert.NotNull(result);
+        Assert.Single(result.Roles);
         Assert.Contains("supportstaff", result.Roles);
-        Assert.Contains("buyer", result.Roles);
 
         var reactivatedUr = await dbContext.UserRoles
             .IgnoreQueryFilters()
@@ -992,6 +988,13 @@ public sealed class AdminUserServiceTests
         Assert.NotNull(reactivatedUr);
         Assert.False(reactivatedUr.IsDeleted);
         Assert.Null(reactivatedUr.DeletedAt);
+
+        var oldBuyerUr = await dbContext.UserRoles
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(ur => ur.Id == activeBuyerUr.Id);
+
+        Assert.NotNull(oldBuyerUr);
+        Assert.True(oldBuyerUr.IsDeleted);
     }
 
     [Fact]

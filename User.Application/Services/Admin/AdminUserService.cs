@@ -34,6 +34,19 @@ public sealed class AdminUserService : IAdminUserService
         _emailNotificationClient = emailNotificationClient;
     }
 
+    // =========================================================================================
+    // SECTION 1: CẤP PHÁT VÀ QUẢN LÝ THÔNG TIN NGƯỜI DÙNG (USER PROVISIONING & PROFILE UPDATING)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin] Tạo mới tài khoản người dùng bởi Quản trị viên.
+    /// Kiểm tra email duy nhất, băm mật khẩu bằng BCrypt có salt, kiểm tra SoD và ép buộc quy tắc 1-User 1-Role.
+    /// Tự động ghi AuditLog tập trung sau khi hoàn tất.
+    /// </summary>
+    /// <param name="dto">Dữ liệu tạo tài khoản: Email, Mật khẩu, Họ tên, Username, Số điện thoại, Vai trò khởi tạo.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Thông tin người dùng mới được tạo.</returns>
     public async Task<AdminUserCreatedResponseDto> CreateUserAsync(
         CreateAdminUserDto dto,
         Guid? adminId = null,
@@ -147,6 +160,21 @@ public sealed class AdminUserService : IAdminUserService
             requestedRoles.Add(RoleType.SupportStaff);
         }
 
+        // Segregation of Duties (SoD): Cannot combine Admin and SupportStaff
+        if (requestedRoles.Contains(RoleType.Admin) && requestedRoles.Contains(RoleType.SupportStaff))
+        {
+            throw new BusinessRuleValidationException("SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
+        }
+
+        if (requestedRoles.Count > 1)
+        {
+            _logger.LogWarning("[ADMIN USER CREATE] Attempt to assign multiple roles [{Roles}] to new user by Admin '{AdminId}' rejected.",
+                string.Join(", ", requestedRoles), adminId);
+            throw new BusinessRuleValidationException(
+                "MULTIPLE_ROLES_NOT_ALLOWED",
+                "A user can only be assigned exactly one primary role.");
+        }
+
         // 6. Hash password with BCrypt
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
@@ -192,6 +220,7 @@ public sealed class AdminUserService : IAdminUserService
                 _dbContext.Roles.Add(roleEntity);
             }
 
+            newUser.RoleId = roleEntity.Id;
             _dbContext.UserRoles.Add(new UserRole
             {
                 Id = Guid.NewGuid(),
@@ -251,6 +280,23 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    // =========================================================================================
+    // SECTION 2: TRA CỨU DANH BẠ VÀ CHI TIẾT HỒ SƠ NGƯỜI DÙNG (USER DIRECTORY & QUERIES)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin / Staff] Tra cứu danh sách người dùng trong hệ thống có phân trang và bộ lọc.
+    /// Hỗ trợ tìm kiếm theo từ khóa (Email, Username, Họ tên, Phone) và lọc theo Role/Status.
+    /// </summary>
+    /// <param name="page">Số trang hiện tại (bắt đầu từ 1).</param>
+    /// <param name="limit">Số bản ghi mỗi trang (tối đa 100).</param>
+    /// <param name="keyword">Từ khóa tìm kiếm (Email, Username, Phone, FullName).</param>
+    /// <param name="role">Lọc theo vai trò (Buyer, Seller, Staff, Admin).</param>
+    /// <param name="status">Lọc theo trạng thái tài khoản (Active, Banned, PendingVerification).</param>
+    /// <param name="sortBy">Trường cần sắp xếp (CreatedAt, Email, FullName).</param>
+    /// <param name="sortOrder">Thứ tự sắp xếp (asc, desc).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Danh sách người dùng phân trang kèm siêu dữ liệu.</returns>
     public async Task<PagedData<AdminUserListItemDto>> GetUsersAsync(
         int page = 1,
         int limit = 20,
@@ -333,7 +379,7 @@ public sealed class AdminUserService : IAdminUserService
         var items = users.Select(u =>
         {
             var roles = u.UserRoles?
-                .Where(ur => ur.Role != null)
+                .Where(ur => !ur.IsDeleted && ur.Role != null)
                 .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
                 .ToList() ?? new List<string>();
 
@@ -370,6 +416,13 @@ public sealed class AdminUserService : IAdminUserService
         return PagedData<AdminUserListItemDto>.From(items, safePage, safeLimit, total);
     }
 
+    /// <summary>
+    /// [Admin / Staff] Xem thông tin chi tiết hồ sơ tài khoản người dùng theo ID.
+    /// Tự động loại bỏ các vai trò đã xóa mềm (IsDeleted = true) để trả về đúng vai trò đơn nhất đang hoạt động.
+    /// </summary>
+    /// <param name="userId">ID người dùng cần tra cứu.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Chi tiết toàn bộ hồ sơ người dùng, vai trò, gian hàng và điểm uy tín.</returns>
     public async Task<AdminUserDetailDto> GetUserDetailAsync(
         Guid userId,
         CancellationToken cancellationToken = default)
@@ -396,7 +449,7 @@ public sealed class AdminUserService : IAdminUserService
 
         // Roles
         var roles = user.UserRoles?
-            .Where(ur => ur.Role != null)
+            .Where(ur => !ur.IsDeleted && ur.Role != null)
             .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
             .Distinct()
             .ToList() ?? new List<string>();
@@ -408,7 +461,7 @@ public sealed class AdminUserService : IAdminUserService
 
         // Permissions
         var permissions = user.UserRoles?
-            .Where(ur => ur.Role != null && ur.Role.RolePermissions != null)
+            .Where(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RolePermissions != null)
             .SelectMany(ur => ur.Role!.RolePermissions)
             .Where(rp => rp.Permission != null)
             .Select(rp => rp.Permission!.PermissionCode.ToLowerInvariant())
@@ -491,6 +544,11 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    /// <summary>
+    /// [Admin] Lấy danh mục tất cả vai trò khả dụng trong hệ thống.
+    /// </summary>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Danh sách vai trò và quyền hạn.</returns>
     public async Task<AdminRoleListResponseDto> GetRolesAsync(CancellationToken cancellationToken = default)
     {
         var roles = await _dbContext.Roles
@@ -515,6 +573,22 @@ public sealed class AdminUserService : IAdminUserService
         return new AdminRoleListResponseDto(dtoList);
     }
 
+    // =========================================================================================
+    // SECTION 3: QUẢN TRỊ PHÂN QUYỀN VÀ RÀO CHẮN SOD (ROLE ASSIGNMENT & SECURITY GOVERNANCE)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin] Phân quyền và gán vai trò người dùng.
+    /// Áp dụng 3 tầng chốt chặn bảo mật bất biến:
+    /// 1. Phân tách trách nhiệm (SoD): Cấm gán đồng thời vai trò Admin và SupportStaff.
+    /// 2. Nguyên tắc 1-User 1-Primary-Role: Cấm truyền nhiều hơn 1 vai trò (requestedRoles.Count > 1).
+    /// 3. Bảo vệ an toàn gian hàng: Chặn tước vai trò Seller nếu Shop đang Active (chưa bị đình chỉ).
+    /// </summary>
+    /// <param name="userId">ID người dùng cần phân quyền.</param>
+    /// <param name="dto">Danh sách mã vai trò (RoleCodes) yêu cầu.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận vai trò mới đã được gán thành công.</returns>
     public async Task<AdminUserRolesResponseDto> AssignUserRolesAsync(
         Guid targetUserId,
         AssignAdminUserRolesDto dto,
@@ -631,6 +705,16 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
         }
 
+        // 4. Single Primary Role Guard: Exactly 1 primary role allowed
+        if (requestedRoles.Count > 1)
+        {
+            _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to assign multiple roles [{Roles}] to User '{UserId}' by Admin '{AdminId}' rejected.",
+                string.Join(", ", requestedRoles), targetUserId, adminId);
+            throw new BusinessRuleValidationException(
+                "MULTIPLE_ROLES_NOT_ALLOWED",
+                "A user can only be assigned exactly one primary role.");
+        }
+
         // 4. Demotion Guard: Cannot demote the last active Administrator
         var currentRoles = targetUser.UserRoles
             .Where(ur => !ur.IsDeleted && ur.Role != null)
@@ -700,6 +784,8 @@ public sealed class AdminUserService : IAdminUserService
                 var dbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == reqRole);
                 if (dbRole != null)
                 {
+                    targetUser.RoleId = dbRole.Id;
+                    targetUser.Role = dbRole;
                     var existingSoftDeletedUr = await _dbContext.UserRoles
                         .IgnoreQueryFilters()
                         .FirstOrDefaultAsync(ur => ur.UserId == targetUser.Id && ur.RoleId == dbRole.Id, cancellationToken);
@@ -714,6 +800,8 @@ public sealed class AdminUserService : IAdminUserService
                     }
                     else
                     {
+                        targetUser.RoleId = dbRole.Id;
+                        targetUser.Role = dbRole;
                         _dbContext.UserRoles.Add(new UserRole
                         {
                             Id = Guid.NewGuid(),
@@ -757,6 +845,15 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    /// <summary>
+    /// [Admin] Cập nhật thông tin tài khoản người dùng (Họ tên, Số điện thoại, Trạng thái).
+    /// Tự động ghi nhật ký AuditLog chi tiết các cột đã thay đổi (OldValues vs NewValues).
+    /// </summary>
+    /// <param name="userId">ID người dùng cần cập nhật.</param>
+    /// <param name="dto">Dữ liệu cập nhật hồ sơ.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ người dùng sau khi cập nhật.</returns>
     public async Task<AdminUserUpdatedResponseDto> UpdateUserAsync(
         Guid targetUserId,
         UpdateAdminUserDto dto,
@@ -960,6 +1057,17 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    // =========================================================================================
+    // SECTION 4: KỶ LUẬT, XỬ PHẠT VÀ VÒNG ĐỜI TÀI KHOẢN (SANCTIONS & ACCOUNT LIFECYCLE)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin] Xóa mềm tài khoản người dùng (Soft Delete: IsDeleted = true).
+    /// Đồng thời vô hiệu hóa tất cả UserRoles và thu hồi toàn bộ Refresh Tokens.
+    /// </summary>
+    /// <param name="userId">ID người dùng cần xóa.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
     public async Task DeleteUserAsync(
         Guid targetUserId,
         DeleteAdminUserDto? dto,
@@ -1061,6 +1169,15 @@ public sealed class AdminUserService : IAdminUserService
             targetUserId, revokedTokensCount, dto.Reason.Trim());
     }
 
+    /// <summary>
+    /// [Admin] Cấm (khóa) tài khoản người dùng do vi phạm chính sách nghiêm trọng.
+    /// Tự động tạo bản ghi biên bản UserPenalty, hủy toàn bộ phiên làm việc trên Redis và DB, ghi AuditLog.
+    /// </summary>
+    /// <param name="userId">ID người dùng bị khóa.</param>
+    /// <param name="dto">Lý do khóa và thời hạn khóa tài khoản.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận khóa tài khoản thành công.</returns>
     public async Task<AdminUserBannedResponseDto> BanUserAsync(
         Guid targetUserId,
         BanAdminUserDto dto,
@@ -1254,6 +1371,15 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    /// <summary>
+    /// [Admin] Gỡ cấm (mở khóa) cho tài khoản người dùng sau khi hết hạn hoặc khắc phục vi phạm.
+    /// Thu hồi bản ghi UserPenalty tương ứng, khôi phục trạng thái UserStatus = Active, ghi AuditLog.
+    /// </summary>
+    /// <param name="userId">ID người dùng được mở khóa.</param>
+    /// <param name="dto">Lý do mở khóa.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận mở khóa tài khoản thành công.</returns>
     public async Task<AdminUserUnbannedResponseDto> UnbanUserAsync(
         Guid targetUserId,
         UnbanAdminUserDto? dto = null,
@@ -1408,6 +1534,10 @@ public sealed class AdminUserService : IAdminUserService
             Message: "User account unbanned successfully."
         );
     }
+
+    // =========================================================================================
+    // SECTION 5: HÀM PHỤ TRỢ BẢO MẬT VÀ PHIÊN LÀM VIỆC (PRIVATE SECURITY HELPERS)
+    // =========================================================================================
 
     private async Task<int> RevokeActiveRefreshTokensAsync(Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
     {

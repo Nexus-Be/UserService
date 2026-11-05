@@ -179,7 +179,7 @@ public sealed class AdminSellersControllerRestTests
     }
 
     [Fact]
-    public void AdminSellersController_SuspendEndpoint_WhenStaffRole_ReturnsForbidden()
+    public void AdminSellersController_SuspendEndpoint_WhenStaffRole_AllowsAccess()
     {
         var suspendMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.SuspendSeller));
         var filter = suspendMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
@@ -193,9 +193,45 @@ public sealed class AdminSellersControllerRestTests
 
         filter.OnAuthorization(filterContext);
 
+        Assert.Null(filterContext.Result);
+    }
+
+    [Fact]
+    public void AdminSellersController_SuspendEndpoint_WhenBuyerRole_ReturnsForbidden()
+    {
+        var suspendMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.SuspendSeller));
+        var filter = suspendMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "buyer";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
         Assert.NotNull(filterContext.Result);
         var objResult = Assert.IsType<ObjectResult>(filterContext.Result);
         Assert.Equal(StatusCodes.Status403Forbidden, objResult.StatusCode);
+    }
+
+    [Fact]
+    public void AdminSellersController_ReactivateEndpoint_WhenStaffRole_AllowsAccess()
+    {
+        var reactivateMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.ReactivateSeller));
+        var filter = reactivateMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "staff";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
     }
 
     [Fact]

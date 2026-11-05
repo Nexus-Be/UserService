@@ -907,6 +907,9 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -926,6 +929,8 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("RoleId");
 
                     b.HasIndex("Username")
                         .IsUnique()
@@ -947,6 +952,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "System",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000001",
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -965,6 +971,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Support",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000002",
+                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -983,6 +990,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Seller",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000003",
+                            RoleId = new Guid("22222222-2222-2222-2222-222222222222"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -1002,6 +1010,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Buyer",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000004",
+                            RoleId = new Guid("11111111-1111-1111-1111-111111111111"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -1436,7 +1445,15 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasForeignKey("BannedBy")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("User.Domain.Entities.Role", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("BannedByUser");
+
+                    b.Navigation("Role");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserPenalty", b =>
@@ -1545,6 +1562,8 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("RolePermissions");
 
                     b.Navigation("UserRoles");
+
+                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.User", b =>
