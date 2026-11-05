@@ -1,4 +1,4 @@
-namespace User.Infrastructure;
+﻿namespace User.Infrastructure;
 
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -77,19 +77,6 @@ public static class DependencyInjection
         services.AddHttpClient<IFulfillmentServiceClient, Services.External.FulfillmentServiceClient>(client =>
         {
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
-            client.Timeout = TimeSpan.FromSeconds(5);
-        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
-
-        // REST Wallet Service Client (Sync non-blocking with 5s timeout)
-        var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
-            ?? configuration["WALLET_SERVICE_URL"]
-            ?? configuration["Services:Wallet:BaseUrl"]
-            ?? configuration["WalletService:BaseUrl"]
-            ?? "http://localhost:8008/";
-
-        services.AddHttpClient<IWalletServiceClient, Services.External.WalletServiceClient>(client =>
-        {
-            client.BaseAddress = new Uri(walletBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
         }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
