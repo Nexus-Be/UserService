@@ -41,6 +41,19 @@ public class User : AuditableEntity<Guid>
     public ICollection<UserPenalty> PenaltiesIssued { get; set; } = new List<UserPenalty>();
     public ICollection<UserPenalty> PenaltiesRevoked { get; set; } = new List<UserPenalty>();
 
+    public void ApplyAccountBan(string reason, Guid? adminId)
+    {
+        Status = UserStatus.Banned;
+        BannedAt = DateTimeOffset.UtcNow;
+        BannedBy = adminId;
+        BanReason = reason;
+        UpdatedAt = DateTimeOffset.UtcNow;
+        if (adminId.HasValue)
+        {
+            UpdatedBy = adminId.Value;
+        }
+    }
+
     public bool CanPlaceOrder()
     {
         if (Status != UserStatus.Active || IsDeleted)
@@ -48,11 +61,9 @@ public class User : AuditableEntity<Guid>
             return false;
         }
 
-        var now = DateTimeOffset.UtcNow;
         var hasActiveBuyerRestriction = PenaltiesReceived.Any(p =>
             !p.IsDeleted &&
-            p.Status == PenaltyStatus.Active &&
-            (p.ExpiresAt == null || p.ExpiresAt.Value > now) &&
+            p.IsCurrentlyActive() &&
             (p.TargetRole == TargetRole.Buyer || p.TargetRole == TargetRole.Account) &&
             (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
 
@@ -71,11 +82,9 @@ public class User : AuditableEntity<Guid>
             return false;
         }
 
-        var now = DateTimeOffset.UtcNow;
         var hasActiveSellerSanction = PenaltiesReceived.Any(p =>
             !p.IsDeleted &&
-            p.Status == PenaltyStatus.Active &&
-            (p.ExpiresAt == null || p.ExpiresAt.Value > now) &&
+            p.IsCurrentlyActive() &&
             (p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account) &&
             (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
 

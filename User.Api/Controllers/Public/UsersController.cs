@@ -4,10 +4,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using User.Application.Services.Admin;
 using User.Application.Services.Profile;
 
 [ApiController]
@@ -32,21 +30,6 @@ public sealed class UsersController : ControllerBase
         var profile = await _profileService.GetPublicProfileAsync(userId, cancellationToken);
 
         return Ok(profile);
-    }
-
-    /// <summary>[Internal / Authorized] Evaluates whether user has active sanctions preventing an action (Buy, Sell, Login).</summary>
-    [HttpGet("{userId:guid}/permission-check")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserActionPermissionCheckResponseDto))]
-    public async Task<IActionResult> CheckUserActionPermission(
-        [FromRoute] Guid userId,
-        [FromQuery] string action,
-        [FromServices] IAdminPenaltyService penaltyService,
-        CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("[REST CheckUserActionPermission] Checking permission for UserId: '{UserId}', Action: '{Action}'", userId, action);
-        var result = await penaltyService.CheckUserActionPermissionAsync(userId, action, cancellationToken);
-        return Ok(result);
     }
 
     /// <summary>Backward-compatible wrapper for existing test invocations.</summary>

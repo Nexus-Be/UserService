@@ -1155,16 +1155,8 @@ public sealed class AdminUserService : IAdminUserService
             ["BanReason"] = user.BanReason
         };
 
-        // 3. Update User Entity
-        user.Status = UserStatus.Banned;
-        user.BannedAt = now;
-        user.BannedBy = adminId;
-        user.BanReason = trimmedReason;
-        user.UpdatedAt = now;
-        if (adminId.HasValue)
-        {
-            user.UpdatedBy = adminId.Value;
-        }
+        // 3. Update User Entity via encapsulated domain method
+        user.ApplyAccountBan(trimmedReason, adminId);
 
         // 3.1. Suspend associated seller profile if present
         if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status != SellerProfileStatus.Suspended)
@@ -1344,10 +1336,19 @@ public sealed class AdminUserService : IAdminUserService
 
         var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Account unbanned by administrator.";
 
-        // Reactivate seller profile if it was suspended due to ban
+        // Reactivate seller profile if it was suspended due to ban AND no independent seller penalties remain active
         if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Suspended)
         {
-            user.SellerProfile.Reactivate();
+            var hasActiveSellerPenalties = await _dbContext.UserPenalties
+                .AnyAsync(p => p.UserId == targetUserId &&
+                               p.TargetRole == TargetRole.Seller &&
+                               p.Status == PenaltyStatus.Active &&
+                               (p.ExpiresAt == null || p.ExpiresAt > now), cancellationToken);
+
+            if (!hasActiveSellerPenalties)
+            {
+                user.SellerProfile.Reactivate();
+            }
         }
 
         // Revoke active account penalties

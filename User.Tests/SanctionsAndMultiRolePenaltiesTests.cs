@@ -274,7 +274,7 @@ public sealed class SanctionsAndMultiRolePenaltiesTests
 
         // Assert
         Assert.NotNull(result);
-        Assert.Equal("Revoked", result.Status);
+        Assert.Equal(PenaltyStatus.Revoked, result.Status);
         Assert.Equal("AccountRestored", result.RestoredOperationalState);
 
         var restoredUser = await dbContext.Users.FindAsync(userId);

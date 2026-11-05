@@ -62,7 +62,6 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         }
 
         var totalItems = await query.CountAsync(cancellationToken);
-        var totalPages = (int)Math.Ceiling((double)totalItems / limit);
 
         var items = await query
             .OrderByDescending(p => p.IssuedAt)
@@ -72,10 +71,10 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
                 p.Id.ToString(),
                 p.UserId.ToString(),
                 p.User != null ? p.User.Email : null,
-                p.TargetRole.ToString(),
-                p.PenaltyApplied.ToString(),
-                p.ViolationType.ToString(),
-                p.Status.ToString(),
+                p.TargetRole,
+                p.PenaltyApplied,
+                p.ViolationType,
+                p.Status,
                 p.Reason,
                 p.PolicyClauseCode,
                 p.PointsDeducted,
@@ -115,10 +114,10 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
             UserId: penalty.UserId.ToString(),
             UserEmail: penalty.User?.Email,
             UserFullName: fullName,
-            TargetRole: penalty.TargetRole.ToString(),
-            PenaltyApplied: penalty.PenaltyApplied.ToString(),
-            ViolationType: penalty.ViolationType.ToString(),
-            Status: penalty.Status.ToString(),
+            TargetRole: penalty.TargetRole,
+            PenaltyApplied: penalty.PenaltyApplied,
+            ViolationType: penalty.ViolationType,
+            Status: penalty.Status,
             Reason: penalty.Reason,
             PolicyClauseCode: penalty.PolicyClauseCode,
             EvidenceUrls: penalty.EvidenceUrls ?? new List<string>(),
@@ -185,7 +184,7 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
             if (penalty.TargetRole == TargetRole.Seller)
             {
                 var hasOtherSellerPenalty = otherActivePenalties.Any(p => p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account);
-                if (!hasOtherSellerPenalty && user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+                if (!hasOtherSellerPenalty && user.Status != UserStatus.Banned && user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Suspended)
                 {
                     user.SellerProfile.Reactivate();
                     restoredState = "SellerProfileReactivated";
@@ -245,7 +244,7 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         return new AdminPenaltyRevokedResponseDto(
             PenaltyId: penalty.Id.ToString(),
             UserId: penalty.UserId.ToString(),
-            Status: penalty.Status.ToString(),
+            Status: penalty.Status,
             RevokedAt: now,
             RevokeReason: trimmedReason,
             RestoredOperationalState: restoredState
@@ -267,7 +266,6 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
 
         var user = await _dbContext.Users
             .Include(u => u.SellerProfile)
-            .Include(u => u.PenaltiesReceived)
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
@@ -284,9 +282,12 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         }
 
         var now = DateTimeOffset.UtcNow;
-        var activePenalties = user.PenaltiesReceived
-            .Where(p => !p.IsDeleted && p.Status == PenaltyStatus.Active && (p.ExpiresAt == null || p.ExpiresAt > now))
-            .ToList();
+
+        // Query active penalties directly using PostgreSQL Filtered Index (WHERE "Status" = 0)
+        var activePenalties = await _dbContext.UserPenalties
+            .AsNoTracking()
+            .Where(p => p.UserId == userId && p.Status == PenaltyStatus.Active && (p.ExpiresAt == null || p.ExpiresAt > now))
+            .ToListAsync(cancellationToken);
 
         var restrictions = activePenalties.Select(p => $"{p.TargetRole}:{p.PenaltyApplied}").Distinct().ToList();
         var nearestExpiry = activePenalties.Where(p => p.ExpiresAt.HasValue).OrderBy(p => p.ExpiresAt).FirstOrDefault()?.ExpiresAt;
@@ -318,7 +319,11 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
 
         if (normalizedAction == "buy")
         {
-            var canBuy = user.CanPlaceOrder();
+            var hasBuyerSanction = activePenalties.Any(p =>
+                (p.TargetRole == TargetRole.Buyer || p.TargetRole == TargetRole.Account) &&
+                (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
+            var canBuy = user.Status == UserStatus.Active && !hasBuyerSanction;
             var reason = canBuy ? null : "User has an active restriction prohibiting purchase actions.";
             return new UserActionPermissionCheckResponseDto(
                 UserId: userId.ToString(),
@@ -356,7 +361,14 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
                 );
             }
 
-            var canSell = user.CanSell();
+            var hasSellerSanction = activePenalties.Any(p =>
+                (p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account) &&
+                (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
+            var canSell = user.Status == UserStatus.Active &&
+                          user.SellerProfile.Status == SellerProfileStatus.Approved &&
+                          !hasSellerSanction;
+
             return new UserActionPermissionCheckResponseDto(
                 UserId: userId.ToString(),
                 Action: actionName,

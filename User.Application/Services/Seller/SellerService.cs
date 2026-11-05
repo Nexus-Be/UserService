@@ -1406,6 +1406,11 @@ public sealed class SellerService : ISellerService
             throw new DomainException("SELLER_NOT_SUSPENDED", "Seller profile is not currently suspended.", 400);
         }
 
+        if (profile.User != null && profile.User.Status == UserStatus.Banned)
+        {
+            throw new DomainException("CANNOT_REACTIVATE_BANNED_USER_SHOP", "Cannot reactivate seller shop while the owner user account is banned.", 400);
+        }
+
         var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Seller reactivated by administrator.";
         var now = DateTimeOffset.UtcNow;
         var oldStatus = profile.Status.ToString();
