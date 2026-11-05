@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # NEXUS USER SERVICE - DOCKER COMPOSE
 # =============================================================================
 # Chạy độc lập service này. Database dùng Neon Cloud, hạ tầng dùng chung nexus-network.
@@ -26,7 +26,6 @@ services:
       Jwt__Signature: "${JWT_SIGNATURE:-eaT0Ombups70WJzd85CBBpp8rAno55SxKn1qvYBGH9e}"
       NOTIFICATION_SERVICE_URL: "${NOTIFICATION_SERVICE_URL:-http://notification-service:8007}"
       FULFILLMENT_SERVICE_URL: "${FULFILLMENT_SERVICE_URL:-http://fulfillment-service:8006}"
-      WALLET_SERVICE_URL: "${WALLET_SERVICE_URL:-http://wallet-service:8008}"
       InternalSecurity__ServiceKey: "${INTERNAL_SERVICE_SECRET:-eaT0Ombups70WJzd85CBBpp8rAno55SxKn1qvYBGH9e}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}"
     restart: unless-stopped

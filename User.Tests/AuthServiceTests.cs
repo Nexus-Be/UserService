@@ -281,62 +281,6 @@ public sealed class AuthServiceTests
         Assert.Equal(OtpStatus.Consumed, consumedOtp.Status);
         Assert.NotNull(consumedOtp.ConsumedAt);
     }
-
-    [Fact]
-    public async Task VerifyOtpAsync_invokes_wallet_service_client_upon_successful_activation()
-    {
-        using var dbContext = CreateInMemoryDbContext();
-        var otpService = new TestRedisOtpService();
-        var walletClient = new TestWalletServiceClient();
-        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, null, walletClient);
-
-        var dto = new RegisterDto("wallet.user@nexus.local", "Password123!", "Nguyen", "Van Wallet");
-        var user = await authService.RegisterAsync(dto);
-        var otp = (await otpService.GetOtpAsync("wallet.user@nexus.local"))!.Code;
-
-        var verifiedUser = await authService.VerifyOtpAsync("wallet.user@nexus.local", otp);
-
-        Assert.Equal(UserStatus.Active, verifiedUser.Status);
-        Assert.Single(walletClient.Calls);
-        Assert.Equal(verifiedUser.Id, walletClient.Calls[0].UserId);
-        Assert.Equal("VND", walletClient.Calls[0].Currency);
-    }
-
-    [Fact]
-    public async Task VerifyOtpAsync_succeeds_even_when_wallet_service_client_fails()
-    {
-        using var dbContext = CreateInMemoryDbContext();
-        var otpService = new TestRedisOtpService();
-        var walletClient = new TestWalletServiceClient { ReturnResult = false };
-        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, null, walletClient);
-
-        var dto = new RegisterDto("wallet.fail@nexus.local", "Password123!", "Tran", "Van Fail");
-        var user = await authService.RegisterAsync(dto);
-        var otp = (await otpService.GetOtpAsync("wallet.fail@nexus.local"))!.Code;
-
-        var verifiedUser = await authService.VerifyOtpAsync("wallet.fail@nexus.local", otp);
-
-        Assert.Equal(UserStatus.Active, verifiedUser.Status);
-        Assert.Single(walletClient.Calls);
-    }
-
-    [Fact]
-    public async Task VerifyOtpAsync_succeeds_even_when_wallet_service_client_throws_exception()
-    {
-        using var dbContext = CreateInMemoryDbContext();
-        var otpService = new TestRedisOtpService();
-        var walletClient = new TestWalletServiceClient { ShouldThrow = true };
-        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, null, walletClient);
-
-        var dto = new RegisterDto("wallet.throw@nexus.local", "Password123!", "Le", "Van Throw");
-        var user = await authService.RegisterAsync(dto);
-        var otp = (await otpService.GetOtpAsync("wallet.throw@nexus.local"))!.Code;
-
-        var verifiedUser = await authService.VerifyOtpAsync("wallet.throw@nexus.local", otp);
-
-        Assert.Equal(UserStatus.Active, verifiedUser.Status);
-    }
-
     [Fact]
     public async Task VerifyOtpAsync_throws_when_otp_invalid()
     {
@@ -1816,23 +1760,6 @@ public sealed class AuthServiceTests
             System.Threading.CancellationToken cancellationToken = default)
         {
             return Task.FromResult(true);
-        }
-    }
-
-    private sealed class TestWalletServiceClient : IWalletServiceClient
-    {
-        public System.Collections.Generic.List<(Guid UserId, string Currency)> Calls { get; } = new();
-        public bool ShouldThrow { get; set; }
-        public bool ReturnResult { get; set; } = true;
-
-        public Task<bool> CreateWalletAsync(Guid userId, string currency = "VND", System.Threading.CancellationToken cancellationToken = default)
-        {
-            if (ShouldThrow)
-            {
-                throw new System.Net.Http.HttpRequestException("WalletService connection failure simulated.");
-            }
-            Calls.Add((userId, currency));
-            return Task.FromResult(ReturnResult);
         }
     }
 }

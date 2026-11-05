@@ -33,7 +33,7 @@
 * `GET /api/v1/admin/users`: Danh sách người dùng trong hệ thống có phân trang (Admin-only).
 * `GET /api/v1/admin/users/{userId}`: Chi tiết người dùng dành cho quản trị viên (Admin-only).
 * `PUT /api/v1/admin/users/{userId}`: Cập nhật thông tin người dùng bởi quản trị viên (Admin-only).
-* `PUT /api/v1/admin/users/{userId}/roles`: Phân quyền vai trò người dùng (Admin-only).
+* `PUT /api/v1/admin/users/{userId}/roles`: Phân quyền vai trò người dùng (Admin-only). Chặn 2 chiều trực tiếp đối với Seller (`CANNOT_ASSIGN_SELLER_ROLE_DIRECTLY` & `CANNOT_REVOKE_SELLER_ROLE_DIRECTLY`). Tự động thu hồi RefreshTokens để cập nhật quyền.
 * `DELETE /api/v1/admin/users/{userId}`: Xóa mềm người dùng và thu hồi tokens (Admin-only).
 * `PATCH /api/v1/admin/users/{userId}/ban`: Khóa tài khoản vi phạm quy chế (Admin-only).
 * `PATCH /api/v1/admin/users/{userId}/unban`: Mở khóa tài khoản đã bị đình chỉ (Admin-only).
@@ -48,9 +48,11 @@
 * `PUT /api/v1/admin/seller-registrations/{id}/reject`: Từ chối đơn đăng ký seller (Staff-only).
 
 ### 1.5. Quản trị Hồ sơ Người bán (`AdminSellersController` — `/api/v1/admin/sellers`)
-> **Phân quyền:** Dành cho quản trị viên và nhân viên hỗ trợ (`[RequireRole("admin", "staff")]`).
+> **Phân quyền:** Tra cứu dành cho Admin & Support Staff (`[RequireRole("admin", "staff")]`). Các thao tác đình chỉ và mở lại gian hàng chỉ dành riêng cho Quản trị viên (`[RequireRole("admin")]`).
 
 * `GET /api/v1/admin/sellers/{sellerId}`: Tra cứu thông tin chi tiết hồ sơ người bán và định danh KYC dành cho quản trị viên/nhân viên (`SELLER-09`).
+* `PUT /api/v1/admin/sellers/{sellerId}/suspend`: Tạm đình chỉ quyền bán hàng của gian hàng (Admin-only).
+* `PUT /api/v1/admin/sellers/{sellerId}/reactivate`: Khôi phục lại trạng thái hoạt động của gian hàng bị đình chỉ (Admin-only).
 
 ### 1.6. Nhà bán hàng (`SellerController` — `/api/v1/sellers`)
 * `POST /api/v1/sellers/registration`: Đăng ký nâng cấp tài khoản lên Seller (Authenticated).

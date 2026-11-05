@@ -22,6 +22,11 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Address).HasMaxLength(1000);
         builder.Property(x => x.BanReason).HasMaxLength(1000);
 
+        builder.HasOne(u => u.Role)
+            .WithMany(r => r.Users)
+            .HasForeignKey(u => u.RoleId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(u => u.BannedByUser)
             .WithMany()
             .HasForeignKey(u => u.BannedBy)
