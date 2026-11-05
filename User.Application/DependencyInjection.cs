@@ -3,6 +3,7 @@ namespace User.Application;
 using Microsoft.Extensions.DependencyInjection;
 using User.Application.Services.Admin;
 using User.Application.Services.Auth;
+using User.Application.Services.Internal;
 using User.Application.Services.Profile;
 using User.Application.Services.Seller;
 
@@ -15,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<ISellerService, SellerService>();
         services.AddScoped<IAdminUserService, AdminUserService>();
         services.AddScoped<IAdminPenaltyService, AdminPenaltyService>();
+        services.AddScoped<IInternalUserService, InternalUserService>();
         return services;
     }
 }
