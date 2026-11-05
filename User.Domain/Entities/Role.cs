@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using User.Domain.Base;
 using User.Domain.Enums;
 
@@ -12,6 +14,7 @@ public class Role : AuditableEntity<Guid>
     public bool IsSystemRole { get; set; } = false;
 
     // Navigation
+    public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
     public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 }

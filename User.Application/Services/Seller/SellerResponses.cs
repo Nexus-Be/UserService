@@ -150,3 +150,20 @@ public sealed record AdminSellerProfileResponseDto(
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
 );
+
+public sealed record SuspendSellerResponseDto(
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("suspendedAt")] DateTimeOffset SuspendedAt,
+    [property: JsonPropertyName("expiresAt")] DateTimeOffset? ExpiresAt,
+    [property: JsonPropertyName("reason")] string Reason
+);
+
+public sealed record ReactivateSellerResponseDto(
+    [property: JsonPropertyName("sellerId")] string SellerId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("reactivatedAt")] DateTimeOffset ReactivatedAt,
+    [property: JsonPropertyName("reason")] string Reason
+);

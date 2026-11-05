@@ -39,6 +39,17 @@ public class AuthService : IAuthService
         _walletServiceClient = walletServiceClient;
     }
 
+    // =========================================================================================
+    // SECTION 1: ĐĂNG KÝ TÀI KHOẢN VÀ XÁC THỰC OTP EMAIL (REGISTRATION & OTP VERIFICATION)
+    // =========================================================================================
+
+    /// <summary>
+    /// Đăng ký tài khoản người dùng mới (vai trò mặc định: Buyer).
+    /// Băm mật khẩu bằng BCrypt có salt, tạo user trạng thái PendingVerification, sinh OTP lưu Redis và gửi email.
+    /// </summary>
+    /// <param name="dto">Dữ liệu đăng ký: Email, Mật khẩu, Họ tên, Username, Số điện thoại.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Thực thể User vừa tạo.</returns>
     public async Task<User> RegisterAsync(RegisterDto dto, CancellationToken cancellationToken = default)
     {
         var email = dto.Email?.Trim().ToLowerInvariant();
@@ -142,6 +153,7 @@ public class AuthService : IAuthService
             // Assign default role: Buyer
             var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
             var roleId = buyerRole?.Id ?? BuyerRoleId;
+            user.RoleId = roleId;
 
             _dbContext.UserRoles.Add(new UserRole
             {
@@ -195,6 +207,12 @@ public class AuthService : IAuthService
         return user;
     }
 
+    /// <summary>
+    /// Đăng ký tài khoản qua API RESTful (envelope chuẩn).
+    /// </summary>
+    /// <param name="request">Payload đăng ký từ client.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Phản hồi đăng ký chứa ID người dùng và thông báo gửi OTP.</returns>
     public async Task<RegisterApiResponse> RegisterUserAsync(RegisterApiRequest request, CancellationToken cancellationToken = default)
     {
         var dto = new RegisterDto(
@@ -215,6 +233,12 @@ public class AuthService : IAuthService
         );
     }
 
+    /// <summary>
+    /// Đăng ký tài khoản phục vụ môi trường kiểm thử (trả về trực tiếp mã OTP trong response để test tự động).
+    /// </summary>
+    /// <param name="request">Payload đăng ký kiểm thử.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Phản hồi chứa mã OTP.</returns>
     public async Task<RegisterTestApiResponse> RegisterTestUserAsync(RegisterTestApiRequest request, CancellationToken cancellationToken = default)
     {
         if (request == null)
@@ -247,6 +271,13 @@ public class AuthService : IAuthService
         );
     }
 
+    /// <summary>
+    /// Xác thực mã OTP email để kích hoạt tài khoản sang trạng thái Active.
+    /// </summary>
+    /// <param name="email">Email tài khoản cần kích hoạt.</param>
+    /// <param name="otp">Mã OTP gồm 6 chữ số.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Thực thể User sau kích hoạt.</returns>
     public async Task<User> VerifyOtpAsync(string email, string otp, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = email?.Trim().ToLowerInvariant();
@@ -348,6 +379,12 @@ public class AuthService : IAuthService
         return user;
     }
 
+    /// <summary>
+    /// Xác thực OTP kích hoạt tài khoản qua API RESTful và kích hoạt ví tiền non-blocking.
+    /// </summary>
+    /// <param name="request">Payload chứa email và mã OTP.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Phản hồi kích hoạt thành công.</returns>
     public async Task<VerifyOtpApiResponse> VerifyUserOtpAsync(VerifyOtpApiRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Otp))
@@ -376,7 +413,7 @@ public class AuthService : IAuthService
         var roles = new System.Collections.Generic.List<string>();
         if (user.UserRoles != null && user.UserRoles.Count > 0)
         {
-            foreach (var ur in user.UserRoles)
+            foreach (var ur in user.UserRoles.Where(ur => !ur.IsDeleted))
             {
                 roles.Add(ur.Role?.RoleName?.ToLowerInvariant() ?? "buyer");
             }
@@ -389,6 +426,12 @@ public class AuthService : IAuthService
         return roles;
     }
 
+    /// <summary>
+    /// Gửi lại mã OTP xác thực email khi mã cũ hết hạn.
+    /// </summary>
+    /// <param name="email">Email nhận mã OTP.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>True nếu gửi thành công.</returns>
     public async Task<bool> ResendOtpAsync(string email, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = email?.Trim().ToLowerInvariant();
@@ -453,6 +496,17 @@ public class AuthService : IAuthService
         return true;
     }
 
+    // =========================================================================================
+    // SECTION 2: ĐĂNG NHẬP JWT VÀ VÒNG ĐỜI REFRESH TOKEN (JWT AUTHENTICATION & SESSION LIFECYCLE)
+    // =========================================================================================
+
+    /// <summary>
+    /// Xác thực đăng nhập người dùng và cấp phát cặp Access Token (JWT) và Refresh Token.
+    /// Kiểm tra mật khẩu (BCrypt), kiểm tra trạng thái khóa (Ban), cấp Access Token có claim vai trò đơn nhất.
+    /// </summary>
+    /// <param name="dto">Dữ liệu đăng nhập: Email/Username, Mật khẩu, DeviceInfo, IP.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Token JWT và Refresh Token.</returns>
     public async Task<LoginResultDto> LoginAsync(LoginDto dto, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(dto.UsernameOrEmail) || string.IsNullOrWhiteSpace(dto.Password))
@@ -586,6 +640,13 @@ public class AuthService : IAuthService
             Permissions: Array.Empty<string>());
     }
 
+    /// <summary>
+    /// Xoay vòng Refresh Token (Token Rotation): Cấp mới Access Token và Refresh Token mới, thu hồi token cũ.
+    /// Chống tấn công Replay Attack: Nếu phát hiện token đã thu hồi bị dùng lại, hủy toàn bộ phiên của user.
+    /// </summary>
+    /// <param name="dto">Refresh token cũ.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Cặp token mới.</returns>
     public async Task<RefreshTokenResultDto> RefreshTokenAsync(RefreshTokenDto dto, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(dto.RefreshToken))
@@ -713,6 +774,12 @@ public class AuthService : IAuthService
             User: userResponse);
     }
 
+    /// <summary>
+    /// Đăng xuất tài khoản khỏi thiết bị hiện tại (thu hồi Refresh Token tương ứng).
+    /// </summary>
+    /// <param name="refreshToken">Refresh token cần thu hồi.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>True nếu thu hồi thành công.</returns>
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(refreshToken))
@@ -749,6 +816,12 @@ public class AuthService : IAuthService
         return true;
     }
 
+    /// <summary>
+    /// Đăng xuất tài khoản khỏi tất cả các thiết bị (thu hồi toàn bộ Refresh Tokens của user).
+    /// </summary>
+    /// <param name="userId">ID người dùng cần đăng xuất toàn bộ.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Số lượng phiên token đã thu hồi.</returns>
     public async Task<int> LogoutAllAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty)
@@ -777,6 +850,16 @@ public class AuthService : IAuthService
         return activeTokens.Count;
     }
 
+    // =========================================================================================
+    // SECTION 3: QUẢN LÝ VÀ ĐẶT LẠI MẬT KHẨU (PASSWORD MANAGEMENT)
+    // =========================================================================================
+
+    /// <summary>
+    /// Yêu cầu đặt lại mật khẩu: Sinh OTP lưu Redis và gửi email khôi phục.
+    /// </summary>
+    /// <param name="dto">Email tài khoản yêu cầu.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận gửi OTP đặt lại mật khẩu.</returns>
     public async Task<ForgotPasswordResultDto> ForgotPasswordAsync(ForgotPasswordDto dto, CancellationToken cancellationToken = default)
     {
         if (dto == null || string.IsNullOrWhiteSpace(dto.Email))
@@ -843,6 +926,12 @@ public class AuthService : IAuthService
         return new ForgotPasswordResultDto(normalizedEmail, genericMessage, otpExpiresInSeconds);
     }
 
+    /// <summary>
+    /// Đặt lại mật khẩu mới bằng mã OTP xác thực qua email.
+    /// </summary>
+    /// <param name="dto">Email, Mã OTP và Mật khẩu mới.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận đổi mật khẩu thành công.</returns>
     public async Task<ResetPasswordResultDto> ResetPasswordAsync(ResetPasswordDto dto, CancellationToken cancellationToken = default)
     {
         if (dto == null)
@@ -957,6 +1046,13 @@ public class AuthService : IAuthService
         return new ResetPasswordResultDto(true, "Password has been reset successfully.");
     }
 
+    /// <summary>
+    /// Đổi mật khẩu cho người dùng đã đăng nhập (xác thực mật khẩu cũ bằng BCrypt).
+    /// </summary>
+    /// <param name="userId">ID người dùng đang đăng nhập.</param>
+    /// <param name="dto">Mật khẩu cũ và Mật khẩu mới.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận đổi mật khẩu thành công.</returns>
     public async Task<ChangePasswordResultDto> ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty)
@@ -1046,6 +1142,10 @@ public class AuthService : IAuthService
         return new ChangePasswordResultDto(true, "Password changed successfully.");
     }
 
+    // =========================================================================================
+    // SECTION 4: HÀM PHỤ TRỢ MÃ HÓA VÀ BẢO MẬT (PRIVATE SECURITY HELPERS)
+    // =========================================================================================
+
     private static string GenerateSecureToken()
     {
         var bytes = new byte[64];
@@ -1075,7 +1175,7 @@ public class AuthService : IAuthService
     {
         if (user.UserRoles == null || user.UserRoles.Count == 0) return;
 
-        foreach (var ur in user.UserRoles)
+        foreach (var ur in user.UserRoles.Where(ur => !ur.IsDeleted))
         {
             if (ur.Role == null) continue;
 

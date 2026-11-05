@@ -2,12 +2,17 @@ namespace User.Tests;
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using User.Api.Controllers;
+using User.Api.Filters;
 using User.Application.Interfaces;
 using User.Application.Models;
 using User.Application.Services.Seller;
@@ -154,5 +159,96 @@ public sealed class AdminSellersControllerRestTests
         Assert.Equal("Tran Van B", response.OwnerFullName);
         Assert.Equal(80, response.ReputationScore);
         Assert.Equal("Good", response.TrustLevel);
+    }
+
+    [Fact]
+    public void AdminSellersController_HasClassLevelAndMethodLevelRequireRoleAttributes()
+    {
+        var classAttr = typeof(AdminSellersController).GetCustomAttribute<RequireRoleAttribute>();
+        Assert.NotNull(classAttr);
+
+        var suspendMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.SuspendSeller));
+        Assert.NotNull(suspendMethod);
+        var suspendAttr = suspendMethod.GetCustomAttribute<RequireRoleAttribute>();
+        Assert.NotNull(suspendAttr);
+
+        var reactivateMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.ReactivateSeller));
+        Assert.NotNull(reactivateMethod);
+        var reactivateAttr = reactivateMethod.GetCustomAttribute<RequireRoleAttribute>();
+        Assert.NotNull(reactivateAttr);
+    }
+
+    [Fact]
+    public void AdminSellersController_SuspendEndpoint_WhenStaffRole_AllowsAccess()
+    {
+        var suspendMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.SuspendSeller));
+        var filter = suspendMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "staff";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
+    }
+
+    [Fact]
+    public void AdminSellersController_SuspendEndpoint_WhenBuyerRole_ReturnsForbidden()
+    {
+        var suspendMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.SuspendSeller));
+        var filter = suspendMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "buyer";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.NotNull(filterContext.Result);
+        var objResult = Assert.IsType<ObjectResult>(filterContext.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, objResult.StatusCode);
+    }
+
+    [Fact]
+    public void AdminSellersController_ReactivateEndpoint_WhenStaffRole_AllowsAccess()
+    {
+        var reactivateMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.ReactivateSeller));
+        var filter = reactivateMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "staff";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
+    }
+
+    [Fact]
+    public void AdminSellersController_SuspendEndpoint_WhenAdminRole_AllowsAccess()
+    {
+        var suspendMethod = typeof(AdminSellersController).GetMethod(nameof(AdminSellersController.SuspendSeller));
+        var filter = suspendMethod!.GetCustomAttribute<RequireRoleAttribute>()!;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "admin";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
     }
 }

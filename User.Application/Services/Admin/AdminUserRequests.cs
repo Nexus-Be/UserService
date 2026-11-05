@@ -43,6 +43,12 @@ public sealed class BanAdminUserDto
 {
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
+
+    [JsonPropertyName("policyClauseCode")]
+    public string? PolicyClauseCode { get; set; }
+
+    [JsonPropertyName("evidenceUrls")]
+    public List<string>? EvidenceUrls { get; set; }
 }
 
 public sealed class UnbanAdminUserDto

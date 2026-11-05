@@ -21,6 +21,17 @@ public class ProfileService : IProfileService
         _logger = logger;
     }
 
+    // =========================================================================================
+    // SECTION 1: QUẢN LÝ HỒ SƠ CÁ NHÂN VÀ HỒ SƠ CÔNG KHAI (PROFILE MANAGEMENT & PUBLIC QUERIES)
+    // =========================================================================================
+
+    /// <summary>
+    /// Tra cứu thông tin hồ sơ cá nhân đầy đủ của tài khoản đang đăng nhập.
+    /// Bao gồm Email, Số điện thoại, Họ tên, Vai trò hiện tại, và Hồ sơ gian hàng (nếu có).
+    /// </summary>
+    /// <param name="userId">ID người dùng đang đăng nhập.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ cá nhân đầy đủ.</returns>
     public async Task<UserProfileDto> GetProfileAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty)
@@ -45,6 +56,13 @@ public class ProfileService : IProfileService
         return MapToDto(user);
     }
 
+    /// <summary>
+    /// Tra cứu thông tin hồ sơ công khai của một người dùng bất kỳ.
+    /// Ẩn hoàn toàn email cá nhân và số điện thoại để đảm bảo tính riêng tư và bảo mật.
+    /// </summary>
+    /// <param name="userId">ID người dùng cần tra cứu.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ công khai rút gọn (Họ tên, Avatar, Bio, Rating).</returns>
     public async Task<PublicUserProfileDto> GetPublicProfileAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty)
@@ -73,7 +91,7 @@ public class ProfileService : IProfileService
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
         var trustLevel = user.ReputationScore?.TrustLevel.ToString() ?? "Standard";
         var isSeller = (user.SellerProfile != null && user.SellerProfile.Status == Domain.Enums.SellerProfileStatus.Approved)
-            || (user.UserRoles != null && user.UserRoles.Any(ur => ur.Role?.RoleCode == Domain.Enums.RoleType.Seller));
+            || (user.UserRoles != null && user.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == Domain.Enums.RoleType.Seller));
 
         return new PublicUserProfileDto(
             Id: user.Id.ToString(),
@@ -88,6 +106,14 @@ public class ProfileService : IProfileService
             JoinedAt: user.CreatedAt);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin hồ sơ cá nhân của chính người dùng đang đăng nhập.
+    /// Cho phép sửa đổi Họ tên, Số điện thoại, Tiểu sử (Bio), và Ảnh đại diện (Avatar).
+    /// </summary>
+    /// <param name="userId">ID người dùng đang đăng nhập.</param>
+    /// <param name="dto">Dữ liệu cập nhật.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ cá nhân sau khi cập nhật thành công.</returns>
     public async Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto, CancellationToken cancellationToken = default)
     {
         if (userId == Guid.Empty)
@@ -228,7 +254,7 @@ public class ProfileService : IProfileService
 
         if (user.UserRoles != null && user.UserRoles.Count > 0)
         {
-            foreach (var ur in user.UserRoles)
+            foreach (var ur in user.UserRoles.Where(ur => !ur.IsDeleted))
             {
                 var roleName = ur.Role?.RoleName?.ToLowerInvariant() ?? ur.Role?.RoleCode.ToString().ToLowerInvariant();
                 if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
@@ -251,7 +277,7 @@ public class ProfileService : IProfileService
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
         var trustLevel = user.ReputationScore?.TrustLevel.ToString() ?? "Standard";
         var isSeller = (user.SellerProfile != null && user.SellerProfile.Status == Domain.Enums.SellerProfileStatus.Approved)
-            || (user.UserRoles != null && user.UserRoles.Any(ur => ur.Role?.RoleCode == Domain.Enums.RoleType.Seller));
+            || (user.UserRoles != null && user.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == Domain.Enums.RoleType.Seller));
 
         return new UserProfileDto(
             Id: user.Id.ToString(),

@@ -907,6 +907,9 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -926,6 +929,8 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("RoleId");
 
                     b.HasIndex("Username")
                         .IsUnique()
@@ -947,6 +952,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "System",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000001",
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -965,6 +971,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Support",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000002",
+                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -983,6 +990,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Seller",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000003",
+                            RoleId = new Guid("22222222-2222-2222-2222-222222222222"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -1002,6 +1010,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Buyer",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000004",
+                            RoleId = new Guid("11111111-1111-1111-1111-111111111111"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -1024,6 +1033,10 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<List<string>>("EvidenceUrls")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
                     b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1039,13 +1052,35 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<int>("PointsDeducted")
                         .HasColumnType("integer");
 
+                    b.Property<string>("PolicyClauseCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RevokeReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RevokedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<int>("TargetRole")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2);
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1060,7 +1095,13 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedBy");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("ReportId");
+
+                    b.HasIndex("RevokedBy");
+
+                    b.HasIndex("UserId", "TargetRole", "PenaltyApplied", "ExpiresAt")
+                        .HasDatabaseName("IX_UserPenalties_Active_Evaluation")
+                        .HasFilter("\"Status\" = 0");
 
                     b.ToTable("UserPenalties");
 
@@ -1070,6 +1111,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             Id = new Guid("60000000-aaaa-bbbb-cccc-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            EvidenceUrls = new List<string>(),
                             ExpiresAt = new DateTimeOffset(new DateTime(2026, 1, 31, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             IsDeleted = false,
                             IssuedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -1077,6 +1119,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             PointsDeducted = 5,
                             Reason = "Quá hạn thanh toán thử nghiệm trong môi trường sandbox",
                             Status = 1,
+                            TargetRole = 0,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ViolationType = 0
@@ -1402,7 +1445,15 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasForeignKey("BannedBy")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("User.Domain.Entities.Role", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("BannedByUser");
+
+                    b.Navigation("Role");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserPenalty", b =>
@@ -1412,6 +1463,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CreatedBy")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("User.Domain.Entities.UserReport", "Report")
+                        .WithMany()
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("User.Domain.Entities.User", "RevokedByUser")
+                        .WithMany("PenaltiesRevoked")
+                        .HasForeignKey("RevokedBy")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("User.Domain.Entities.User", "User")
                         .WithMany("PenaltiesReceived")
                         .HasForeignKey("UserId")
@@ -1419,6 +1480,10 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("CreatedByUser");
+
+                    b.Navigation("Report");
+
+                    b.Navigation("RevokedByUser");
 
                     b.Navigation("User");
                 });
@@ -1497,6 +1562,8 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("RolePermissions");
 
                     b.Navigation("UserRoles");
+
+                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.User", b =>
@@ -1504,6 +1571,8 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("PenaltiesIssued");
 
                     b.Navigation("PenaltiesReceived");
+
+                    b.Navigation("PenaltiesRevoked");
 
                     b.Navigation("RefreshTokens");
 

@@ -40,6 +40,19 @@ public sealed class SellerService : ISellerService
         _logger = logger;
     }
 
+    // =========================================================================================
+    // SECTION 1: QUY TRÌNH ĐĂNG KÝ NGƯỜI BÁN VÀ XÁC THỰC EMAIL KYC (SELLER ONBOARDING & OTP)
+    // Bao gồm: Đăng ký tạo bản nháp, xác thực OTP email, gửi lại OTP, và tra cứu trạng thái đơn nộp.
+    // =========================================================================================
+
+    /// <summary>
+    /// Đăng ký hồ sơ nâng cấp Người bán từ tài khoản Buyer.
+    /// Lưu ý: Dữ liệu được lưu tạm vào Redis Draft (TTL 15 phút), CHƯA ghi vào PostgreSQL để tránh dữ liệu rác.
+    /// </summary>
+    /// <param name="userId">ID người dùng đang đăng nhập.</param>
+    /// <param name="dto">Dữ liệu đăng ký: Tên shop, Email kinh doanh, CCCD, Hotline, Địa chỉ kho lấy hàng.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Dữ liệu xác nhận đã tạo bản nháp và thông báo gửi OTP thành công.</returns>
     public async Task<SellerRegistrationResponseDto> RegisterSellerAsync(
         Guid userId,
         CreateSellerRegistrationDto dto,
@@ -240,6 +253,14 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// Xác thực mã OTP email doanh nghiệp của đơn đăng ký Người bán.
+    /// Khi OTP hợp lệ: Lấy bản nháp từ Redis, tạo bản ghi SellerProfile (Pending) vào PostgreSQL, ghi AuditLog.
+    /// </summary>
+    /// <param name="userId">ID người dùng xác thực.</param>
+    /// <param name="dto">Dữ liệu xác thực: Email doanh nghiệp và Mã OTP 6 chữ số.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận xác thực OTP thành công và mã hồ sơ đăng ký mới tạo.</returns>
     public async Task<VerifySellerOtpResponseDto> VerifySellerRegistrationOtpAsync(
         Guid userId,
         VerifySellerOtpDto dto,
@@ -411,6 +432,13 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// Gửi lại mã OTP xác thực email doanh nghiệp cho đơn đăng ký đang chờ nộp.
+    /// Kiểm tra thời gian chờ Cooldown (60 giây) trước khi sinh mã OTP mới.
+    /// </summary>
+    /// <param name="userId">ID người dùng yêu cầu.</param>
+    /// <param name="businessEmail">Email doanh nghiệp nhận OTP.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
     public async Task ResendSellerOtpAsync(
         Guid userId,
         string businessEmail,
@@ -474,6 +502,13 @@ public sealed class SellerService : ISellerService
         }
     }
 
+    /// <summary>
+    /// Tra cứu tiến trình và trạng thái xét duyệt đơn đăng ký Người bán của người dùng hiện tại.
+    /// Trả về trạng thái: NOT_REGISTERED, PENDING, APPROVED, REJECTED hoặc SUSPENDED.
+    /// </summary>
+    /// <param name="userId">ID người dùng đang đăng nhập.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Trạng thái hồ sơ kèm hướng dẫn bước tiếp theo (NextStep).</returns>
     public async Task<SellerRegistrationStatusResponseDto> GetSellerRegistrationStatusAsync(
         Guid userId,
         CancellationToken cancellationToken = default)
@@ -528,6 +563,20 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    // =========================================================================================
+    // SECTION 2: THẨM ĐỊNH VÀ XÉT DUYỆT ĐƠN KYC NGƯỜI BÁN (SUPPORT STAFF KYC REVIEW)
+    // Dành riêng cho nhân viên Support Staff theo nguyên tắc Phân tách trách nhiệm (SoD).
+    // Bao gồm: Danh sách đơn chờ duyệt, chi tiết hồ sơ KYC (CCCD, GPKD), duyệt đơn, từ chối đơn.
+    // =========================================================================================
+
+    /// <summary>
+    /// [Support Staff] Tra cứu danh sách các đơn đăng ký Người bán đang chờ duyệt có phân trang và bộ lọc.
+    /// </summary>
+    /// <param name="page">Số trang hiện tại (bắt đầu từ 1).</param>
+    /// <param name="limit">Số bản ghi mỗi trang (mặc định 20).</param>
+    /// <param name="status">Lọc theo trạng thái đơn: Pending, Approved, Rejected.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Dữ liệu phân trang danh sách đơn đăng ký kèm metadata.</returns>
     public async Task<PagedData<AdminSellerRegistrationItemDto>> GetSellerRegistrationsAsync(
         int page,
         int limit,
@@ -577,6 +626,13 @@ public sealed class SellerService : ISellerService
         return PagedData<AdminSellerRegistrationItemDto>.From(items, page, limit, total);
     }
 
+    /// <summary>
+    /// [Support Staff] Xem chi tiết hồ sơ đơn đăng ký Người bán để thẩm định KYC.
+    /// Bao gồm ảnh chụp 2 mặt CCCD, Giấy phép kinh doanh, Địa chỉ kho lấy hàng và điểm uy tín.
+    /// </summary>
+    /// <param name="registrationId">ID đơn đăng ký hoặc ID người dùng.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Chi tiết toàn bộ tài liệu hồ sơ KYC.</returns>
     public async Task<SellerRegistrationDetailsDto> GetSellerRegistrationDetailsAsync(
         Guid registrationId,
         CancellationToken cancellationToken = default)
@@ -640,6 +696,16 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// [Support Staff] Phê duyệt đơn đăng ký Người bán.
+    /// Áp dụng mô hình Downstream-First (tạo kho hàng tại FulfillmentService trước),
+    /// sau đó chuyển đổi vai trò đơn nhất (gán Seller, xóa mềm Buyer) và hủy Refresh Tokens cũ.
+    /// </summary>
+    /// <param name="registrationId">ID đơn đăng ký được duyệt.</param>
+    /// <param name="reviewerId">ID nhân viên Support Staff duyệt đơn.</param>
+    /// <param name="dto">Dữ liệu phê duyệt bổ sung (tùy chọn).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận duyệt đơn và chuyển đổi vai trò thành công.</returns>
     public async Task<ApproveSellerRegistrationResponseDto> ApproveSellerRegistrationAsync(
         Guid registrationId,
         Guid? reviewerId,
@@ -731,24 +797,65 @@ public sealed class SellerService : ISellerService
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL
-        // 1. Assign Seller role to user
+        // 1. Assign Seller role to user (reactivate if soft-deleted record exists to respect unique index)
         var sellerRole = await _dbContext.Roles
             .FirstOrDefaultAsync(r => r.RoleCode == RoleType.Seller, cancellationToken);
 
         if (sellerRole != null)
         {
+            user.RoleId = sellerRole.Id;
+            user.Role = sellerRole;
             var alreadyHasRole = user.UserRoles.Any(ur => ur.RoleId == sellerRole.Id);
             if (!alreadyHasRole)
             {
-                _dbContext.UserRoles.Add(new UserRole
+                var existingSoftDeletedUr = await _dbContext.UserRoles
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(ur => ur.UserId == sellerProfile.UserId && ur.RoleId == sellerRole.Id, cancellationToken);
+
+                if (existingSoftDeletedUr != null)
                 {
-                    Id = Guid.NewGuid(),
-                    UserId = sellerProfile.UserId,
-                    RoleId = sellerRole.Id,
-                    AssignedAt = DateTimeOffset.UtcNow,
-                    AssignedBy = reviewerId
-                });
+                    existingSoftDeletedUr.IsDeleted = false;
+                    existingSoftDeletedUr.DeletedAt = null;
+                    existingSoftDeletedUr.UpdatedAt = DateTimeOffset.UtcNow;
+                    existingSoftDeletedUr.AssignedAt = DateTimeOffset.UtcNow;
+                    existingSoftDeletedUr.AssignedBy = reviewerId;
+                }
+                else
+                {
+                    _dbContext.UserRoles.Add(new UserRole
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = sellerProfile.UserId,
+                        RoleId = sellerRole.Id,
+                        AssignedAt = DateTimeOffset.UtcNow,
+                        AssignedBy = reviewerId
+                    });
+                }
                 _logger.LogInformation("[SELLER APPROVAL] Assigned role 'Seller' to UserId: '{UserId}'.", sellerProfile.UserId);
+            }
+
+            // Soft-delete previous Buyer role from UserRoles (1 User 1 Role principle)
+            var oldRoles = user.UserRoles
+                .Where(ur => !ur.IsDeleted && ur.RoleId != sellerRole.Id)
+                .ToList();
+
+            foreach (var oldUr in oldRoles)
+            {
+                oldUr.IsDeleted = true;
+                oldUr.DeletedAt = DateTimeOffset.UtcNow;
+                oldUr.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            // Revoke all active refresh tokens for the user to force token rotation to 'seller' role
+            var activeTokens = await _dbContext.RefreshTokens
+                .Where(t => t.UserId == sellerProfile.UserId && !t.IsRevoked)
+                .ToListAsync(cancellationToken);
+
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = DateTimeOffset.UtcNow;
+                token.UpdatedAt = DateTimeOffset.UtcNow;
             }
         }
 
@@ -819,6 +926,14 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// [Support Staff] Từ chối đơn đăng ký Người bán do hồ sơ KYC không hợp lệ hoặc thiếu giấy tờ.
+    /// </summary>
+    /// <param name="registrationId">ID đơn đăng ký bị từ chối.</param>
+    /// <param name="reviewerId">ID nhân viên Support Staff từ chối.</param>
+    /// <param name="dto">Payload chứa lý do từ chối (RejectionReason).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận từ chối đơn đăng ký.</returns>
     public async Task<RejectSellerRegistrationResponseDto> RejectSellerRegistrationAsync(
         Guid registrationId,
         Guid? reviewerId,
@@ -927,6 +1042,17 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    // =========================================================================================
+    // SECTION 3: VẬN HÀNH GIAN HÀNG, HỒ SƠ SHOP VÀ KỶ LUẬT (SHOP OPERATIONS & SANCTIONS)
+    // Bao gồm: Xem/cập nhật hồ sơ shop của mình, hồ sơ công khai, hồ sơ admin, đình chỉ và kích hoạt lại shop.
+    // =========================================================================================
+
+    /// <summary>
+    /// [Seller] Tra cứu thông tin hồ sơ gian hàng của chính mình đang đăng nhập.
+    /// </summary>
+    /// <param name="userId">ID người bán đang đăng nhập.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ gian hàng của người bán.</returns>
     public async Task<SellerOwnProfileResponseDto> GetSellerOwnProfileAsync(
         Guid userId,
         CancellationToken cancellationToken = default)
@@ -982,6 +1108,13 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// [Seller] Cập nhật thông tin gian hàng và địa chỉ kho lấy hàng / đổi trả.
+    /// </summary>
+    /// <param name="userId">ID người bán đang đăng nhập.</param>
+    /// <param name="dto">Dữ liệu cập nhật: Hotline, Avatar, Địa chỉ kho lấy hàng, Địa chỉ đổi trả.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ gian hàng sau khi cập nhật thành công.</returns>
     public async Task<SellerOwnProfileUpdatedResponseDto> UpdateSellerOwnProfileAsync(
         Guid userId,
         UpdateSellerOwnProfileDto dto,
@@ -1149,6 +1282,13 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// [Public] Tra cứu thông tin công khai của một gian hàng cho khách mua hàng xem shop.
+    /// Ẩn toàn bộ thông tin nhạy cảm (CCCD, email cá nhân).
+    /// </summary>
+    /// <param name="id">ID người bán hoặc ID gian hàng.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Thông tin công khai của shop: Tên shop, Avatar, Hotline, Tỉnh/thành, Trạng thái.</returns>
     public async Task<PublicSellerProfileResponseDto> GetPublicSellerProfileAsync(
         Guid id,
         CancellationToken cancellationToken = default)
@@ -1190,6 +1330,12 @@ public sealed class SellerService : ISellerService
         );
     }
 
+    /// <summary>
+    /// [Admin / Staff] Tra cứu hồ sơ người bán toàn diện phục vụ kiểm toán, đối soát và khiếu nại.
+    /// </summary>
+    /// <param name="sellerId">ID hồ sơ người bán.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ người bán chi tiết kèm lịch sử đánh giá và kho hàng.</returns>
     public async Task<AdminSellerProfileResponseDto> GetAdminSellerProfileAsync(
         Guid sellerId,
         CancellationToken cancellationToken = default)
@@ -1284,6 +1430,170 @@ public sealed class SellerService : ISellerService
             ReviewedAt: profile.ReviewedAt,
             CreatedAt: profile.CreatedAt,
             UpdatedAt: profile.UpdatedAt
+        );
+    }
+
+    /// <summary>
+    /// [Admin / Staff] Tạm đình chỉ quyền bán hàng của gian hàng (ShopStatus = Suspended).
+    /// Cơ chế Target Role Sanction: Chỉ khóa quyền Bán hàng, tài khoản cá nhân vẫn được phép Mua hàng.
+    /// </summary>
+    /// <param name="sellerId">ID hồ sơ người bán cần đình chỉ.</param>
+    /// <param name="dto">Lý do đình chỉ và số ngày hiệu lực.</param>
+    /// <param name="adminId">ID người thực hiện (Admin hoặc Staff).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận đình chỉ gian hàng.</returns>
+    public async Task<SuspendSellerResponseDto> SuspendSellerAsync(
+        Guid sellerId,
+        SuspendSellerDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for suspending seller is required.");
+        }
+
+        var trimmedReason = dto.Reason.Trim();
+        if (trimmedReason.Length > 1000)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Suspension reason cannot exceed 1000 characters.");
+        }
+
+        var profile = await _dbContext.SellerProfiles
+            .Include(sp => sp.User)
+            .FirstOrDefaultAsync(sp => sp.Id == sellerId || sp.UserId == sellerId, cancellationToken);
+
+        if (profile == null)
+        {
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found.", 404);
+        }
+
+        if (profile.Status == SellerProfileStatus.Suspended)
+        {
+            throw new DomainException("SELLER_ALREADY_SUSPENDED", "Seller profile is already suspended.", 400);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        DateTimeOffset? expiresAt = dto.DurationDays.HasValue && dto.DurationDays.Value > 0
+            ? now.AddDays(dto.DurationDays.Value)
+            : null;
+
+        var oldStatus = profile.Status.ToString();
+        profile.Suspend(trimmedReason, adminId);
+
+        var penalty = new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = profile.UserId,
+            TargetRole = TargetRole.Seller,
+            ViolationType = PenaltyViolationType.Other,
+            Reason = trimmedReason,
+            PenaltyApplied = PenaltyType.Restriction,
+            PointsDeducted = 0,
+            Status = PenaltyStatus.Active,
+            IssuedAt = now,
+            ExpiresAt = expiresAt,
+            CreatedBy = adminId,
+            PolicyClauseCode = dto.PolicyClauseCode ?? "SELLER_OPERATIONAL_VIOLATION",
+            EvidenceUrls = dto.EvidenceUrls ?? new System.Collections.Generic.List<string>(),
+            CreatedAt = now,
+            UpdatedAt = now,
+            IsDeleted = false
+        };
+        _dbContext.UserPenalties.Add(penalty);
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerReject,
+            entityName: "SellerProfile",
+            entityId: profile.Id.ToString(),
+            oldValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = oldStatus },
+            newValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = SellerProfileStatus.Suspended.ToString(), ["Reason"] = trimmedReason, ["ExpiresAt"] = expiresAt },
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status", "RejectionReason", "ReviewedBy", "ReviewedAt" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER SUSPEND] Suspended seller '{SellerId}' (UserId: '{UserId}') by admin '{AdminId}'. Reason: {Reason}",
+            profile.Id, profile.UserId, adminId, trimmedReason);
+
+        return new SuspendSellerResponseDto(
+            SellerId: profile.Id.ToString(),
+            ShopName: profile.ShopName,
+            Status: profile.Status.ToString(),
+            SuspendedAt: now,
+            ExpiresAt: expiresAt,
+            Reason: trimmedReason
+        );
+    }
+
+    /// <summary>
+    /// [Admin / Staff] Kích hoạt lại quyền bán hàng cho gian hàng đã khắc phục vi phạm (ShopStatus = Active).
+    /// </summary>
+    /// <param name="sellerId">ID hồ sơ người bán cần kích hoạt lại.</param>
+    /// <param name="dto">Lý do mở lại gian hàng (tùy chọn).</param>
+    /// <param name="adminId">ID người thực hiện (Admin hoặc Staff).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận kích hoạt lại gian hàng.</returns>
+    public async Task<ReactivateSellerResponseDto> ReactivateSellerAsync(
+        Guid sellerId,
+        ReactivateSellerDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await _dbContext.SellerProfiles
+            .Include(sp => sp.User)
+            .FirstOrDefaultAsync(sp => sp.Id == sellerId || sp.UserId == sellerId, cancellationToken);
+
+        if (profile == null)
+        {
+            throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found.", 404);
+        }
+
+        if (profile.Status != SellerProfileStatus.Suspended)
+        {
+            throw new DomainException("SELLER_NOT_SUSPENDED", "Seller profile is not currently suspended.", 400);
+        }
+
+        if (profile.User != null && profile.User.Status == UserStatus.Banned)
+        {
+            throw new DomainException("CANNOT_REACTIVATE_BANNED_USER_SHOP", "Cannot reactivate seller shop while the owner user account is banned.", 400);
+        }
+
+        var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Seller reactivated by administrator.";
+        var now = DateTimeOffset.UtcNow;
+        var oldStatus = profile.Status.ToString();
+
+        profile.Reactivate();
+
+        var activeSellerPenalties = await _dbContext.UserPenalties
+            .Where(p => p.UserId == profile.UserId && p.TargetRole == TargetRole.Seller && p.Status == PenaltyStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        foreach (var p in activeSellerPenalties)
+        {
+            p.Revoke(adminId ?? Guid.Empty, reason);
+        }
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerApprove,
+            entityName: "SellerProfile",
+            entityId: profile.Id.ToString(),
+            oldValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = oldStatus },
+            newValues: new System.Collections.Generic.Dictionary<string, object?> { ["Status"] = SellerProfileStatus.Approved.ToString(), ["Reason"] = reason },
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[SELLER REACTIVATE] Reactivated seller '{SellerId}' (UserId: '{UserId}') by admin '{AdminId}'.",
+            profile.Id, profile.UserId, adminId);
+
+        return new ReactivateSellerResponseDto(
+            SellerId: profile.Id.ToString(),
+            ShopName: profile.ShopName,
+            Status: profile.Status.ToString(),
+            ReactivatedAt: now,
+            Reason: reason
         );
     }
 }

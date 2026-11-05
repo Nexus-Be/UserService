@@ -90,7 +90,30 @@ public static class HttpContextExtensions
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         var roles = context.GetUserRoles();
-        return roles.Contains(role.Trim().ToLowerInvariant(), StringComparer.OrdinalIgnoreCase);
+        var normalized = role.Trim().ToLowerInvariant();
+
+        if (roles.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Seller automatically inherits all Buyer capabilities (Hierarchical RBAC)
+        if (normalized == "buyer" && roles.Contains("seller", StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized == "staff" && (roles.Contains("support_staff", StringComparer.OrdinalIgnoreCase) || roles.Contains("support staff", StringComparer.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (normalized == "admin" && roles.Contains("administrator", StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public static bool HasPermission(this HttpContext context, string permission)

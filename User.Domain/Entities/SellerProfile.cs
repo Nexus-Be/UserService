@@ -1,3 +1,4 @@
+using System;
 using User.Domain.Base;
 using User.Domain.Enums;
 
@@ -25,4 +26,19 @@ public class SellerProfile : BaseEntity<Guid>
     // Navigation
     public User? User { get; set; }
     public User? ReviewedByUser { get; set; }
+
+    public void Suspend(string reason, Guid? adminId = null)
+    {
+        Status = SellerProfileStatus.Suspended;
+        RejectionReason = reason;
+        ReviewedBy = adminId;
+        ReviewedAt = DateTimeOffset.UtcNow;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    public void Reactivate()
+    {
+        Status = SellerProfileStatus.Approved;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
 }
