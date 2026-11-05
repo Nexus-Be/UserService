@@ -540,6 +540,7 @@ public sealed class AdminUserService : IAdminUserService
         var targetUser = await _dbContext.Users
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId && !u.IsDeleted, cancellationToken);
 
         if (targetUser == null)
@@ -557,7 +558,11 @@ public sealed class AdminUserService : IAdminUserService
         {
             foreach (var code in dto.RoleCodes)
             {
-                if (string.IsNullOrWhiteSpace(code)) continue;
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_ROLE", "Role code cannot be empty or whitespace.");
+                }
+
                 var normalizedCode = code.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
                 switch (normalizedCode)
                 {
@@ -587,7 +592,11 @@ public sealed class AdminUserService : IAdminUserService
         {
             foreach (var rId in dto.RoleIds)
             {
-                if (string.IsNullOrWhiteSpace(rId)) continue;
+                if (string.IsNullOrWhiteSpace(rId))
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_ROLE", "Role identifier cannot be empty or whitespace.");
+                }
+
                 var trimmedId = rId.Trim();
 
                 if (Guid.TryParse(trimmedId, out var parsedGuid))
@@ -655,10 +664,14 @@ public sealed class AdminUserService : IAdminUserService
 
         if (currentRoles.Contains(RoleType.Seller) && !requestedRoles.Contains(RoleType.Seller))
         {
-            _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to revoke seller role directly from User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
-            throw new BusinessRuleValidationException(
-                "CANNOT_REVOKE_SELLER_ROLE_DIRECTLY",
-                "Seller role cannot be removed directly from this endpoint. Please use the dedicated seller suspension endpoint: PUT /api/v1/admin/sellers/{sellerId}/suspend.");
+            var isShopSuspended = targetUser.SellerProfile != null && targetUser.SellerProfile.Status == SellerProfileStatus.Suspended;
+            if (!isShopSuspended)
+            {
+                _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to revoke seller role directly from User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
+                throw new BusinessRuleValidationException(
+                    "CANNOT_REVOKE_SELLER_ROLE_DIRECTLY",
+                    "Seller role cannot be removed directly from this endpoint. Please use the dedicated seller suspension endpoint: PUT /api/v1/admin/sellers/{sellerId}/suspend.");
+            }
         }
 
         // 6. Update UserRoles
@@ -720,20 +733,7 @@ public sealed class AdminUserService : IAdminUserService
         var newRoleNames = requestedRoles.Select(r => r.ToString().ToLowerInvariant()).ToList();
 
         // 7. Revoke active refresh tokens to force session refresh with updated roles
-        var activeTokens = await _dbContext.RefreshTokens
-            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
-            .ToListAsync(cancellationToken);
-
-        if (activeTokens.Count > 0)
-        {
-            var now = DateTimeOffset.UtcNow;
-            foreach (var token in activeTokens)
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = now;
-                token.UpdatedAt = now;
-            }
-        }
+        await RevokeActiveRefreshTokensAsync(targetUserId, DateTimeOffset.UtcNow, cancellationToken);
 
         // 8. Ghi AuditLog
         _dbContext.AddAuditLog(
@@ -1034,19 +1034,7 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 4. Revoke all active refresh tokens
-        var activeTokens = await _dbContext.RefreshTokens
-            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
-            .ToListAsync(cancellationToken);
-
-        if (activeTokens.Count > 0)
-        {
-            foreach (var token in activeTokens)
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = now;
-                token.UpdatedAt = now;
-            }
-        }
+        var revokedTokensCount = await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
 
         // 5. Record audit log
         var newValues = new Dictionary<string, object?>
@@ -1055,7 +1043,7 @@ public sealed class AdminUserService : IAdminUserService
             ["DeletedAt"] = now,
             ["Status"] = UserStatus.Deleted.ToString().ToUpperInvariant(),
             ["Reason"] = dto.Reason.Trim(),
-            ["RevokedTokensCount"] = activeTokens.Count
+            ["RevokedTokensCount"] = revokedTokensCount
         };
 
         _dbContext.AddAuditLog(
@@ -1070,7 +1058,7 @@ public sealed class AdminUserService : IAdminUserService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[ADMIN USER DELETE] Successfully soft-deleted user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
-            targetUserId, activeTokens.Count, dto.Reason.Trim());
+            targetUserId, revokedTokensCount, dto.Reason.Trim());
     }
 
     public async Task<AdminUserBannedResponseDto> BanUserAsync(
@@ -1187,19 +1175,7 @@ public sealed class AdminUserService : IAdminUserService
         _dbContext.UserPenalties.Add(accountPenalty);
 
         // 4. Revoke active refresh tokens in PostgreSQL
-        var activeTokens = await _dbContext.RefreshTokens
-            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
-            .ToListAsync(cancellationToken);
-
-        if (activeTokens.Count > 0)
-        {
-            foreach (var token in activeTokens)
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = now;
-                token.UpdatedAt = now;
-            }
-        }
+        var revokedTokensCount = await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
 
         // 5. Audit Log
         var newValues = new Dictionary<string, object?>
@@ -1208,7 +1184,7 @@ public sealed class AdminUserService : IAdminUserService
             ["BannedAt"] = now,
             ["BannedBy"] = adminId?.ToString(),
             ["BanReason"] = trimmedReason,
-            ["RevokedTokensCount"] = activeTokens.Count
+            ["RevokedTokensCount"] = revokedTokensCount
         };
 
         _dbContext.AddAuditLog(
@@ -1241,7 +1217,7 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         _logger.LogInformation("[ADMIN USER BAN] Successfully banned user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
-            targetUserId, activeTokens.Count, trimmedReason);
+            targetUserId, revokedTokensCount, trimmedReason);
 
         // Dispatch ban notification email via Notification Service
         if (_emailNotificationClient != null && !string.IsNullOrWhiteSpace(user.Email))
@@ -1273,7 +1249,7 @@ public sealed class AdminUserService : IAdminUserService
             BanReason: trimmedReason,
             BannedAt: now,
             BannedBy: adminId?.ToString() ?? "system",
-            RevokedTokensCount: activeTokens.Count,
+            RevokedTokensCount: revokedTokensCount,
             Message: "User account banned successfully."
         );
     }
@@ -1431,5 +1407,24 @@ public sealed class AdminUserService : IAdminUserService
             UnbannedBy: adminId?.ToString() ?? "system",
             Message: "User account unbanned successfully."
         );
+    }
+
+    private async Task<int> RevokeActiveRefreshTokensAsync(Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == userId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+        }
+
+        return activeTokens.Count;
     }
 }

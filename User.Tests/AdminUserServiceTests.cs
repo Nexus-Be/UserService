@@ -720,6 +720,96 @@ public sealed class AdminUserServiceTests
     }
 
     [Fact]
+    public async Task AssignUserRolesAsync_WhenSellerShopIsAlreadySuspended_AllowsRevokingSellerRoleWithoutDeadlock()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.AddRange(rBuyer, rSeller);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "suspended.seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Suspended",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.UserRoles.AddRange(
+            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id },
+            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rSeller.Id }
+        );
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            ShopName = "Suspended Shop",
+            PickupAddress = "Address 1",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0911111111",
+            Status = SellerProfileStatus.Suspended
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer" },
+            Reason = "User shop is suspended, admin revokes seller role"
+        };
+        var adminId = Guid.NewGuid();
+
+        // When shop is already suspended, admin SHOULD be able to revoke seller role without deadlock
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.DoesNotContain("seller", result.Roles);
+        Assert.Contains("buyer", result.Roles);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenRoleCodeIsWhitespace_ThrowsInvalidRoleException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        dbContext.Roles.Add(rBuyer);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "whitespace.role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "   " },
+            Reason = "Whitespace role test"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_ROLE", ex.ErrorCode);
+    }
+
+    [Fact]
     public async Task AssignUserRolesAsync_WhenPassingGuidRoleIds_ResolvesRolesCorrectly()
     {
         using var dbContext = CreateInMemoryDbContext();
