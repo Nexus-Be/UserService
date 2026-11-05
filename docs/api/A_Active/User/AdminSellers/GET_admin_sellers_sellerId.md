@@ -1,99 +1,132 @@
-# [GET] /api/v1/admin/sellers/{sellerId}
+# USER SERVICE - GET /api/v1/admin/sellers/{sellerId}
 
-> **Tác giả:** Hiển Vinh & AI Agent  
-> **Phân hệ thụ lý:** `UserService`  
-> **Tên tính năng:** `AdminSellers`  
-> **Mã tham chiếu Excel:** `50` (`SELLER-09`)  
-> **Trạng thái tài liệu:** `A_Active (Đã nghiệm thu)`  
-> **Trạng thái triển khai:** `✅ COMPLETED`  
-> **Cập nhật lần cuối:** 2026-11-02  
-
----
-
-## 1. MÔ TẢ NGHIỆP VỤ & PHÂN QUYỀN
-
-* **Mô tả chức năng:** Quản trị viên (Admin) hoặc Nhân viên hỗ trợ (Staff) tra cứu thông tin hồ sơ chi tiết và hồ sơ KYC của người bán (Seller) theo Seller ID hoặc User ID.
-* **HTTP Method:** `GET`
-* **Đường dẫn chuẩn:** `/api/v1/admin/sellers/{sellerId}`
-* **Quyền hạn truy cập (RBAC):** `RequireRole("admin", "staff")`
-* **Yêu cầu Idempotency:** Không áp dụng (Idempotent theo HTTP spec)
+> **Feature / Use Case:** AdminSellers — GetAdminSellerProfile
+> **Trạng thái:** ✅ VERIFIED
+> **Ngày tạo:** 2026-11-01
+> **Cập nhật:** 2026-11-05
+> **Tác giả:** Hiển Vinh & AI Agent
+> **Mô tả chức năng:** Quản trị viên (Admin) hoặc Nhân viên hỗ trợ (Staff) tra cứu thông tin hồ sơ chi tiết, giấy tờ KYC, thông tin kho hàng và điểm uy tín của gian hàng người bán.
 
 ---
 
-## 2. DẤU VẾT MÃ NGUỒN (CODE TRACE & EXECUTION PATH)
-
-* **Microservice thụ lý:** `src/Services/User/`
-* **Cổng Gateway điều phối:** YARP Route `admin-sellers-route` $\rightarrow$ `/api/v1/admin/sellers/{sellerId}`
-* **Controller Action:** `User.Api/Controllers/Public/AdminSellersController.cs` $\rightarrow$ `GetSellerProfile(Guid sellerId)`
-* **Application Interface:** `User.Application/Services/Seller/ISellerService.cs` $\rightarrow$ `GetAdminSellerProfileAsync(Guid sellerId, CancellationToken cancellationToken)`
-* **Service Implementation:** `User.Application/Services/Seller/SellerService.cs` $\rightarrow$ `GetAdminSellerProfileAsync(...)`
-* **Response DTO:** `User.Application/Services/Seller/SellerResponses.cs` $\rightarrow$ `AdminSellerProfileResponseDto`
-* **Thực thể & Bảng DB:**
-  - `User.Domain/Entities/SellerProfile.cs` $\rightarrow$ `SellerProfiles`
-  - `User.Domain/Entities/User.cs` $\rightarrow$ `Users`
-* **Unit Tests:** `User.Tests/AdminSellersControllerRestTests.cs`
+## 1. Thông tin Định tuyến & RBAC (Routing & Authorization)
+- **HTTP Method:** `GET`
+- **Route Endpoint:** `/api/v1/admin/sellers/{sellerId}`
+- **Quyền hạn (RBAC Policy):** `RequireRole("admin", "staff")`
+- **Quy tắc Sở hữu (Resource Ownership):** Admin và Support Staff được quyền truy cập toàn bộ hồ sơ người bán phục vụ thẩm định và kiểm soát.
+- **Controller:** `User.Api/Controllers/Public/AdminSellersController.cs`
+- **Application Contract:** `User.Application/Services/Seller/ISellerService.cs`
 
 ---
 
-## 3. QUY CHUẨN VALIDATION & THAM SỐ ĐẦU VÀO
+## 2. Đầu vào & Quy chuẩn Validation (Input & Validation Schema)
+### 2.1 Route Parameters
+| Tham số | Vị trí | Kiểu C# | Bắt buộc | Ràng buộc / Giới hạn | Ghi chú |
+| :--- | :--- | :--- | :---: | :--- | :--- |
+| `sellerId` | Route | `Guid` | Có | Định dạng UUIDv4 hợp lệ, không được để trống | Định danh hồ sơ người bán (`SellerProfiles.Id`) hoặc ID người dùng (`Users.Id`) |
 
-### 3.1. Route Parameters (Tham số đường dẫn)
-| Tên tham số | Kiểu dữ liệu | Bắt buộc? | Ràng buộc & Định dạng |
-|:---|:---|:---:|:---|
-| `sellerId` | `Guid (UUID)` | Có | Mã định danh người bán (`SellerProfiles.Id`) hoặc mã tài khoản người dùng (`Users.Id`). Không được để trống `Guid.Empty`. |
+### 2.2 Query Parameters & Request Body
+*Endpoint này không có Query Parameters và không có Request Body.*
 
-### 3.2. Query Parameters (Tham số truy vấn)
-*Không có tham số truy vấn.*
+---
 
-### 3.3. Request Headers
-```http
-GET /api/v1/admin/sellers/11111111-1111-1111-1111-111111111111 HTTP/1.1
-Host: localhost:8001
-Authorization: Bearer <JWT_ACCESS_TOKEN>
+## 3. Đầu ra & Hợp đồng DTO thuần (Response Contract - Pure DTO)
+> **LƯU Ý:** UserService CHỈ trả về DTO thuần, KHÔNG bọc qua `ApiResponse<T>`. Vỏ `ApiResponse<T>` sẽ do API Gateway tự động đóng gói tại biên.
+
+- **Vị trí file:** `User.Application/Services/Seller/SellerResponses.cs`
+- **Tên C# Record:** `AdminSellerProfileResponseDto`
+- **Mã HTTP thành công:** `200 OK`
+- **Khai báo C# Record:**
+```csharp
+public sealed record AdminSellerProfileResponseDto(
+    string SellerId,
+    string ShopId,
+    string UserId,
+    string ShopName,
+    string? AvatarUrl,
+    string? BusinessEmail,
+    string Hotline,
+    string? Description,
+    string PickupAddress,
+    string WarehouseAddress,
+    int ProvinceId,
+    int DistrictId,
+    string WardCode,
+    string? IdentityCardNumber,
+    string? IdCardFrontUrl,
+    string? IdCardBackUrl,
+    string? BusinessLicenseUrl,
+    string OwnerFullName,
+    string OwnerEmail,
+    string? OwnerPhoneNumber,
+    string OwnerGender,
+    DateTimeOffset? OwnerDateOfBirth,
+    string? OwnerAddress,
+    SellerBankInfoDto BankInfo,
+    SellerSettlementInfoDto SettlementInfo,
+    double RatingAvg,
+    int ReputationScore,
+    string TrustLevel,
+    int TotalPositiveReviews,
+    int TotalNegativeReviews,
+    int PenaltyCount,
+    string Status,
+    string? RejectionReason,
+    string? ReviewedBy,
+    string? ReviewedByName,
+    DateTimeOffset? ReviewedAt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt
+);
 ```
-
----
-
-## 4. PHONG BÌ DỮ LIỆU ĐẦU RA (RESPONSE ENVELOPE)
-
-### 4.1. Phản hồi Thành công (`200 OK`)
-Theo quy chuẩn Pure DTO tại microservice (Gateway tự bọc `ApiResponse<T>`):
+- **JSON Response Body mẫu (Pure DTO - camelCase):**
 ```json
 {
   "sellerId": "11111111-1111-1111-1111-111111111111",
+  "shopId": "SHOP_11111111",
   "userId": "22222222-2222-2222-2222-222222222222",
   "shopName": "Green Garden Store",
   "avatarUrl": "https://cdn.example.com/avatars/shop1.png",
   "businessEmail": "seller@greengarden.com",
   "hotline": "0901234567",
-  "status": "Approved",
-  "rejectionReason": null,
+  "description": "Chuyên cung cấp cây cảnh và nông sản sạch",
   "pickupAddress": "123 Garden Street, Ward 5",
+  "warehouseAddress": "123 Garden Street, Ward 5",
   "provinceId": 201,
   "districtId": 1442,
   "wardCode": "20101",
+  "identityCardNumber": "079090123456",
   "idCardFrontUrl": "https://cdn.example.com/kyc/front.jpg",
   "idCardBackUrl": "https://cdn.example.com/kyc/back.jpg",
   "businessLicenseUrl": "https://cdn.example.com/kyc/license.pdf",
   "ownerFullName": "Nguyen Van A",
-  "ownerIdentityNumber": "079090123456",
+  "ownerEmail": "nguyenvana@example.com",
   "ownerPhoneNumber": "0901234567",
-  "ownerReputationScore": 100,
-  "ownerTrustLevel": "Good",
-  "rating": 5.0,
-  "totalReviews": 0,
+  "ownerGender": "Male",
+  "ownerDateOfBirth": "1990-05-15T00:00:00Z",
+  "ownerAddress": "123 Le Loi, Quan 1, TP.HCM",
   "bankInfo": {
-    "bankName": "Unspecified",
-    "accountNumber": "Unspecified",
-    "accountHolderName": "Nguyen Van A"
+    "bankName": "Vietcombank",
+    "bankAccountNumber": "0123456789",
+    "bankAccountHolder": "NGUYEN VAN A",
+    "bankBranch": "Chi nhanh TP.HCM"
   },
   "settlementInfo": {
-    "taxCode": "Unspecified",
-    "invoiceEmail": "seller@greengarden.com",
-    "settlementCycle": "Weekly"
+    "settlementCycle": "Weekly",
+    "autoPayoutEnabled": true,
+    "payoutStatus": "Active"
   },
-  "reviewedBy": null,
-  "reviewedAt": null,
+  "ratingAvg": 4.8,
+  "reputationScore": 98,
+  "trustLevel": "High",
+  "totalPositiveReviews": 150,
+  "totalNegativeReviews": 2,
+  "penaltyCount": 0,
+  "status": "Active",
+  "rejectionReason": null,
+  "reviewedBy": "admin-id-123",
+  "reviewedByName": "Super Admin",
+  "reviewedAt": "2026-11-01T10:00:00Z",
   "createdAt": "2026-11-01T10:00:00Z",
   "updatedAt": "2026-11-01T10:00:00Z"
 }
@@ -101,40 +134,40 @@ Theo quy chuẩn Pure DTO tại microservice (Gateway tự bọc `ApiResponse<T>
 
 ---
 
-## 5. MA TRẬN MÃ LỖI (RFC 9110 ERROR MATRIX)
+## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)
+> **Quy chuẩn:** 100% tiếng Anh, Sentence case cho `message`, SCREAMING_SNAKE_CASE cho `errorCode` (không dùng tiền tố `ERR_`).
 
-| HTTP Status | errorCode (SCREAMING_SNAKE_CASE) | message (100% English Sentence case) | Điều kiện kích hoạt trong Code |
-|:---:|:---|:---|:---|
-| `400` | `VAL_INVALID_INPUT` | "Seller ID cannot be empty." | `sellerId == Guid.Empty` |
-| `401` | `UNAUTHORIZED` | "Authentication token is missing, expired, or invalid." | Người dùng chưa đăng nhập hoặc token không hợp lệ |
-| `403` | `FORBIDDEN` | "You do not have permission to perform this action." | Người dùng thiếu vai trò `admin` hoặc `staff` |
-| `404` | `SELLER_NOT_FOUND` | "Seller profile was not found." | Không tìm thấy hồ sơ người bán với ID đã chỉ định |
-| `500` | `INTERNAL_SERVER_ERROR` | "An unexpected error occurred. Please try again later." | Lỗi máy chủ không mong muốn |
+| HTTP Status | Error Code | Message (Sentence case) | Điều kiện kích hoạt (Trigger Condition) |
+| :---: | :--- | :--- | :--- |
+| `400 Bad Request` | `VAL_INVALID_INPUT` | `Target seller ID is required.` | Giá trị UUID không đúng định dạng |
+| `401 Unauthorized` | `UNAUTHORIZED` | `Authentication is required.` | Thiếu hoặc JWT token hết hạn |
+| `403 Forbidden` | `FORBIDDEN` | `You do not have permission to access or modify this resource.` | Caller không có vai trò Admin hoặc Staff |
+| `404 Not Found` | `SELLER_NOT_FOUND` | `Seller profile was not found.` | Không tìm thấy hồ sơ người bán theo ID |
+| `500 Internal Error` | `INTERNAL_SERVER_ERROR` | `An unexpected error occurred while processing the request.` | Lỗi hệ thống cơ sở dữ liệu không mong muốn |
 
----
-
-## 6. DANH MỤC ENUM LIÊN QUAN (DOMAIN ENUMS)
-
-| Tên trường Payload | Kiểu C# Enum | Giá trị DB (`integer`) | Giá trị API (`string PascalCase`) | Ý nghĩa nghiệp vụ |
-|:---|:---|:---:|:---|:---|
-| `status` | `SellerProfileStatus` | `0` | `Pending` | Chờ duyệt hồ sơ mở Shop |
-| `status` | `SellerProfileStatus` | `1` | `Approved` | Đã duyệt hoạt động |
-| `status` | `SellerProfileStatus` | `2` | `Rejected` | Bị từ chối mở Shop |
-| `ownerTrustLevel` | `TrustLevel` | `0` | `Untrusted` | Chưa được đánh giá |
-| `ownerTrustLevel` | `TrustLevel` | `1` | `Probation` | Thử việc / theo dõi |
-| `ownerTrustLevel` | `TrustLevel` | `2` | `Standard` | Tiêu chuẩn |
-| `ownerTrustLevel` | `TrustLevel` | `3` | `Good` | Tin cậy cao |
-| `ownerTrustLevel` | `TrustLevel` | `4` | `Excellent` | Xuất sắc |
+### 4.1 Bảng Ánh xạ Enum liên quan
+| Tên Enum C# | Giá trị DB (Integer) | Giá trị API (PascalCase) | Ý nghĩa nghiệp vụ |
+| :--- | :---: | :--- | :--- |
+| `SellerProfileStatus.PendingVerification` | `0` | `"PendingVerification"` | Hồ sơ chờ xác minh email/OTP |
+| `SellerProfileStatus.Active` | `1` | `"Active"` | Gian hàng đang hoạt động bình thường |
+| `SellerProfileStatus.Rejected` | `2` | `"Rejected"` | Hồ sơ bị từ chối phê duyệt |
+| `SellerProfileStatus.Suspended` | `3` | `"Suspended"` | Gian hàng đang bị tạm đình chỉ |
 
 ---
 
-## 7. CHECKLIST HOÀN THÀNH & NGHIỆM THU (COMPLETION CHECKLIST)
+## 5. Kế hoạch Thực thi & Checklist Kiểm chứng (Pre-Code Plan & Checklist)
+### 5.1 Các bước thực thi nghiệp vụ (Execution Flow Plan)
+1. **Bước 1:** Trích xuất thông tin người dùng từ JWT qua `HttpContext.GetUserId()` và kiểm tra vai trò `admin`/`staff`.
+2. **Bước 2:** Truy vấn `SellerProfiles` kèm thông tin liên kết từ `Users` theo `sellerId` (hoặc `userId`).
+3. **Bước 3:** Ném ngoại lệ `ResourceNotFoundException("SELLER_NOT_FOUND", "Seller profile was not found.")` nếu không tồn tại.
+4. **Bước 4:** Ánh xạ dữ liệu sang `AdminSellerProfileResponseDto` đảm bảo che các dữ liệu bảo mật nếu cần.
+5. **Bước 5:** Trả về kết quả HTTP 200 OK.
 
-- [x] **1. Tầng Application:** `ISellerService.cs` và `SellerService.cs` đã triển khai `GetAdminSellerProfileAsync`.
-- [x] **2. Tầng Api:** `AdminSellersController.cs` ghép cặp 1-to-1, route `api/v1/admin/sellers/{sellerId}`, role `[RequireRole("admin", "staff")]`.
-- [x] **3. Bắt lỗi & Validation:** Mã lỗi `VAL_INVALID_INPUT`, `SELLER_NOT_FOUND`, `FORBIDDEN`, `UNAUTHORIZED` đúng chuẩn.
-- [x] **4. Enum Mapping:** Toàn bộ enum được lưu integer trong DB và serialize PascalCase ở API.
-- [x] **5. Kiểm thử tự động:** `AdminSellersControllerRestTests.cs` đạt 100% (301/301 tests passed).
-- [x] **6. Tuân thủ Quy chuẩn:** 100% Inward-Only, không tham chiếu ra ngoài repo.
-
-> **Trạng thái nghiệm thu:** `[ ✅ COMPLETED (Lưu tại A_Active) ]`
+### 5.2 Checklist hoàn thành
+- [x] **Pre-Code:** Đã đối soát code có sẵn trong UserService để tái sử dụng DTO/Enum/Naming.
+- [x] **Pre-Code:** Tài liệu API nội bộ này đã được viết và lưu tại `docs/api/A_Active/User/AdminSellers/GET_admin_sellers_sellerId.md`.
+- [x] **Persistence:** Entity & EF Core Configuration đã hoàn thiện.
+- [x] **Application:** Interface, Service, Request/Response DTOs đã viết xong trong `Services/Seller/`.
+- [x] **Api:** Thin Controller đã ghép cặp 1-to-1, trả DTO thuần, XML summary 1 dòng.
+- [x] **Tests:** Đã viết unit tests bao phủ happy path và các mã lỗi trong Error Matrix.
+- [x] **Verify:** `dotnet build User.sln -c Release` và `dotnet test User.sln -c Release` vượt qua 100% với 0 lỗi.

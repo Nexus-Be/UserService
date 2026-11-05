@@ -1,14 +1,15 @@
-# 🌐 USER SERVICE — REST API SPECIFICATION CATALOG (V3.0)
+# 🌐 USER SERVICE — REST API SPECIFICATION CATALOG (V3.1)
 
 > **Tác giả:** Hiển Vinh & AI Agent  
 > **Cổng Microservice:** `user-service:8001` | **Database:** `usermanagement_db:5433` | **API Gateway YARP:** `8080`  
 > **Kiến trúc:** 100% RESTful HTTP/JSON (Cấm gRPC & Message Broker)  
-> **Quy chuẩn Định tuyến:** 100% Plural Route Convention (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/me`, `/api/v1/auth`)  
-> **Phân quyền cố định:** 4 Fixed Roles (`ADMIN`, `STAFF`, `SELLER`, `BUYER`) — Bãi bỏ Dynamic RBAC  
+> **Quy chuẩn Định tuyến:** 100% Plural Route Convention (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/admin/sellers`, `/api/v1/admin/penalties`, `/api/v1/me`, `/api/v1/auth`, `/api/v1/internal/users`)  
+> **Phân quyền chuẩn:** 4 Fixed Roles (`ADMIN`, `STAFF`, `SELLER`, `BUYER`) — Bãi bỏ Dynamic RBAC  
+> **Quy chuẩn Định danh:** 1 User - 1 Primary Role strictly enforced & Segregation of Duties (SoD)  
 > **Cơ chế Quản lý 2 Nhánh:**
-> - `A_Active/User/`: **36 APIs đã hoàn tất 100%** trong C# code & vượt qua 301/301 Tests.
-> - `B_none/`: **33 APIs thuộc Checklist Roadmap** đang chờ triển khai / Phase 2 / Inbound REST.
-> **Cập nhật lần cuối:** 2026-11-02  
+> - `A_Active/User/`: **42 APIs đã hoàn tất 100%** trong C# code & vượt qua 343/343 Tests.
+> - `B_none/`: **32 APIs thuộc Checklist Roadmap** đang chờ triển khai / Phase 2 / Inbound REST.
+> **Cập nhật lần cuối:** 2026-11-05  
 
 ---
 
@@ -18,16 +19,16 @@
 | :--- | :---: | :---: | :---: | :--- |
 | **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **11** | 2 | Hoàn thành Register, Login, Refresh, Password, Test & Logout-all. Còn Sessions |
 | **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **3** | 10 | Hoàn thành Me Profile & Public Safe Profile (`/users/{userId}`). Còn Avatar, Uy tín |
-| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 8 | **7** | 1 | Hoàn thành Onboarding, OTP verify/resend, Status, Own Profile & Public Shop. Còn Documents |
-| **4. Quản trị User & Duyệt Shop (Admin Flow)** | 17 | **14** | 3 | Hoàn thành CRUD Admin Users, Ban/Unban, Roles, Duyệt/Từ chối Shop, Chi tiết Seller (SELLER-09). Còn Audit & Configs |
+| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 10 | **9** | 1 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Suspend & Reactivate. Còn Docs |
+| **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **17** | 3 | Hoàn thành CRUD Users, Ban/Unban, Roles 1-1, Duyệt/Từ chối Shop, Penalties. Còn Audit/Config |
 | **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway |
 | **6. Đánh giá & Tố cáo Vi phạm (Phase 2)** | 10 | **0** | 10 | 100% RESTful, giữ nguyên chờ triển khai Phase 2 |
-| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 7 | **0** | 7 | Thay thế gRPC & RabbitMQ, chờ tích hợp liên service |
-| **TỔNG CỘNG WEB APIs** | **69 API** | **36** | **33** | **36 Web APIs trong A_Active đã Verify 100% (301 Tests Pass)** |
+| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 7 | **1** | 6 | Hoàn thành `/api/v1/internal/users/{userId}/permission-check`. Còn 6 APIs |
+| **TỔNG CỘNG WEB APIs** | **74 API** | **42** | **32** | **42 Web APIs trong A_Active đã Verify 100% (343 Tests Pass)** |
 
 ---
 
-## 🟢 NHÁNH A_ACTIVE (36 ENDPOINTS ĐÃ HOÀN TẤT & KIỂM CHỨNG)
+## 🟢 NHÁNH A_ACTIVE (42 ENDPOINTS ĐÃ HOÀN TẤT & KIỂM CHỨNG)
 
 | STT | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn (RBAC) | Mô tả tóm tắt |
 | :-: | :--- | :--- | :--- | :--- | :--- |
@@ -52,13 +53,13 @@
 | 19 | `GET` | `/api/v1/sellers/profile` | [A_Active/User/Seller/GET_sellers_profile.md](A_Active/User/Seller/GET_sellers_profile.md) | `RequireRole("seller", "admin")` | Retrieves own seller profile for the authenticated merchant. |
 | 20 | `PATCH` | `/api/v1/sellers/profile` | [A_Active/User/Seller/PATCH_sellers_profile.md](A_Active/User/Seller/PATCH_sellers_profile.md) | `RequireRole("seller", "admin")` | Updates own seller profile and warehouse address. |
 | 21 | `GET` | `/api/v1/sellers/{id}` | [A_Active/User/Seller/GET_sellers_id.md](A_Active/User/Seller/GET_sellers_id.md) | `AllowAnonymous` | Retrieves public shop profile for a seller by shop ID or seller ID. |
-| 22 | `POST` | `/api/v1/admin/users` | [A_Active/User/AdminUsers/POST_admin_users.md](A_Active/User/AdminUsers/POST_admin_users.md) | `RequireRole("admin", "staff")` | Creates a user account on behalf of an administrator. |
+| 22 | `POST` | `/api/v1/admin/users` | [A_Active/User/AdminUsers/POST_admin_users.md](A_Active/User/AdminUsers/POST_admin_users.md) | `RequireRole("admin", "staff")` | Creates a user account on behalf of an administrator (1 Role limit). |
 | 23 | `GET` | `/api/v1/admin/users` | [A_Active/User/AdminUsers/GET_admin_users.md](A_Active/User/AdminUsers/GET_admin_users.md) | `RequireRole("admin", "staff")` | Lists user accounts with database-level pagination, search and filters. |
 | 24 | `GET` | `/api/v1/admin/users/{userId}` | [A_Active/User/AdminUsers/GET_admin_users_userId.md](A_Active/User/AdminUsers/GET_admin_users_userId.md) | `RequireRole("admin", "staff")` | Retrieves administrative detail of a single user account. |
 | 25 | `PUT` | `/api/v1/admin/users/{userId}` | [A_Active/User/AdminUsers/PUT_admin_users_userId.md](A_Active/User/AdminUsers/PUT_admin_users_userId.md) | `RequireRole("admin", "staff")` | Updates an existing user account by administrator. |
-| 26 | `PUT` | `/api/v1/admin/users/{userId}/roles` | [A_Active/User/AdminUsers/PUT_admin_users_userId_roles.md](A_Active/User/AdminUsers/PUT_admin_users_userId_roles.md) | `RequireRole("admin", "staff")` | Replaces assigned roles of a user with SoD validation. |
+| 26 | `PUT` | `/api/v1/admin/users/{userId}/roles` | [A_Active/User/AdminUsers/PUT_admin_users_userId_roles.md](A_Active/User/AdminUsers/PUT_admin_users_userId_roles.md) | `RequireRole("admin")` | Replaces assigned roles of a user (Strict 1-User 1-Role & SoD validation). |
 | 27 | `DELETE` | `/api/v1/admin/users/{userId}` | [A_Active/User/AdminUsers/DELETE_admin_users_userId.md](A_Active/User/AdminUsers/DELETE_admin_users_userId.md) | `RequireRole("admin", "staff")` | Soft-deletes a user account and revokes active sessions. |
-| 28 | `PATCH` | `/api/v1/admin/users/{userId}/ban` | [A_Active/User/AdminUsers/PATCH_admin_users_userId_ban.md](A_Active/User/AdminUsers/PATCH_admin_users_userId_ban.md) | `RequireRole("admin")` | Bans a user account for violations (ADMIN-05). |
+| 28 | `PATCH` | `/api/v1/admin/users/{userId}/ban` | [A_Active/User/AdminUsers/PATCH_admin_users_userId_ban.md](A_Active/User/AdminUsers/PATCH_admin_users_userId_ban.md) | `RequireRole("admin")` | Bans a user account for violations, revoking all active sessions (ADMIN-05). |
 | 29 | `PATCH` | `/api/v1/admin/users/{userId}/unban` | [A_Active/User/AdminUsers/PATCH_admin_users_userId_unban.md](A_Active/User/AdminUsers/PATCH_admin_users_userId_unban.md) | `RequireRole("admin")` | Unbans a previously suspended user account (ADMIN-06). |
 | 30 | `GET` | `/api/v1/admin/roles` | [A_Active/User/AdminRoles/GET_admin_roles.md](A_Active/User/AdminRoles/GET_admin_roles.md) | `RequireRole("admin", "staff")` | Lists all system user roles available for assignment. |
 | 31 | `GET` | `/api/v1/admin/seller-registrations` | [A_Active/User/AdminSellerRegistrations/GET_admin_seller_registrations.md](A_Active/User/AdminSellerRegistrations/GET_admin_seller_registrations.md) | `RequireRole("admin", "staff")` | Lists pending seller registration applications with pagination. |
@@ -67,6 +68,12 @@
 | 34 | `PUT` | `/api/v1/admin/seller-registrations/{id}/reject` | [A_Active/User/AdminSellerRegistrations/PUT_admin_seller_registrations_id_reject.md](A_Active/User/AdminSellerRegistrations/PUT_admin_seller_registrations_id_reject.md) | `RequireRole("admin", "staff")` | Rejects a seller registration application with a required reason. |
 | 35 | `GET` | `/health` | [A_Active/User/Health/GET_health.md](A_Active/User/Health/GET_health.md) | `AllowAnonymous` | Service health verification for orchestration and API gateway. |
 | 36 | `GET` | `/api/v1/admin/sellers/{sellerId}` | [A_Active/User/AdminSellers/GET_admin_sellers_sellerId.md](A_Active/User/AdminSellers/GET_admin_sellers_sellerId.md) | `RequireRole("admin", "staff")` | Retrieves complete seller and KYC profile for administrators/staff (`SELLER-09`). |
+| 37 | `PUT` | `/api/v1/admin/sellers/{sellerId}/suspend` | [A_Active/User/AdminSellers/PUT_admin_sellers_sellerId_suspend.md](A_Active/User/AdminSellers/PUT_admin_sellers_sellerId_suspend.md) | `RequireRole("admin", "staff")` | Suspends a merchant store (ShopStatus = Suspended). Personal buyer shopping privileges remain unaffected. |
+| 38 | `PUT` | `/api/v1/admin/sellers/{sellerId}/reactivate` | [A_Active/User/AdminSellers/PUT_admin_sellers_sellerId_reactivate.md](A_Active/User/AdminSellers/PUT_admin_sellers_sellerId_reactivate.md) | `RequireRole("admin", "staff")` | Reactivates a suspended merchant store, restoring selling capabilities (ShopStatus = Active). |
+| 39 | `GET` | `/api/v1/admin/penalties` | [A_Active/User/AdminPenalties/GET_admin_penalties.md](A_Active/User/AdminPenalties/GET_admin_penalties.md) | `RequireRole("admin", "staff")` | Queries paginated list of sanctions and penalty records with filters. |
+| 40 | `GET` | `/api/v1/admin/penalties/{penaltyId}` | [A_Active/User/AdminPenalties/GET_admin_penalties_penaltyId.md](A_Active/User/AdminPenalties/GET_admin_penalties_penaltyId.md) | `RequireRole("admin", "staff")` | Retrieves complete details of a specific penalty record including violation evidence and revocation audit. |
+| 41 | `PUT` | `/api/v1/admin/penalties/{penaltyId}/revoke` | [A_Active/User/AdminPenalties/PUT_admin_penalties_penaltyId_revoke.md](A_Active/User/AdminPenalties/PUT_admin_penalties_penaltyId_revoke.md) | `RequireRole("admin")` | Revokes an active penalty and restores associated operational privileges (Admin only). |
+| 42 | `GET` | `/api/v1/internal/users/{userId}/permission-check` | [A_Active/User/InternalUsers/GET_internal_users_userId_permission_check.md](A_Active/User/InternalUsers/GET_internal_users_userId_permission_check.md) | `Internal` | Real-time permission gatekeeper for downstream microservices to verify user operational eligibility based on active sanctions. |
 
 ---
 
@@ -125,5 +132,4 @@
 | `INT-03` | `GET` | `/api/v1/internal/sellers/{sellerId}/pickup-address` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Fulfillment | Lấy địa chỉ kho lấy hàng GHN của Shop |
 | `INT-04` | `POST` | `/api/v1/internal/users/check-reputation` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Auction | Kiểm tra điều kiện mở đấu giá của Seller |
 | `INT-05` | `GET` | `/api/v1/internal/users/{id}/contact` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Notification | Lấy họ tên, email, SĐT để gửi thông báo |
-| `INT-06` | `POST` | `/api/v1/internal/users/penalties` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Auction, Commerce | Nhận phạt trừ điểm uy tín (Idempotent) |
 | `INT-07` | `POST` | `/api/v1/internal/users/reputation-adjust` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Commerce | Thưởng +1 uy tín khi đơn hàng COMPLETED |
