@@ -3,6 +3,7 @@
 > **Feature / Use Case:** InternalUsers — CheckReputation
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-05
+> **Tác giả:** Hiển Vinh & AI Agent
 > **Caller:** AuctionService
 > **Mô tả chức năng:** Kiểm tra tư cách và uy tín của người bán (Seller) khi tạo phiên đấu giá. Yêu cầu tài khoản đang Active, SellerProfile đã được phê duyệt (Approved) và ReputationScore đạt ngưỡng tối thiểu (>= 50).
 

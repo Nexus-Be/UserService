@@ -3,6 +3,7 @@
 > **Feature / Use Case:** InternalUsers — VerifyBidEligibility
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-05
+> **Tác giả:** Hiển Vinh & AI Agent
 > **Caller:** AuctionService
 > **SLA:** Độ trễ phản hồi < 800ms
 > **Mô tả chức năng:** Xác thực tư cách người mua (Buyer) khi đặt giá trong phiên đấu giá. Kiểm tra tài khoản Active, không dính án phạt tạm thời/banned, và ReputationScore >= 50.

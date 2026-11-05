@@ -492,4 +492,82 @@ public sealed class InternalUserServiceTests
         Assert.NotNull(result);
         Assert.Single(result);
     }
+
+    [Fact]
+    public async Task CheckReputationAsync_WhenActionIsNotSell_ReturnsErrAccountUnverified()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var response = await service.CheckReputationAsync(new CheckReputationRequest("BUY", userId), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.False(response.Allowed);
+        Assert.False(response.IsApprovedSeller);
+        Assert.Equal("ERR_ACCOUNT_UNVERIFIED", response.FailureReason);
+    }
+
+    [Fact]
+    public async Task TargetRoleIsolation_BuyerPenaltyDoesNotBlockSeller_AndSellerPenaltyDoesNotBlockBuyer()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "dual_role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Dual",
+            LastName = "Role",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Dual Shop",
+            PickupAddress = "123 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Hotline = "0901234567",
+            Status = SellerProfileStatus.Approved
+        });
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 80
+        });
+
+        // Add active penalty only targeted at BUYER role
+        dbContext.UserPenalties.Add(new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TargetRole = TargetRole.Buyer,
+            ViolationType = PenaltyViolationType.AuctionNonPayment,
+            PenaltyApplied = PenaltyType.Restriction,
+            Reason = "Non-payment in auction",
+            Status = PenaltyStatus.Active,
+            IssuedAt = DateTimeOffset.UtcNow.AddHours(-1),
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(3)
+        });
+        await dbContext.SaveChangesAsync();
+
+        // 1. Verify Bid Eligibility should be BLOCKED because of Buyer penalty
+        var bidResponse = await service.VerifyBidEligibilityAsync(new VerifyBidEligibilityRequest(userId), CancellationToken.None);
+        Assert.False(bidResponse.Allowed);
+        Assert.Equal("ERR_ACCOUNT_LOCKED_TEMPORARY", bidResponse.FailureReason);
+
+        // 2. Check Reputation (Seller) should still be ALLOWED because penalty is Buyer-only
+        var sellerResponse = await service.CheckReputationAsync(new CheckReputationRequest("SELL", userId), CancellationToken.None);
+        Assert.True(sellerResponse.Allowed);
+        Assert.True(sellerResponse.IsApprovedSeller);
+        Assert.Null(sellerResponse.FailureReason);
+    }
 }

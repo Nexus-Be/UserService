@@ -3,6 +3,7 @@
 > **Feature / Use Case:** InternalUsers — BatchPublicInfo
 > **Trạng thái:** ✅ VERIFIED
 > **Ngày tạo:** 2026-11-05
+> **Tác giả:** Hiển Vinh & AI Agent
 > **Caller:** AuctionService
 > **Mô tả chức năng:** Tra cứu danh sách thông tin công khai và tên che (`maskedName`) phục vụ bảng lịch sử đấu giá (tối đa 100 User). Bỏ qua User không tồn tại. Bao gồm cả User đã xóa mềm (`isDeleted: true`) với tên che tương ứng.
 

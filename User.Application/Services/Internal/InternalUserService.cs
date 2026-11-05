@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Interfaces;
+using User.Domain.Entities;
 using User.Domain.Enums;
 
 public sealed class InternalUserService : IInternalUserService
@@ -30,105 +31,53 @@ public sealed class InternalUserService : IInternalUserService
         CheckReputationRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (request == null || request.UserId == Guid.Empty)
+        var userId = request?.UserId ?? Guid.Empty;
+        var userIdString = userId.ToString();
+
+        // 1. Validate action is "SELL"
+        if (string.IsNullOrWhiteSpace(request?.Action) || !string.Equals(request.Action.Trim(), "SELL", StringComparison.OrdinalIgnoreCase))
         {
+            _logger.LogWarning("[CheckReputation] Unsupported action '{Action}' for UserId: '{UserId}'. Expected 'SELL'.", request?.Action, userId);
             return new CheckReputationResponse(
-                UserId: request?.UserId.ToString() ?? string.Empty,
+                UserId: userIdString,
                 Allowed: false,
                 IsApprovedSeller: false,
                 UserStatus: "Unknown",
-                FailureReason: "ERR_USER_NOT_FOUND");
-        }
-
-        var user = await _dbContext.Users
-            .AsNoTracking()
-            .Include(u => u.SellerProfile)
-            .Include(u => u.ReputationScore)
-            .Include(u => u.PenaltiesReceived)
-            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
-
-        if (user == null || user.IsDeleted || user.Status == UserStatus.Deleted)
-        {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' not found or deleted.", request.UserId);
-            return new CheckReputationResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                IsApprovedSeller: false,
-                UserStatus: "Unknown",
-                FailureReason: "ERR_USER_NOT_FOUND");
-        }
-
-        var statusName = user.Status.ToString();
-
-        if (user.Status == UserStatus.Banned)
-        {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' is permanently banned.", request.UserId);
-            return new CheckReputationResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                IsApprovedSeller: false,
-                UserStatus: statusName,
-                FailureReason: "ERR_ACCOUNT_BANNED");
-        }
-
-        if (user.Status == UserStatus.PendingVerification)
-        {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' is unverified.", request.UserId);
-            return new CheckReputationResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                IsApprovedSeller: false,
-                UserStatus: statusName,
                 FailureReason: "ERR_ACCOUNT_UNVERIFIED");
         }
 
-        // Check active temporary sanctions / penalties
-        var now = DateTimeOffset.UtcNow;
-        var hasActiveTemporarySanction = user.PenaltiesReceived.Any(p =>
-            p.IsCurrentlyActive() &&
-            p.ExpiresAt != null &&
-            (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+        // 2. Base eligibility with TargetRole.Seller
+        var baseResult = await EvaluateBaseEligibilityAsync(
+            userId,
+            TargetRole.Seller,
+            cancellationToken);
 
-        if (hasActiveTemporarySanction)
+        if (!baseResult.Allowed)
         {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' has active temporary penalty.", request.UserId);
             return new CheckReputationResponse(
-                UserId: request.UserId.ToString(),
+                UserId: userIdString,
                 Allowed: false,
                 IsApprovedSeller: false,
-                UserStatus: statusName,
-                FailureReason: "ERR_ACCOUNT_LOCKED_TEMPORARY");
+                UserStatus: baseResult.UserStatus,
+                FailureReason: baseResult.FailureReason);
         }
 
-        // Check SellerProfile status
+        // 3. Check SellerProfile status
+        var user = baseResult.User!;
         var isApprovedSeller = user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved;
         if (!isApprovedSeller)
         {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' is not an approved seller.", request.UserId);
+            _logger.LogInformation("[CheckReputation] User '{UserId}' is not an approved seller.", userId);
             return new CheckReputationResponse(
-                UserId: request.UserId.ToString(),
+                UserId: userIdString,
                 Allowed: false,
                 IsApprovedSeller: false,
-                UserStatus: statusName,
+                UserStatus: baseResult.UserStatus,
                 FailureReason: "ERR_ACCOUNT_UNVERIFIED");
         }
 
-        // Check Reputation Score
-        var currentScore = user.ReputationScore?.CurrentScore ?? DefaultReputationScore;
-        if (currentScore < MinimumAllowedReputationScore)
-        {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' reputation score ({Score}) is below required minimum ({Min}).",
-                request.UserId, currentScore, MinimumAllowedReputationScore);
-            return new CheckReputationResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                IsApprovedSeller: false,
-                UserStatus: statusName,
-                FailureReason: "ERR_REPUTATION_TOO_LOW");
-        }
-
         return new CheckReputationResponse(
-            UserId: request.UserId.ToString(),
+            UserId: userIdString,
             Allowed: true,
             IsApprovedSeller: true,
             UserStatus: "Active",
@@ -139,76 +88,23 @@ public sealed class InternalUserService : IInternalUserService
         VerifyBidEligibilityRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (request == null || request.UserId == Guid.Empty)
+        var userId = request?.UserId ?? Guid.Empty;
+
+        var baseResult = await EvaluateBaseEligibilityAsync(
+            userId,
+            TargetRole.Buyer,
+            cancellationToken);
+
+        if (!baseResult.Allowed)
         {
             return new VerifyBidEligibilityResponse(
-                UserId: request?.UserId.ToString() ?? string.Empty,
+                UserId: userId.ToString(),
                 Allowed: false,
-                FailureReason: "ERR_USER_NOT_FOUND");
-        }
-
-        var user = await _dbContext.Users
-            .AsNoTracking()
-            .Include(u => u.ReputationScore)
-            .Include(u => u.PenaltiesReceived)
-            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
-
-        if (user == null || user.IsDeleted || user.Status == UserStatus.Deleted)
-        {
-            _logger.LogInformation("[VerifyBidEligibility] User '{UserId}' not found or deleted.", request.UserId);
-            return new VerifyBidEligibilityResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                FailureReason: "ERR_USER_NOT_FOUND");
-        }
-
-        if (user.Status == UserStatus.Banned)
-        {
-            _logger.LogInformation("[VerifyBidEligibility] User '{UserId}' is permanently banned.", request.UserId);
-            return new VerifyBidEligibilityResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                FailureReason: "ERR_ACCOUNT_BANNED");
-        }
-
-        if (user.Status == UserStatus.PendingVerification)
-        {
-            _logger.LogInformation("[VerifyBidEligibility] User '{UserId}' is unverified.", request.UserId);
-            return new VerifyBidEligibilityResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                FailureReason: "ERR_ACCOUNT_UNVERIFIED");
-        }
-
-        // Check active temporary sanctions / penalties
-        var now = DateTimeOffset.UtcNow;
-        var hasActiveTemporarySanction = user.PenaltiesReceived.Any(p =>
-            p.IsCurrentlyActive() &&
-            p.ExpiresAt != null &&
-            (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
-
-        if (hasActiveTemporarySanction)
-        {
-            _logger.LogInformation("[VerifyBidEligibility] User '{UserId}' has active temporary penalty.", request.UserId);
-            return new VerifyBidEligibilityResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                FailureReason: "ERR_ACCOUNT_LOCKED_TEMPORARY");
-        }
-
-        var currentScore = user.ReputationScore?.CurrentScore ?? DefaultReputationScore;
-        if (currentScore < MinimumAllowedReputationScore)
-        {
-            _logger.LogInformation("[VerifyBidEligibility] User '{UserId}' reputation score ({Score}) is below required minimum ({Min}).",
-                request.UserId, currentScore, MinimumAllowedReputationScore);
-            return new VerifyBidEligibilityResponse(
-                UserId: request.UserId.ToString(),
-                Allowed: false,
-                FailureReason: "ERR_REPUTATION_TOO_LOW");
+                FailureReason: baseResult.FailureReason);
         }
 
         return new VerifyBidEligibilityResponse(
-            UserId: request.UserId.ToString(),
+            UserId: userId.ToString(),
             Allowed: true,
             FailureReason: null);
     }
@@ -278,5 +174,73 @@ public sealed class InternalUserService : IInternalUserService
         }
 
         return $"{raw[0]}***{raw[^1]}";
+    }
+
+    private sealed record UserBaseEligibilityResult(
+        bool Allowed,
+        Domain.Entities.User? User,
+        string UserStatus,
+        string? FailureReason
+    );
+
+    private async Task<UserBaseEligibilityResult> EvaluateBaseEligibilityAsync(
+        Guid userId,
+        TargetRole targetRole,
+        CancellationToken cancellationToken)
+    {
+        if (userId == Guid.Empty)
+        {
+            return new UserBaseEligibilityResult(false, null, "Unknown", "ERR_USER_NOT_FOUND");
+        }
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.SellerProfile)
+            .Include(u => u.ReputationScore)
+            .Include(u => u.PenaltiesReceived)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user == null || user.IsDeleted || user.Status == UserStatus.Deleted)
+        {
+            _logger.LogInformation("[InternalUser] User '{UserId}' not found or deleted.", userId);
+            return new UserBaseEligibilityResult(false, null, "Unknown", "ERR_USER_NOT_FOUND");
+        }
+
+        var statusName = user.Status.ToString();
+
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogInformation("[InternalUser] User '{UserId}' is permanently banned.", userId);
+            return new UserBaseEligibilityResult(false, user, statusName, "ERR_ACCOUNT_BANNED");
+        }
+
+        if (user.Status == UserStatus.PendingVerification)
+        {
+            _logger.LogInformation("[InternalUser] User '{UserId}' is unverified.", userId);
+            return new UserBaseEligibilityResult(false, user, statusName, "ERR_ACCOUNT_UNVERIFIED");
+        }
+
+        // Check active temporary sanctions / penalties targeted at the given role or the entire account
+        var hasActiveTemporarySanction = user.PenaltiesReceived.Any(p =>
+            p.IsCurrentlyActive() &&
+            (p.TargetRole == targetRole || p.TargetRole == TargetRole.Account) &&
+            (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
+        if (hasActiveTemporarySanction)
+        {
+            _logger.LogInformation("[InternalUser] User '{UserId}' has active temporary penalty for role '{Role}'.", userId, targetRole);
+            return new UserBaseEligibilityResult(false, user, statusName, "ERR_ACCOUNT_LOCKED_TEMPORARY");
+        }
+
+        // Check Reputation Score
+        var currentScore = user.ReputationScore?.CurrentScore ?? DefaultReputationScore;
+        if (currentScore < MinimumAllowedReputationScore)
+        {
+            _logger.LogInformation("[InternalUser] User '{UserId}' reputation score ({Score}) is below required minimum ({Min}).",
+                userId, currentScore, MinimumAllowedReputationScore);
+            return new UserBaseEligibilityResult(false, user, statusName, "ERR_REPUTATION_TOO_LOW");
+        }
+
+        return new UserBaseEligibilityResult(true, user, statusName, null);
     }
 }

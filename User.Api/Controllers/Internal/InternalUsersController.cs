@@ -10,10 +10,7 @@ using Microsoft.Extensions.Logging;
 using User.Application.Services.Admin;
 using User.Application.Services.Internal;
 
-/// <summary>
-/// Controller nội bộ phục vụ giao tiếp liên service (Internal Inter-Service Communication).
-/// Cung cấp endpoint cho AuctionService, Gateway và các service khác kiểm tra điều kiện đấu giá, đặt giá và tra cứu thông tin công khai.
-/// </summary>
+/// <summary>[Internal] Internal inter-service controller for authorization and auction integration.</summary>
 [ApiController]
 [Route("api/v1/internal/users")]
 public sealed class InternalUsersController : ControllerBase
@@ -32,14 +29,11 @@ public sealed class InternalUsersController : ControllerBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// Kiểm tra quyền hạn thực hiện hành vi của người dùng dựa trên các án phạt đang hiệu lực.
-    /// </summary>
-    /// <param name="userId">ID định danh người dùng cần kiểm tra.</param>
-    /// <param name="action">Hành vi mục tiêu (ví dụ: Buy, Sell, Login, Comment).</param>
-    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
-    /// <returns>Đối tượng UserActionPermissionCheckResponseDto chứa IsAllowed, Reason, ActiveSanctions.</returns>
-    /// <response code="200">Kiểm tra hoàn tất, trả về kết quả cho phép hoặc bị cấm kèm lý do.</response>
+    /// <summary>[Internal] Verifies user action permission based on currently active penalties.</summary>
+    /// <param name="userId">Target user identifier.</param>
+    /// <param name="action">Target action (e.g., Buy, Sell, Login, Comment).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Permission check result with allowed status and active sanctions.</returns>
     [HttpGet("{userId:guid}/permission-check")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserActionPermissionCheckResponseDto))]
     public async Task<IActionResult> CheckUserActionPermission(
@@ -52,13 +46,10 @@ public sealed class InternalUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Kiểm tra uy tín và tư cách người bán (Seller) khi tạo phiên đấu giá (Auction Service).
-    /// </summary>
-    /// <param name="request">Payload chứa action (SELL) và userId.</param>
-    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
-    /// <returns>Kết quả kiểm tra allowed, isApprovedSeller, userStatus và failureReason.</returns>
-    /// <response code="200">Kiểm tra hoàn tất, trả về kết quả cho phép hoặc từ chối kèm failureReason.</response>
+    /// <summary>[Internal] Checks reputation and seller qualification when opening an auction session.</summary>
+    /// <param name="request">Request payload containing action (SELL) and userId.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Check result containing allowed, isApprovedSeller, userStatus, and failureReason.</returns>
     [HttpPost("check-reputation")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(CheckReputationResponse))]
     public async Task<IActionResult> CheckReputation(
@@ -70,13 +61,10 @@ public sealed class InternalUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Xác thực tư cách người mua (Buyer) khi đặt giá trong phiên đấu giá (SLA &lt; 800ms).
-    /// </summary>
-    /// <param name="request">Payload chứa userId người đặt giá.</param>
-    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
-    /// <returns>Kết quả allowed và failureReason.</returns>
-    /// <response code="200">Kiểm tra hoàn tất, trả về kết quả cho phép hoặc từ chối kèm failureReason.</response>
+    /// <summary>[Internal] Verifies buyer eligibility when placing bids in an auction (SLA under 800ms).</summary>
+    /// <param name="request">Request payload containing buyer userId.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Check result containing allowed and failureReason.</returns>
     [HttpPost("verify-bid-eligibility")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(VerifyBidEligibilityResponse))]
     public async Task<IActionResult> VerifyBidEligibility(
@@ -88,13 +76,10 @@ public sealed class InternalUsersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Tra cứu danh sách thông tin công khai và tên đã che (maskedName) phục vụ hiển thị lịch sử đấu giá (tối đa 100 User).
-    /// </summary>
-    /// <param name="request">Danh sách các userId cần tra cứu (tối đa 100 ID).</param>
-    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
-    /// <returns>Mảng danh sách các UserPublicInfoDto chứa userId, maskedName, isDeleted.</returns>
-    /// <response code="200">Tra cứu thành công, trả về mảng kết quả.</response>
+    /// <summary>[Internal] Retrieves public masked names for auction bid history feed (max 100 users).</summary>
+    /// <param name="request">List of user IDs to look up (maximum 100 IDs).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Array of user public info records containing userId, maskedName, isDeleted.</returns>
     [HttpPost("batch-public-info")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IReadOnlyList<UserPublicInfoDto>))]
     public async Task<IActionResult> GetBatchPublicInfo(
