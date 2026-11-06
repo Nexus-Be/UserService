@@ -10,7 +10,7 @@ public interface IUserDbContext
     DbSet<User> Users { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<Role> Roles { get; }
-    DbSet<UserRole> UserRoles { get; }
+
     DbSet<Permission> Permissions { get; }
     DbSet<RolePermission> RolePermissions { get; }
     DbSet<SellerProfile> SellerProfiles { get; }

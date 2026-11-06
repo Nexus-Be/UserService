@@ -1,4 +1,4 @@
-﻿namespace User.Application.Services.Auth;
+namespace User.Application.Services.Auth;
 
 using System;
 using System.Text.RegularExpressions;
@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using User.Application.Common.Extensions;
 using User.Application.Interfaces;
 using User.Application.Models;
 using User.Domain.Entities;
@@ -20,7 +21,7 @@ public class AuthService : IAuthService
     private readonly IEmailNotificationClient? _emailNotificationClient;
     private readonly ILogger<AuthService> _logger;
 
-    private static readonly Guid BuyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
 
     public AuthService(
         IUserDbContext dbContext,
@@ -91,7 +92,8 @@ public class AuthService : IAuthService
         }
 
         var existingUser = await _dbContext.Users
-            .Include(u => u.UserRoles)
+            .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
 
         User user;
@@ -147,18 +149,24 @@ public class AuthService : IAuthService
 
             _dbContext.Users.Add(user);
 
-            // Assign default role: Buyer
+            // Assign default role: Buyer (clean query by RoleCode Enum, zero hardcoded GUIDs)
             var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
-            var roleId = buyerRole?.Id ?? BuyerRoleId;
-            user.RoleId = roleId;
-
-            _dbContext.UserRoles.Add(new UserRole
+            if (buyerRole == null)
             {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                RoleId = roleId,
-                AssignedAt = DateTimeOffset.UtcNow
-            });
+                buyerRole = new Role
+                {
+                    Id = Guid.NewGuid(),
+                    RoleCode = RoleType.Buyer,
+                    RoleName = "Buyer",
+                    Description = "Khách mua hàng và tham gia đấu giá",
+                    IsActive = true,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+                _dbContext.Roles.Add(buyerRole);
+            }
+            user.RoleId = buyerRole.Id;
+            user.Role = buyerRole;
 
             // Initialize default reputation score (Standard: 50 points)
             _dbContext.ReputationScores.Add(new ReputationScore
@@ -289,8 +297,8 @@ public class AuthService : IAuthService
         }
 
         var user = await _dbContext.Users
-            .Include(u => u.UserRoles)
-            .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
 
         if (user == null)
@@ -388,18 +396,7 @@ public class AuthService : IAuthService
     private static System.Collections.Generic.IReadOnlyList<string> MapUserRoles(User user)
     {
         var roles = new System.Collections.Generic.List<string>();
-        if (user.UserRoles != null && user.UserRoles.Count > 0)
-        {
-            foreach (var ur in user.UserRoles.Where(ur => !ur.IsDeleted))
-            {
-                roles.Add(ur.Role?.RoleName?.ToLowerInvariant() ?? "buyer");
-            }
-        }
-        else
-        {
-            roles.Add("buyer");
-        }
-
+        ExtractUserRoles(user, roles);
         return roles;
     }
 
@@ -495,8 +492,8 @@ public class AuthService : IAuthService
         var normalizedIdentifier = identifier.ToLowerInvariant();
 
         var user = await _dbContext.Users
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .FirstOrDefaultAsync(u => u.Email == normalizedIdentifier || u.Email == identifier || (u.Username != null && u.Username.ToLower() == normalizedIdentifier), cancellationToken);
 
         if (user == null || user.IsDeleted)
@@ -636,8 +633,8 @@ public class AuthService : IAuthService
 
         var tokenEntity = await _dbContext.RefreshTokens
             .Include(t => t.User)
-                .ThenInclude(u => u!.UserRoles)
-                    .ThenInclude(ur => ur.Role)
+                .ThenInclude(u => u!.Role)
+                .ThenInclude(r => r!.ParentRole)
             .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
         if (tokenEntity == null)
@@ -1150,31 +1147,35 @@ public class AuthService : IAuthService
 
     private static void ExtractUserRoles(User user, List<string> roles)
     {
-        if (user.UserRoles == null || user.UserRoles.Count == 0) return;
-
-        foreach (var ur in user.UserRoles.Where(ur => !ur.IsDeleted))
+        var currentRole = user.Role;
+        while (currentRole != null)
         {
-            if (ur.Role == null) continue;
-
-            var standardRole = ur.Role.RoleCode switch
+            var roleClaim = currentRole.RoleCode switch
             {
                 RoleType.Admin => "admin",
                 RoleType.SupportStaff => "staff",
                 RoleType.Seller => "seller",
                 RoleType.Buyer => "buyer",
-                _ => ur.Role.RoleCode.ToString().ToLowerInvariant()
+                _ => currentRole.RoleCode.ToString().ToLowerInvariant()
             };
 
-            if (!roles.Contains(standardRole))
+            if (!roles.Contains(roleClaim))
             {
-                roles.Add(standardRole);
+                roles.Add(roleClaim);
             }
 
-            var roleName = ur.Role.RoleName?.ToLowerInvariant();
+            var roleName = currentRole.RoleName?.Trim().ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(roleName) && !roles.Contains(roleName))
             {
                 roles.Add(roleName);
             }
+
+            currentRole = currentRole.ParentRole;
+        }
+
+        if (roles.Count == 0)
+        {
+            roles.Add("buyer");
         }
     }
 }

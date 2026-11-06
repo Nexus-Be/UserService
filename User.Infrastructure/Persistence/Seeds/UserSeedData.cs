@@ -11,7 +11,7 @@ public static class UserSeedData
         var seedDate = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         const string defaultPasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG"; // "Password123!"
 
-        // 1. Roles (4 System Roles)
+        // 1. Roles (4 System Roles - Seed GUIDs local to Infrastructure)
         var buyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var sellerRoleId = Guid.Parse("22222222-2222-2222-2222-222222222222");
         var supportRoleId = Guid.Parse("33333333-3333-3333-3333-333333333333");
@@ -25,6 +25,7 @@ public static class UserSeedData
                 RoleName = "Buyer",
                 Description = "Khách mua hàng và tham gia đấu giá",
                 IsActive = true,
+                ParentRoleId = null,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -36,6 +37,7 @@ public static class UserSeedData
                 RoleName = "Seller",
                 Description = "Người bán hàng và mở phiên đấu giá",
                 IsActive = true,
+                ParentRoleId = buyerRoleId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -47,6 +49,7 @@ public static class UserSeedData
                 RoleName = "Support Staff",
                 Description = "Nhân viên hỗ trợ thẩm định và chăm sóc khách hàng",
                 IsActive = true,
+                ParentRoleId = null,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -58,6 +61,7 @@ public static class UserSeedData
                 RoleName = "Administrator",
                 Description = "Quản trị viên tối cao sàn",
                 IsActive = true,
+                ParentRoleId = supportRoleId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -142,49 +146,6 @@ public static class UserSeedData
             }
         );
 
-        // 3. User Roles (Mapping 4 Users to 4 Roles)
-        modelBuilder.Entity<UserRole>().HasData(
-            new UserRole
-            {
-                Id = Guid.Parse("faaaaaaa-1111-1111-1111-111111111111"),
-                UserId = adminUserId,
-                RoleId = adminRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            },
-            new UserRole
-            {
-                Id = Guid.Parse("fbbbbbbb-2222-2222-2222-222222222222"),
-                UserId = staffUserId,
-                RoleId = supportRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            },
-            new UserRole
-            {
-                Id = Guid.Parse("fccccccc-3333-3333-3333-333333333333"),
-                UserId = sellerUserId,
-                RoleId = sellerRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            },
-            new UserRole
-            {
-                Id = Guid.Parse("fddddddd-4444-4444-4444-444444444444"),
-                UserId = buyerUserId,
-                RoleId = buyerRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            }
-        );
 
         // 4. SellerProfile for Seller User
         modelBuilder.Entity<SellerProfile>().HasData(

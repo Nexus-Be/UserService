@@ -466,6 +466,9 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<Guid?>("ParentRoleId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("RoleCode")
                         .HasColumnType("integer");
 
@@ -481,6 +484,8 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ParentRoleId");
 
                     b.ToTable("Roles");
 
@@ -508,6 +513,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
+                            ParentRoleId = new Guid("11111111-1111-1111-1111-111111111111"),
                             RoleCode = 1,
                             RoleName = "Seller",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -536,6 +542,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
+                            ParentRoleId = new Guid("33333333-3333-3333-3333-333333333333"),
                             RoleCode = 3,
                             RoleName = "Administrator",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -1279,88 +1286,6 @@ namespace User.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("User.Domain.Entities.UserRole", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("AssignedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("AssignedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RoleId");
-
-                    b.HasIndex("UserId", "RoleId")
-                        .IsUnique();
-
-                    b.ToTable("UserRoles");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("faaaaaaa-1111-1111-1111-111111111111"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("aaaaaaaa-1111-1111-1111-111111111111")
-                        },
-                        new
-                        {
-                            Id = new Guid("fbbbbbbb-2222-2222-2222-222222222222"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("bbbbbbbb-2222-2222-2222-222222222222")
-                        },
-                        new
-                        {
-                            Id = new Guid("fccccccc-3333-3333-3333-333333333333"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("22222222-2222-2222-2222-222222222222"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("cccccccc-3333-3333-3333-333333333333")
-                        },
-                        new
-                        {
-                            Id = new Guid("fddddddd-4444-4444-4444-444444444444"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("11111111-1111-1111-1111-111111111111"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
-                        });
-                });
-
             modelBuilder.Entity("User.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("User.Domain.Entities.User", "User")
@@ -1399,6 +1324,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.Role", b =>
+                {
+                    b.HasOne("User.Domain.Entities.Role", "ParentRole")
+                        .WithMany("SubRoles")
+                        .HasForeignKey("ParentRoleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ParentRole");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.RolePermission", b =>
@@ -1448,8 +1383,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasOne("User.Domain.Entities.Role", "Role")
                         .WithMany("Users")
                         .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("BannedByUser");
 
@@ -1533,25 +1467,6 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("Reviewer");
                 });
 
-            modelBuilder.Entity("User.Domain.Entities.UserRole", b =>
-                {
-                    b.HasOne("User.Domain.Entities.Role", "Role")
-                        .WithMany("UserRoles")
-                        .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("User.Domain.Entities.User", "User")
-                        .WithMany("UserRoles")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Role");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("User.Domain.Entities.Permission", b =>
                 {
                     b.Navigation("RolePermissions");
@@ -1561,7 +1476,7 @@ namespace User.Infrastructure.Persistence.Migrations
                 {
                     b.Navigation("RolePermissions");
 
-                    b.Navigation("UserRoles");
+                    b.Navigation("SubRoles");
 
                     b.Navigation("Users");
                 });
@@ -1591,8 +1506,6 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("ReviewsReceived");
 
                     b.Navigation("SellerProfile");
-
-                    b.Navigation("UserRoles");
                 });
 #pragma warning restore 612, 618
         }

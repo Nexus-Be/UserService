@@ -47,28 +47,7 @@ public sealed class RequireRoleAttribute : Attribute, IAuthorizationFilter
             var isAuthorized = _allowedRoles.Any(role =>
             {
                 var target = role.Trim().ToLowerInvariant();
-                if (userRoles.Contains(target, StringComparer.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                // Seller automatically inherits all Buyer capabilities (Hierarchical RBAC)
-                if (target == "buyer" && userRoles.Contains("seller", StringComparer.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                if (target == "staff" && (userRoles.Contains("support_staff", StringComparer.OrdinalIgnoreCase) || userRoles.Contains("support staff", StringComparer.OrdinalIgnoreCase)))
-                {
-                    return true;
-                }
-
-                if (target == "admin" && userRoles.Contains("administrator", StringComparer.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                return false;
+                return userRoles.Contains(target, StringComparer.OrdinalIgnoreCase);
             });
 
             if (!isAuthorized)

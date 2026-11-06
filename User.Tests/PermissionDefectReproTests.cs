@@ -71,10 +71,8 @@ public sealed class PermissionDefectReproTests
             LastName = "Test",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
             Status = UserStatus.Active,
-            UserRoles = new List<UserRole>
-            {
-                new() { UserId = userId, RoleId = customRole.Id, Role = customRole }
-            }
+            RoleId = customRole.Id,
+            Role = customRole
         };
 
         using (var setupContext = new AppDbContext(dbOptions))
@@ -127,7 +125,7 @@ public sealed class PermissionDefectReproTests
             .Options;
 
         var role1 = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "buyer" };
-        var role2 = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "seller" };
+        var role2 = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "seller", ParentRoleId = role1.Id, ParentRole = role1 };
 
         var perm1 = new Permission { Id = Guid.NewGuid(), PermissionCode = "ORDER.VIEW ", PermissionName = "Order View Padded", Category = "Order" };
         var perm2 = new Permission { Id = Guid.NewGuid(), PermissionCode = "ORDER.VIEW", PermissionName = "Order View Clean", Category = "Order" };
@@ -144,11 +142,8 @@ public sealed class PermissionDefectReproTests
             LastName = "Test",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
             Status = UserStatus.Active,
-            UserRoles = new List<UserRole>
-            {
-                new() { UserId = userId, RoleId = role1.Id, Role = role1 },
-                new() { UserId = userId, RoleId = role2.Id, Role = role2 }
-            }
+            RoleId = role2.Id,
+            Role = role2
         };
 
         using (var setupContext = new AppDbContext(dbOptions))

@@ -13,8 +13,13 @@ public class Role : AuditableEntity<Guid>
     public bool IsActive { get; set; }
     public bool IsSystemRole { get; set; } = false;
 
+    // Role Hierarchy (Self-referencing Single Inheritance)
+    public Guid? ParentRoleId { get; set; }
+    public Role? ParentRole { get; set; }
+    public ICollection<Role> SubRoles { get; set; } = new List<Role>();
+
     // Navigation
     public ICollection<User> Users { get; set; } = new List<User>();
-    public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+
     public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 }

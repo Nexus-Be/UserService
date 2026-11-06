@@ -92,28 +92,7 @@ public static class HttpContextExtensions
         var roles = context.GetUserRoles();
         var normalized = role.Trim().ToLowerInvariant();
 
-        if (roles.Contains(normalized, StringComparer.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        // Seller automatically inherits all Buyer capabilities (Hierarchical RBAC)
-        if (normalized == "buyer" && roles.Contains("seller", StringComparer.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (normalized == "staff" && (roles.Contains("support_staff", StringComparer.OrdinalIgnoreCase) || roles.Contains("support staff", StringComparer.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        if (normalized == "admin" && roles.Contains("administrator", StringComparer.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return false;
+        return roles.Contains(normalized, StringComparer.OrdinalIgnoreCase);
     }
 
     public static bool HasPermission(this HttpContext context, string permission)
@@ -125,7 +104,7 @@ public static class HttpContextExtensions
 
     public static bool IsAdmin(this HttpContext context)
     {
-        return context.HasRole("admin") || context.HasRole("administrator");
+        return context.HasRole("admin");
     }
 
     public static string? GetTraceId(this HttpContext context)

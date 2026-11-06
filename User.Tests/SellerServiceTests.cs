@@ -1130,8 +1130,8 @@ public sealed class SellerServiceTests
         Assert.NotNull(updatedProfile.ReviewedAt);
 
         // Verify Role SELLER was granted to user
-        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.Contains(userRoles, ur => ur.RoleId == roleId);
+        var updatedUser = await dbContext.Users.FindAsync(userId);
+        Assert.Equal(roleId, updatedUser!.RoleId);
 
         // Verify AuditLog
         var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == regId.ToString() && a.Action == AuditAction.SellerApprove);
@@ -1192,8 +1192,8 @@ public sealed class SellerServiceTests
         Assert.Equal(SellerProfileStatus.Approved, updatedProfile!.Status);
 
         // Verify role Seller was granted
-        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.Contains(userRoles, ur => ur.RoleId == roleId);
+        var updatedUser2 = await dbContext.Users.FindAsync(userId);
+        Assert.Equal(roleId, updatedUser2!.RoleId);
     }
 
     [Fact]

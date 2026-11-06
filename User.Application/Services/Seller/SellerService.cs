@@ -122,8 +122,7 @@ public sealed class SellerService : ISellerService
 
         // 1. Validate user account
         var user = await _dbContext.Users
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
             .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
@@ -147,7 +146,7 @@ public sealed class SellerService : ISellerService
         }
 
         // 2. Check if already a Seller
-        var hasSellerRole = user.UserRoles.Any(ur => ur.Role?.RoleCode == RoleType.Seller);
+        var hasSellerRole = user.Role?.RoleCode == RoleType.Seller;
         var hasApprovedProfile = user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved;
         if (hasSellerRole || hasApprovedProfile)
         {
@@ -719,7 +718,7 @@ public sealed class SellerService : ISellerService
 
         var sellerProfile = await _dbContext.SellerProfiles
             .Include(s => s.User)
-                .ThenInclude(u => u!.UserRoles)
+                .ThenInclude(u => u!.Role)
             .Include(s => s.User)
                 .ThenInclude(u => u!.ReputationScore)
             .FirstOrDefaultAsync(s => s.Id == registrationId, cancellationToken);
@@ -728,7 +727,7 @@ public sealed class SellerService : ISellerService
         {
             sellerProfile = await _dbContext.SellerProfiles
                 .Include(s => s.User)
-                    .ThenInclude(u => u!.UserRoles)
+                    .ThenInclude(u => u!.Role)
                 .Include(s => s.User)
                     .ThenInclude(u => u!.ReputationScore)
                 .FirstOrDefaultAsync(s => s.UserId == registrationId, cancellationToken);
@@ -797,66 +796,36 @@ public sealed class SellerService : ISellerService
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL
-        // 1. Assign Seller role to user (reactivate if soft-deleted record exists to respect unique index)
+        // 1. Assign Seller role to user (1 User 1 Role principle)
         var sellerRole = await _dbContext.Roles
             .FirstOrDefaultAsync(r => r.RoleCode == RoleType.Seller, cancellationToken);
 
         if (sellerRole != null)
         {
+            var oldRoleId = user.RoleId;
             user.RoleId = sellerRole.Id;
             user.Role = sellerRole;
-            var alreadyHasRole = user.UserRoles.Any(ur => ur.RoleId == sellerRole.Id);
-            if (!alreadyHasRole)
-            {
-                var existingSoftDeletedUr = await _dbContext.UserRoles
-                    .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(ur => ur.UserId == sellerProfile.UserId && ur.RoleId == sellerRole.Id, cancellationToken);
+            _logger.LogInformation("[SELLER APPROVAL] Assigned role 'Seller' to UserId: '{UserId}'.", sellerProfile.UserId);
 
-                if (existingSoftDeletedUr != null)
-                {
-                    existingSoftDeletedUr.IsDeleted = false;
-                    existingSoftDeletedUr.DeletedAt = null;
-                    existingSoftDeletedUr.UpdatedAt = DateTimeOffset.UtcNow;
-                    existingSoftDeletedUr.AssignedAt = DateTimeOffset.UtcNow;
-                    existingSoftDeletedUr.AssignedBy = reviewerId;
-                }
-                else
-                {
-                    _dbContext.UserRoles.Add(new UserRole
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = sellerProfile.UserId,
-                        RoleId = sellerRole.Id,
-                        AssignedAt = DateTimeOffset.UtcNow,
-                        AssignedBy = reviewerId
-                    });
-                }
-                _logger.LogInformation("[SELLER APPROVAL] Assigned role 'Seller' to UserId: '{UserId}'.", sellerProfile.UserId);
-            }
+            _dbContext.AddAuditLog(
+                action: AuditAction.RoleAssign,
+                entityName: nameof(User),
+                entityId: user.Id.ToString(),
+                oldValues: new { roleId = oldRoleId },
+                newValues: new { roleId = sellerRole.Id, role = "Seller" },
+                userId: reviewerId?.ToString());
+        }
 
-            // Soft-delete previous Buyer role from UserRoles (1 User 1 Role principle)
-            var oldRoles = user.UserRoles
-                .Where(ur => !ur.IsDeleted && ur.RoleId != sellerRole.Id)
-                .ToList();
+        // Revoke all active refresh tokens for the user to force token rotation to 'seller' role
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == sellerProfile.UserId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
 
-            foreach (var oldUr in oldRoles)
-            {
-                oldUr.IsDeleted = true;
-                oldUr.DeletedAt = DateTimeOffset.UtcNow;
-                oldUr.UpdatedAt = DateTimeOffset.UtcNow;
-            }
-
-            // Revoke all active refresh tokens for the user to force token rotation to 'seller' role
-            var activeTokens = await _dbContext.RefreshTokens
-                .Where(t => t.UserId == sellerProfile.UserId && !t.IsRevoked)
-                .ToListAsync(cancellationToken);
-
-            foreach (var token in activeTokens)
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = DateTimeOffset.UtcNow;
-                token.UpdatedAt = DateTimeOffset.UtcNow;
-            }
+        foreach (var token in activeTokens)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = DateTimeOffset.UtcNow;
+            token.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         // 2. Update SellerProfile status
