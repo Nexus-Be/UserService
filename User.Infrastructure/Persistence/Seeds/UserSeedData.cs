@@ -287,6 +287,28 @@ public static class UserSeedData
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555553"),
+                ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+                ConfigValue = "50",
+                DataType = ConfigDataType.Int,
+                Description = "Ngưỡng điểm uy tín tối thiểu để tham gia đặt giá đấu giá",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555554"),
+                ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+                ConfigValue = "50",
+                DataType = ConfigDataType.Int,
+                Description = "Ngưỡng điểm uy tín tối thiểu cho người bán để tạo phiên đấu giá",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
             }
         );
 

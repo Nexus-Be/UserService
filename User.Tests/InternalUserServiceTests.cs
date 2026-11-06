@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using User.Application.Services.Internal;
 using User.Domain.Entities;
@@ -288,7 +289,7 @@ public sealed class InternalUserServiceTests
     }
 
     [Fact]
-    public async Task CheckReputationAsync_WhenSellerNotApproved_ReturnsErrAccountUnverifiedAndIsApprovedSellerFalse()
+    public async Task CheckReputationAsync_WhenSellerNotApproved_ReturnsNullFailureReasonAndIsApprovedSellerFalse()
     {
         using var dbContext = CreateInMemoryDbContext();
         var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
@@ -324,7 +325,93 @@ public sealed class InternalUserServiceTests
         Assert.Equal(userId.ToString(), response.UserId);
         Assert.False(response.Allowed);
         Assert.False(response.IsApprovedSeller);
-        Assert.Equal("ERR_ACCOUNT_UNVERIFIED", response.FailureReason);
+        Assert.Null(response.FailureReason);
+    }
+
+    [Fact]
+    public async Task CheckReputationAsync_WhenSellerSuspended_ReturnsErrSellerSuspended()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "suspended_seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Suspended",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Suspended Shop",
+            PickupAddress = "123 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Hotline = "0901234567",
+            Status = SellerProfileStatus.Suspended
+        });
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.CheckReputationAsync(new CheckReputationRequest("SELL", userId), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.False(response.Allowed);
+        Assert.False(response.IsApprovedSeller);
+        Assert.Equal("ERR_SELLER_SUSPENDED", response.FailureReason);
+    }
+
+    [Fact]
+    public async Task CheckReputationAsync_WhenSellerSuspendedAndReputationLow_PrioritizesErrSellerSuspended()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "suspended_lowrep@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Suspended",
+            LastName = "LowRep",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Suspended LowRep Shop",
+            PickupAddress = "123 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Hotline = "0901234567",
+            Status = SellerProfileStatus.Suspended
+        });
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 15 // Score is very low (15 < 50), but SellerProfile is Suspended
+        });
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.CheckReputationAsync(new CheckReputationRequest("SELL", userId), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.False(response.Allowed);
+        Assert.False(response.IsApprovedSeller);
+        Assert.Equal("ERR_SELLER_SUSPENDED", response.FailureReason);
     }
 
     [Fact]
@@ -371,6 +458,194 @@ public sealed class InternalUserServiceTests
         Assert.False(response.Allowed);
         Assert.False(response.IsApprovedSeller);
         Assert.Equal("ERR_REPUTATION_TOO_LOW", response.FailureReason);
+    }
+
+    [Fact]
+    public async Task CheckReputationAsync_WhenReputationBelowDynamicConfig_ReturnsErrReputationTooLow()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        // Configure minimum reputation for creating auction = 70
+        dbContext.SystemConfigs.Add(new SystemConfig
+        {
+            Id = Guid.NewGuid(),
+            ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+            ConfigValue = "70",
+            DataType = ConfigDataType.Int
+        });
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "score60_seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Score60",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Score60 Shop",
+            PickupAddress = "123 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "01",
+            Hotline = "0901234567",
+            Status = SellerProfileStatus.Approved
+        });
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 60 // 60 is >= 50, but < 70
+        });
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.CheckReputationAsync(new CheckReputationRequest("SELL", userId), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.False(response.Allowed);
+        Assert.False(response.IsApprovedSeller);
+        Assert.Equal("ERR_REPUTATION_TOO_LOW", response.FailureReason);
+    }
+
+    [Fact]
+    public async Task VerifyBidEligibilityAsync_WhenReputationBelowDynamicConfig_ReturnsErrReputationTooLow()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        // Configure minimum reputation for bidding = 65
+        dbContext.SystemConfigs.Add(new SystemConfig
+        {
+            Id = Guid.NewGuid(),
+            ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+            ConfigValue = "65",
+            DataType = ConfigDataType.Int
+        });
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "score55_buyer@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Score55",
+            LastName = "Buyer",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 55 // 55 is >= 50, but < 65
+        });
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.VerifyBidEligibilityAsync(new VerifyBidEligibilityRequest(userId), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.False(response.Allowed);
+        Assert.Equal("ERR_REPUTATION_TOO_LOW", response.FailureReason);
+    }
+
+    [Fact]
+    public async Task VerifyBidEligibilityAsync_WhenReputationMeetsDynamicConfig_ReturnsAllowedTrue()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
+
+        // Configure minimum reputation for bidding = 40 (relaxed)
+        dbContext.SystemConfigs.Add(new SystemConfig
+        {
+            Id = Guid.NewGuid(),
+            ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+            ConfigValue = "40",
+            DataType = ConfigDataType.Int
+        });
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "score45_buyer@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Score45",
+            LastName = "Buyer",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 45 // 45 is < 50, but >= 40
+        });
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.VerifyBidEligibilityAsync(new VerifyBidEligibilityRequest(userId), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.True(response.Allowed);
+        Assert.Null(response.FailureReason);
+    }
+
+    [Fact]
+    public async Task VerifyBidEligibilityAsync_WithMemoryCache_UsesCachedConfigWithinTtl()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance, memoryCache);
+
+        // Seed initial threshold = 60
+        var config = new SystemConfig
+        {
+            Id = Guid.NewGuid(),
+            ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+            ConfigValue = "60",
+            DataType = ConfigDataType.Int
+        };
+        dbContext.SystemConfigs.Add(config);
+
+        var userId = Guid.NewGuid();
+        var user = new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "cached_user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Cached",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 65 // 65 is >= 60, but < 80
+        });
+        await dbContext.SaveChangesAsync();
+
+        // First call caches the threshold 60
+        var firstResponse = await service.VerifyBidEligibilityAsync(new VerifyBidEligibilityRequest(userId), CancellationToken.None);
+        Assert.True(firstResponse.Allowed);
+
+        // Update DB directly to 80 (without clearing cache)
+        config.ConfigValue = "80";
+        await dbContext.SaveChangesAsync();
+
+        // Second call within TTL still uses cached threshold 60, so score 65 is still allowed
+        var secondResponse = await service.VerifyBidEligibilityAsync(new VerifyBidEligibilityRequest(userId), CancellationToken.None);
+        Assert.True(secondResponse.Allowed);
     }
 
     [Fact]
@@ -494,7 +769,7 @@ public sealed class InternalUserServiceTests
     }
 
     [Fact]
-    public async Task CheckReputationAsync_WhenActionIsNotSell_ReturnsErrAccountUnverified()
+    public async Task CheckReputationAsync_WhenActionIsNotSell_ReturnsErrInvalidAction()
     {
         using var dbContext = CreateInMemoryDbContext();
         var service = new InternalUserService(dbContext, NullLogger<InternalUserService>.Instance);
@@ -505,7 +780,7 @@ public sealed class InternalUserServiceTests
         Assert.NotNull(response);
         Assert.False(response.Allowed);
         Assert.False(response.IsApprovedSeller);
-        Assert.Equal("ERR_ACCOUNT_UNVERIFIED", response.FailureReason);
+        Assert.Equal("ERR_INVALID_ACTION", response.FailureReason);
     }
 
     [Fact]

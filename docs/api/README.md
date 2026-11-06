@@ -1,4 +1,4 @@
-# 🌐 USER SERVICE — REST API SPECIFICATION CATALOG (V3.1)
+# 🌐 USER SERVICE — REST API SPECIFICATION CATALOG (V3.2)
 
 > **Tác giả:** Hiển Vinh & AI Agent  
 > **Cổng Microservice:** `user-service:8001` | **Database:** `usermanagement_db:5433` | **API Gateway YARP:** `8080`  
@@ -7,8 +7,8 @@
 > **Phân quyền chuẩn:** 4 Fixed Roles (`ADMIN`, `STAFF`, `SELLER`, `BUYER`) — Bãi bỏ Dynamic RBAC  
 > **Quy chuẩn Định danh:** 1 User - 1 Primary Role strictly enforced & Segregation of Duties (SoD)  
 > **Cơ chế Quản lý 2 Nhánh:**
-> - `A_Active/User/`: **42 APIs đã hoàn tất 100%** trong C# code & vượt qua 343/343 Tests.
-> - `B_none/`: **32 APIs thuộc Checklist Roadmap** đang chờ triển khai / Phase 2 / Inbound REST.
+> - `A_Active/User/`: **45 APIs đã hoàn tất 100%** trong C# code & vượt qua 364/364 Tests.
+> - `B_none/`: **31 APIs thuộc Checklist Roadmap** đang chờ triển khai / Phase 2 / Inbound REST.
 > **Cập nhật lần cuối:** 2026-11-05  
 
 ---
@@ -19,16 +19,15 @@
 | :--- | :---: | :---: | :---: | :--- |
 | **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **11** | 2 | Hoàn thành Register, Login, Refresh, Password, Test & Logout-all. Còn Sessions |
 | **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **3** | 10 | Hoàn thành Me Profile & Public Safe Profile (`/users/{userId}`). Còn Avatar, Uy tín |
-| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 10 | **9** | 1 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Suspend & Reactivate. Còn Docs |
-| **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **17** | 3 | Hoàn thành CRUD Users, Ban/Unban, Roles 1-1, Duyệt/Từ chối Shop, Penalties. Còn Audit/Config |
+| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **10** | 1 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Suspend & Reactivate, Chi tiết Admin. Còn Docs |
+| **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **16** | 4 | Hoàn thành CRUD Users, Ban/Unban, Roles 1-1, Duyệt/Từ chối Shop, Danh sách/Chi tiết/Thu hồi Penalties. Còn Audit & Configs |
 | **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway |
 | **6. Đánh giá & Tố cáo Vi phạm (Phase 2)** | 10 | **0** | 10 | 100% RESTful, giữ nguyên chờ triển khai Phase 2 |
-| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 7 | **1** | 6 | Hoàn thành `/api/v1/internal/users/{userId}/permission-check`. Còn 6 APIs |
-| **TỔNG CỘNG WEB APIs** | **74 API** | **42** | **32** | **42 Web APIs trong A_Active đã Verify 100% (343 Tests Pass)** |
-
+| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 8 | **4** | 4 | Hoàn thành Gatekeeper permission-check, verify-bid-eligibility, batch-public-info, check-reputation. Còn 4 APIs |
+| **TỔNG CỘNG WEB APIs** | **76 API** | **45** | **31** | **45 Web APIs trong A_Active đã Verify 100% (370 Tests Pass)** |
 ---
 
-## 🟢 NHÁNH A_ACTIVE (42 ENDPOINTS ĐÃ HOÀN TẤT & KIỂM CHỨNG)
+## 🟢 NHÁNH A_ACTIVE (45 ENDPOINTS ĐÃ HOÀN TẤT & KIỂM CHỨNG)
 
 | STT | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn (RBAC) | Mô tả tóm tắt |
 | :-: | :--- | :--- | :--- | :--- | :--- |
@@ -74,7 +73,9 @@
 | 40 | `GET` | `/api/v1/admin/penalties/{penaltyId}` | [A_Active/User/AdminPenalties/GET_admin_penalties_penaltyId.md](A_Active/User/AdminPenalties/GET_admin_penalties_penaltyId.md) | `RequireRole("admin", "staff")` | Retrieves complete details of a specific penalty record including violation evidence and revocation audit. |
 | 41 | `PUT` | `/api/v1/admin/penalties/{penaltyId}/revoke` | [A_Active/User/AdminPenalties/PUT_admin_penalties_penaltyId_revoke.md](A_Active/User/AdminPenalties/PUT_admin_penalties_penaltyId_revoke.md) | `RequireRole("admin")` | Revokes an active penalty and restores associated operational privileges (Admin only). |
 | 42 | `GET` | `/api/v1/internal/users/{userId}/permission-check` | [A_Active/User/InternalUsers/GET_internal_users_userId_permission_check.md](A_Active/User/InternalUsers/GET_internal_users_userId_permission_check.md) | `Internal` | Real-time permission gatekeeper for downstream microservices to verify user operational eligibility based on active sanctions. |
-
+| 43 | `POST` | `/api/v1/internal/users/check-reputation` | [A_Active/User/InternalUsers/POST_internal_users_check_reputation.md](A_Active/User/InternalUsers/POST_internal_users_check_reputation.md) | `Internal` | Checks reputation and seller qualification when opening an auction session (`INT-04`). |
+| 44 | `POST` | `/api/v1/internal/users/verify-bid-eligibility` | [A_Active/User/InternalUsers/POST_internal_users_verify_bid_eligibility.md](A_Active/User/InternalUsers/POST_internal_users_verify_bid_eligibility.md) | `Internal` | Verifies buyer eligibility when placing bids in an auction (`INT-01`, SLA < 800ms). |
+| 45 | `POST` | `/api/v1/internal/users/batch-public-info` | [A_Active/User/InternalUsers/POST_internal_users_batch_public_info.md](A_Active/User/InternalUsers/POST_internal_users_batch_public_info.md) | `Internal` | Retrieves public masked names for auction bid history feed (`INT-02`, max 100 users). |
 ---
 
 ## 🟡 NHÁNH B_NONE (CHECKLIST ROADMAP CHỜ TRIỂN KHAI)
@@ -94,12 +95,10 @@
 | `POLICY-01`| `GET` | `/api/v1/reputation/policy` | [B_none/POLICY-01_GET_REPUTATION_POLICY.md](B_none/POLICY-01_GET_REPUTATION_POLICY.md) | `AllowAnonymous` | Cung cấp thông số cấu hình ngưỡng uy tín |
 | `USER-10` | `POST` | `/api/v1/me/email/change-request` | [B_none/USER-10_POST_ME_EMAIL_CHANGE_REQUEST.md](B_none/USER-10_POST_ME_EMAIL_CHANGE_REQUEST.md) | `RequireRole` | Yêu cầu đổi email đăng nhập |
 | `USER-11` | `POST` | `/api/v1/me/email/change-verify` | [B_none/USER-11_POST_ME_EMAIL_CHANGE_VERIFY.md](B_none/USER-11_POST_ME_EMAIL_CHANGE_VERIFY.md) | `RequireRole` | Xác thực OTP email mới |
-
 ### 2. Hồ sơ Seller Bổ sung
 | Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
 | :---: | :--- | :--- | :--- | :--- | :--- |
 | `SELLER-03`| `POST` | `/api/v1/sellers/registration/documents` | [B_none/32_POST_SELLER_REGISTRATION_DOCUMENTS.md](B_none/32_POST_SELLER_REGISTRATION_DOCUMENTS.md) | `RequireRole` | Upload ảnh CCCD và Giấy phép kinh doanh mở Shop |
-
 ### 3. Đánh giá & Tố cáo Vi phạm (Phase 2)
 | Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
 | :---: | :--- | :--- | :--- | :--- | :--- |
@@ -113,7 +112,6 @@
 | `REPORT-03`| `PUT` | `/api/v1/admin/reports/{reportId}/resolve` | [B_none/41_PUT_ADMIN_REPORTS_RESOLVE.md](B_none/41_PUT_ADMIN_REPORTS_RESOLVE.md) | `RequireRole("admin", "staff")` | Phê chuẩn đơn tố cáo vi phạm |
 | `REPORT-04`| `PUT` | `/api/v1/admin/reports/{reportId}/dismiss` | [B_none/41B_PUT_ADMIN_REPORTS_DISMISS.md](B_none/41B_PUT_ADMIN_REPORTS_DISMISS.md) | `RequireRole("admin", "staff")` | Bác bỏ đơn tố cáo |
 | `REVIEW-04`| `PUT` | `/api/v1/admin/reviews/{id}/hide` | [B_none/42_PUT_ADMIN_REVIEWS_HIDE.md](B_none/42_PUT_ADMIN_REVIEWS_HIDE.md) | `RequireRole("admin", "staff")` | Ẩn đánh giá vi phạm tiêu chuẩn |
-
 ### 4. Quản trị Nâng cao (Admin Flow)
 | Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
 | :---: | :--- | :--- | :--- | :--- | :--- |
@@ -123,13 +121,10 @@
 | `ADMIN-13` | `PUT` | `/api/v1/admin/configs` | [B_none/58_PUT_ADMIN_CONFIGS.md](B_none/58_PUT_ADMIN_CONFIGS.md) | `RequireRole("admin")` | Cập nhật cấu hình hệ thống |
 | `ADMIN-54` | `GET` | `/api/v1/admin/permissions` | [B_none/54_GET_ADMIN_PERMISSIONS.md](B_none/54_GET_ADMIN_PERMISSIONS.md) | `RequireRole("admin")` | Danh mục permissions (Deprecated theo SoD) |
 | `ADMIN-55` | `PUT` | `/api/v1/admin/roles/{roleId}/permissions` | [B_none/55_PUT_ADMIN_ROLES_PERMISSIONS.md](B_none/55_PUT_ADMIN_ROLES_PERMISSIONS.md) | `RequireRole("admin")` | Gán permissions theo vai trò (Deprecated theo SoD) |
-
 ### 5. REST Nội bộ Service Khác Gọi Vào (Inbound REST)
 | Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Caller Service | Mô tả |
 | :---: | :--- | :--- | :--- | :--- | :--- |
-| `INT-01` | `POST` | `/api/v1/internal/users/verify-bid-eligibility` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Auction | Thẩm định quyền đặt giá đấu giá |
-| `INT-02` | `POST` | `/api/v1/internal/users/batch-public-info` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Auction, Commerce | Lấy thông tin công khai hàng loạt che PII |
 | `INT-03` | `GET` | `/api/v1/internal/sellers/{sellerId}/pickup-address` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Fulfillment | Lấy địa chỉ kho lấy hàng GHN của Shop |
-| `INT-04` | `POST` | `/api/v1/internal/users/check-reputation` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Auction | Kiểm tra điều kiện mở đấu giá của Seller |
 | `INT-05` | `GET` | `/api/v1/internal/users/{id}/contact` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Notification | Lấy họ tên, email, SĐT để gửi thông báo |
+| `INT-06` | `POST` | `/api/v1/internal/users/penalties` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Auction, Commerce | Nhận yêu cầu phạt trừ điểm uy tín |
 | `INT-07` | `POST` | `/api/v1/internal/users/reputation-adjust` | [B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md](B_none/INT-00_INBOUND_INTERNAL_REST_APIS.md) | Commerce | Thưởng +1 uy tín khi đơn hàng COMPLETED |

@@ -64,5 +64,7 @@
 - `ERR_USER_NOT_FOUND`: Người dùng không tồn tại hoặc đã bị xóa.
 - `ERR_ACCOUNT_BANNED`: Tài khoản bị khóa vĩnh viễn.
 - `ERR_ACCOUNT_LOCKED_TEMPORARY`: Tài khoản có án phạt tạm thời còn hiệu lực.
-- `ERR_ACCOUNT_UNVERIFIED`: Chưa xác thực tài khoản hoặc chưa được duyệt SellerProfile.
-- `ERR_REPUTATION_TOO_LOW`: Điểm uy tín dưới ngưỡng 50.
+- `ERR_SELLER_SUSPENDED`: Hồ sơ người bán đang bị tạm khóa (Suspended).
+- `ERR_INVALID_ACTION`: Tham số action không hợp lệ (yêu cầu "SELL").
+- `ERR_REPUTATION_TOO_LOW`: Điểm uy tín dưới ngưỡng cấu hình hệ thống (`AUCTION_MIN_REPUTATION_CREATE`).
+- `null`: Người bán chưa có hồ sơ hoặc hồ sơ đang ở trạng thái `Pending` / `Rejected` (AuctionService tự xử lý mã `SELLER_NOT_APPROVED`).

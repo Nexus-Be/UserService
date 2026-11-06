@@ -6,7 +6,7 @@
 > **Tác giả:** Hiển Vinh & AI Agent
 > **Caller:** AuctionService
 > **SLA:** Độ trễ phản hồi < 800ms
-> **Mô tả chức năng:** Xác thực tư cách người mua (Buyer) khi đặt giá trong phiên đấu giá. Kiểm tra tài khoản Active, không dính án phạt tạm thời/banned, và ReputationScore >= 50.
+> **Mô tả chức năng:** Xác thực tư cách người mua (Buyer) khi đặt giá trong phiên đấu giá. Kiểm tra tài khoản Active, không dính án phạt tạm thời/banned, và ReputationScore >= ngưỡng cấu hình hệ thống (`AUCTION_MIN_REPUTATION_BID`, mặc định 50). Cấu hình được lưu bộ nhớ đệm `IMemoryCache` (TTL 1 phút, key `user:config:AUCTION_MIN_REPUTATION_BID`) để đảm bảo nghiêm ngặt SLA dưới 800ms mà không tốn truy vấn DB lặp lại.
 
 ---
 
@@ -60,4 +60,4 @@
 - `ERR_ACCOUNT_BANNED`: Tài khoản bị khóa vĩnh viễn.
 - `ERR_ACCOUNT_LOCKED_TEMPORARY`: Tài khoản có án phạt tạm thời còn hiệu lực.
 - `ERR_ACCOUNT_UNVERIFIED`: Chưa xác thực tài khoản.
-- `ERR_REPUTATION_TOO_LOW`: Điểm uy tín dưới ngưỡng 50.
+- `ERR_REPUTATION_TOO_LOW`: Điểm uy tín dưới ngưỡng cấu hình hệ thống (`AUCTION_MIN_REPUTATION_BID`).

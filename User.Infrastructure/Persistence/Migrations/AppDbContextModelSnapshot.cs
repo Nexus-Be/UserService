@@ -831,6 +831,28 @@ namespace User.Infrastructure.Persistence.Migrations
                             Description = "Tự động kích hoạt tài khoản buyer sau xác thực email",
                             IsDeleted = false,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555553"),
+                            ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+                            ConfigValue = "50",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Ngưỡng điểm uy tín tối thiểu để tham gia đặt giá đấu giá",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555554"),
+                            ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+                            ConfigValue = "50",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Ngưỡng điểm uy tín tối thiểu cho người bán để tạo phiên đấu giá",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         });
                 });
 

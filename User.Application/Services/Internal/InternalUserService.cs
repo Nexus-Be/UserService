@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using User.Application.Interfaces;
 using User.Domain.Entities;
@@ -15,16 +16,19 @@ public sealed class InternalUserService : IInternalUserService
 {
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<InternalUserService> _logger;
+    private readonly IMemoryCache? _cache;
 
     public const int DefaultReputationScore = 50;
     public const int MinimumAllowedReputationScore = 50;
 
     public InternalUserService(
         IUserDbContext dbContext,
-        ILogger<InternalUserService> logger)
+        ILogger<InternalUserService> logger,
+        IMemoryCache? cache = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cache = cache;
     }
 
     public async Task<CheckReputationResponse> CheckReputationAsync(
@@ -43,12 +47,67 @@ public sealed class InternalUserService : IInternalUserService
                 Allowed: false,
                 IsApprovedSeller: false,
                 UserStatus: "Unknown",
-                FailureReason: "ERR_ACCOUNT_UNVERIFIED");
+                FailureReason: "ERR_INVALID_ACTION");
         }
 
-        // 2. Base eligibility with TargetRole.Seller
-        var baseResult = await EvaluateBaseEligibilityAsync(
-            userId,
+        if (userId == Guid.Empty)
+        {
+            return new CheckReputationResponse(
+                UserId: userIdString,
+                Allowed: false,
+                IsApprovedSeller: false,
+                UserStatus: "Unknown",
+                FailureReason: "ERR_USER_NOT_FOUND");
+        }
+
+        // 2. Fetch user with seller profile, reputation, and penalties
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.SellerProfile)
+            .Include(u => u.ReputationScore)
+            .Include(u => u.PenaltiesReceived)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user == null || user.IsDeleted || user.Status == UserStatus.Deleted)
+        {
+            _logger.LogInformation("[CheckReputation] User '{UserId}' not found or deleted.", userId);
+            return new CheckReputationResponse(
+                UserId: userIdString,
+                Allowed: false,
+                IsApprovedSeller: false,
+                UserStatus: "Unknown",
+                FailureReason: "ERR_USER_NOT_FOUND");
+        }
+
+        var statusName = user.Status.ToString();
+
+        // 3. Check SellerProfile status (Auction requirement: Suspended gets dedicated error code; unapproved gets null)
+        if (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+        {
+            _logger.LogInformation("[CheckReputation] User '{UserId}' seller profile is suspended.", userId);
+            return new CheckReputationResponse(
+                UserId: userIdString,
+                Allowed: false,
+                IsApprovedSeller: false,
+                UserStatus: statusName,
+                FailureReason: "ERR_SELLER_SUSPENDED");
+        }
+
+        if (user.SellerProfile == null || user.SellerProfile.Status != SellerProfileStatus.Approved)
+        {
+            _logger.LogInformation("[CheckReputation] User '{UserId}' is not an approved seller. Status: '{Status}'",
+                userId, user.SellerProfile?.Status);
+            return new CheckReputationResponse(
+                UserId: userIdString,
+                Allowed: false,
+                IsApprovedSeller: false,
+                UserStatus: statusName,
+                FailureReason: null);
+        }
+
+        // 4. User is an approved seller; now evaluate qualification to open auction session (Banned, Locked, Reputation)
+        var baseResult = await EvaluateUserEligibilityAsync(
+            user,
             TargetRole.Seller,
             cancellationToken);
 
@@ -62,25 +121,11 @@ public sealed class InternalUserService : IInternalUserService
                 FailureReason: baseResult.FailureReason);
         }
 
-        // 3. Check SellerProfile status
-        var user = baseResult.User!;
-        var isApprovedSeller = user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved;
-        if (!isApprovedSeller)
-        {
-            _logger.LogInformation("[CheckReputation] User '{UserId}' is not an approved seller.", userId);
-            return new CheckReputationResponse(
-                UserId: userIdString,
-                Allowed: false,
-                IsApprovedSeller: false,
-                UserStatus: baseResult.UserStatus,
-                FailureReason: "ERR_ACCOUNT_UNVERIFIED");
-        }
-
         return new CheckReputationResponse(
             UserId: userIdString,
             Allowed: true,
             IsApprovedSeller: true,
-            UserStatus: "Active",
+            UserStatus: baseResult.UserStatus,
             FailureReason: null);
     }
 
@@ -206,17 +251,25 @@ public sealed class InternalUserService : IInternalUserService
             return new UserBaseEligibilityResult(false, null, "Unknown", "ERR_USER_NOT_FOUND");
         }
 
+        return await EvaluateUserEligibilityAsync(user, targetRole, cancellationToken);
+    }
+
+    private async Task<UserBaseEligibilityResult> EvaluateUserEligibilityAsync(
+        Domain.Entities.User user,
+        TargetRole targetRole,
+        CancellationToken cancellationToken)
+    {
         var statusName = user.Status.ToString();
 
         if (user.Status == UserStatus.Banned)
         {
-            _logger.LogInformation("[InternalUser] User '{UserId}' is permanently banned.", userId);
+            _logger.LogInformation("[InternalUser] User '{UserId}' is permanently banned.", user.Id);
             return new UserBaseEligibilityResult(false, user, statusName, "ERR_ACCOUNT_BANNED");
         }
 
         if (user.Status == UserStatus.PendingVerification)
         {
-            _logger.LogInformation("[InternalUser] User '{UserId}' is unverified.", userId);
+            _logger.LogInformation("[InternalUser] User '{UserId}' is unverified.", user.Id);
             return new UserBaseEligibilityResult(false, user, statusName, "ERR_ACCOUNT_UNVERIFIED");
         }
 
@@ -228,19 +281,46 @@ public sealed class InternalUserService : IInternalUserService
 
         if (hasActiveTemporarySanction)
         {
-            _logger.LogInformation("[InternalUser] User '{UserId}' has active temporary penalty for role '{Role}'.", userId, targetRole);
+            _logger.LogInformation("[InternalUser] User '{UserId}' has active temporary penalty for role '{Role}'.", user.Id, targetRole);
             return new UserBaseEligibilityResult(false, user, statusName, "ERR_ACCOUNT_LOCKED_TEMPORARY");
         }
 
-        // Check Reputation Score
+        // Check Reputation Score against dynamic SystemConfig threshold
+        var minRequiredScore = await GetMinimumReputationScoreAsync(targetRole, cancellationToken);
         var currentScore = user.ReputationScore?.CurrentScore ?? DefaultReputationScore;
-        if (currentScore < MinimumAllowedReputationScore)
+        if (currentScore < minRequiredScore)
         {
-            _logger.LogInformation("[InternalUser] User '{UserId}' reputation score ({Score}) is below required minimum ({Min}).",
-                userId, currentScore, MinimumAllowedReputationScore);
+            _logger.LogInformation("[InternalUser] User '{UserId}' reputation score ({Score}) is below required minimum ({Min}) for role '{Role}'.",
+                user.Id, currentScore, minRequiredScore, targetRole);
             return new UserBaseEligibilityResult(false, user, statusName, "ERR_REPUTATION_TOO_LOW");
         }
 
         return new UserBaseEligibilityResult(true, user, statusName, null);
+    }
+
+    private async Task<int> GetMinimumReputationScoreAsync(TargetRole targetRole, CancellationToken cancellationToken)
+    {
+        var configKey = targetRole == TargetRole.Seller
+            ? "AUCTION_MIN_REPUTATION_CREATE"
+            : "AUCTION_MIN_REPUTATION_BID";
+
+        var cacheKey = $"user:config:{configKey}";
+        if (_cache != null && _cache.TryGetValue(cacheKey, out int cachedScore))
+        {
+            return cachedScore;
+        }
+
+        var config = await _dbContext.SystemConfigs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ConfigKey == configKey && !c.IsDeleted, cancellationToken);
+
+        var minScore = DefaultReputationScore;
+        if (config != null && int.TryParse(config.ConfigValue, out var parsed))
+        {
+            minScore = parsed;
+        }
+
+        _cache?.Set(cacheKey, minScore, TimeSpan.FromMinutes(1));
+        return minScore;
     }
 }
