@@ -1,4 +1,4 @@
-﻿namespace User.Tests;
+namespace User.Tests;
 
 using System;
 using System.Collections.Concurrent;
@@ -134,13 +134,12 @@ public sealed class AuthServiceTests
 
         // Verify entity in DB
         var user = await dbContext.Users
-            .Include(u => u.UserRoles)
             .FirstOrDefaultAsync(u => u.Email == "test.buyer@nexus.local");
 
         Assert.NotNull(user);
         Assert.Equal(UserStatus.PendingVerification, user.Status);
-        Assert.Single(user.UserRoles);
-        Assert.Equal(Guid.Parse("11111111-1111-1111-1111-111111111111"), user.UserRoles.First().RoleId);
+        Assert.NotEqual(Guid.Empty, user.RoleId);
+        Assert.Equal(RoleType.Buyer, user.Role?.RoleCode);
 
         // Verify OTP is saved in Redis
         var savedOtp = await otpService.GetOtpAsync("test.buyer@nexus.local");
@@ -419,6 +418,56 @@ public sealed class AuthServiceTests
         Assert.Contains("buyer", result.User.Roles);
         Assert.True(result.ExpiresIn > 0);
         Assert.Equal("Bearer", result.TokenType);
+    }
+
+    [Fact]
+    public async Task LoginAsync_seller_role_yields_both_seller_and_buyer_roles()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var buyerRole = new Domain.Entities.Role
+        {
+            Id = Guid.NewGuid(),
+            RoleCode = RoleType.Buyer,
+            RoleName = "Buyer",
+            IsActive = true
+        };
+        var sellerRole = new Domain.Entities.Role
+        {
+            Id = Guid.NewGuid(),
+            RoleCode = RoleType.Seller,
+            RoleName = "Seller",
+            IsActive = true,
+            ParentRoleId = buyerRole.Id,
+            ParentRole = buyerRole
+        };
+        dbContext.Roles.AddRange(buyerRole, sellerRole);
+
+        var user = new Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "seller.login@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
+            FirstName = "Seller",
+            LastName = "User",
+            Status = UserStatus.Active,
+            RoleId = sellerRole.Id,
+            Role = sellerRole
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var loginDto = new LoginDto("seller.login@nexus.local", "Password123!");
+        var result = await authService.LoginAsync(loginDto);
+
+        Assert.NotNull(result);
+        Assert.Contains("seller", result.User.Roles);
+        Assert.Contains("buyer", result.User.Roles);
+        Assert.Contains("seller", jwtGenerator.CapturedRoles);
+        Assert.Contains("buyer", jwtGenerator.CapturedRoles);
     }
 
     [Fact]
@@ -1589,8 +1638,12 @@ public sealed class AuthServiceTests
 
     private sealed class TestJwtTokenGenerator : IJwtTokenGenerator
     {
+        public System.Collections.Generic.List<string> CapturedRoles { get; } = new();
+
         public string GenerateToken(Domain.Entities.User user, System.Collections.Generic.IEnumerable<string> roles, System.Collections.Generic.IEnumerable<string>? permissions, out DateTime expiresAt)
         {
+            CapturedRoles.Clear();
+            CapturedRoles.AddRange(roles);
             expiresAt = DateTime.UtcNow.AddMinutes(120);
             return "mock-jwt-access-token-xyz";
         }

@@ -43,7 +43,8 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, userId.ToString()),
-            new(ClaimTypes.Role, "seller")
+            new(ClaimTypes.Role, "seller"),
+            new(ClaimTypes.Role, "buyer")
         };
         httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
 
@@ -91,7 +92,8 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         var httpContext = new DefaultHttpContext();
         var claims = new List<Claim>
         {
-            new(ClaimTypes.Role, "seller")
+            new(ClaimTypes.Role, "seller"),
+            new(ClaimTypes.Role, "buyer")
         };
         httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
 
@@ -116,7 +118,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         };
 
         // Assert
-        Assert.Equal(Guid.Parse("11111111-1111-1111-1111-111111111111"), user.RoleId);
+        Assert.Equal(Guid.Empty, user.RoleId);
     }
 
     [Fact]
@@ -281,15 +283,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         };
         dbContext.Users.Add(user);
 
-        // User starts with single role Buyer in UserRoles
-        var buyerUserRole = new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            RoleId = buyerRoleId,
-            IsDeleted = false
-        };
-        dbContext.UserRoles.Add(buyerUserRole);
+
 
         // User has an active RefreshToken
         var activeRefreshToken = new RefreshToken
@@ -328,20 +322,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         var updatedUser = await dbContext.Users.FindAsync(userId);
         Assert.Equal(sellerRoleId, updatedUser!.RoleId);
 
-        // 1 User 1 Role: Active UserRoles must have ONLY SellerRole
-        var activeUserRoles = await dbContext.UserRoles
-            .Where(ur => ur.UserId == userId && !ur.IsDeleted)
-            .ToListAsync();
-        Assert.Single(activeUserRoles);
-        Assert.Equal(sellerRoleId, activeUserRoles[0].RoleId);
 
-        // Buyer role must be soft-deleted
-        var softDeletedBuyerRole = await dbContext.UserRoles
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(ur => ur.UserId == userId && ur.RoleId == buyerRoleId);
-        Assert.NotNull(softDeletedBuyerRole);
-        Assert.True(softDeletedBuyerRole.IsDeleted);
-        Assert.NotNull(softDeletedBuyerRole.DeletedAt);
 
         // Active refresh tokens must be revoked
         var tokenInDb = await dbContext.RefreshTokens.FindAsync(activeRefreshToken.Id);
@@ -377,26 +358,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         };
         dbContext.Users.Add(user);
 
-        // Active Seller role
-        dbContext.UserRoles.Add(new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            RoleId = sellerRoleId,
-            Role = sellerRole,
-            IsDeleted = false
-        });
-
-        // Soft-deleted Buyer role
-        dbContext.UserRoles.Add(new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            RoleId = buyerRoleId,
-            Role = buyerRole,
-            IsDeleted = true,
-            DeletedAt = DateTimeOffset.UtcNow
-        });
+        user.Role = sellerRole;
 
         await dbContext.SaveChangesAsync();
 
@@ -436,11 +398,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         };
         dbContext.Users.Add(user);
 
-        // Seller role is active
-        var sellerUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = sellerRoleId, Role = sellerRole, IsDeleted = false };
-        // Buyer role was previously soft-deleted when upgraded
-        var buyerUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = buyerRoleId, Role = buyerRole, IsDeleted = true, DeletedAt = DateTimeOffset.UtcNow.AddDays(-10) };
-        dbContext.UserRoles.AddRange(sellerUr, buyerUr);
+        user.Role = sellerRole;
 
         var sellerProfile = new SellerProfile
         {
@@ -476,15 +434,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         var updatedUser = await dbContext.Users.FindAsync(targetUserId);
         Assert.Equal(buyerRoleId, updatedUser!.RoleId);
 
-        // In DB: UserRoles active has ONLY 1 role (Buyer)
-        var activeRoles = await dbContext.UserRoles.Where(ur => ur.UserId == targetUserId && !ur.IsDeleted).ToListAsync();
-        Assert.Single(activeRoles);
-        Assert.Equal(buyerRoleId, activeRoles[0].RoleId);
 
-        // Seller role is soft-deleted
-        var softDeletedSeller = await dbContext.UserRoles.IgnoreQueryFilters().FirstOrDefaultAsync(ur => ur.UserId == targetUserId && ur.RoleId == sellerRoleId);
-        Assert.NotNull(softDeletedSeller);
-        Assert.True(softDeletedSeller.IsDeleted);
 
         // SellerProfile is still preserved in Suspended state
         var profileInDb = await dbContext.SellerProfiles.FindAsync(sellerProfile.Id);
@@ -525,7 +475,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
         };
         dbContext.Users.Add(user);
 
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = sellerRoleId, Role = sellerRole, IsDeleted = false });
+        user.Role = sellerRole;
 
         var sellerProfile = new SellerProfile
         {
@@ -580,7 +530,7 @@ public sealed class OneUserOneRoleAndHierarchicalPermissionsTests
             RoleId = buyerRoleId
         };
         dbContext.Users.Add(user);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = buyerRoleId, Role = buyerRole, IsDeleted = false });
+        user.Role = buyerRole;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto

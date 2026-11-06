@@ -197,41 +197,29 @@ public sealed class AdminUserService : IAdminUserService
 
         _dbContext.Users.Add(newUser);
 
-        // 8. Assign roles in UserRoles table
-        var assignedRoleNames = new List<string>();
-        foreach (var roleType in requestedRoles)
+        // 8. Assign role in Users table (1 User 1 Role principle)
+        var primaryRoleType = requestedRoles.First();
+        var roleEntity = await _dbContext.Roles
+            .FirstOrDefaultAsync(r => r.RoleCode == primaryRoleType, cancellationToken);
+
+        if (roleEntity == null)
         {
-            var roleEntity = await _dbContext.Roles
-                .FirstOrDefaultAsync(r => r.RoleCode == roleType, cancellationToken);
-
-            if (roleEntity == null)
-            {
-                // Fallback if role is not seeded in DB
-                roleEntity = new Role
-                {
-                    Id = Guid.NewGuid(),
-                    RoleCode = roleType,
-                    RoleName = roleType.ToString(),
-                    Description = $"System {roleType} role",
-                    IsActive = true,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                };
-                _dbContext.Roles.Add(roleEntity);
-            }
-
-            newUser.RoleId = roleEntity.Id;
-            _dbContext.UserRoles.Add(new UserRole
+            roleEntity = new Role
             {
                 Id = Guid.NewGuid(),
-                UserId = newUser.Id,
-                RoleId = roleEntity.Id,
-                AssignedAt = DateTimeOffset.UtcNow,
-                AssignedBy = adminId
-            });
-
-            assignedRoleNames.Add(roleEntity.RoleName.ToLowerInvariant());
+                RoleCode = primaryRoleType,
+                RoleName = primaryRoleType.ToString(),
+                Description = $"System {primaryRoleType} role",
+                IsActive = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            _dbContext.Roles.Add(roleEntity);
         }
+
+        newUser.RoleId = roleEntity.Id;
+        newUser.Role = roleEntity;
+        var assignedRoleNames = new List<string> { roleEntity.RoleName.ToLowerInvariant() };
 
         // 9. Initialize default reputation score (50 - Standard)
         _dbContext.ReputationScores.Add(new ReputationScore
@@ -310,8 +298,8 @@ public sealed class AdminUserService : IAdminUserService
         var query = _dbContext.Users
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .Include(u => u.ReputationScore)
             .Include(u => u.SellerProfile)
             .AsQueryable();
@@ -361,7 +349,7 @@ public sealed class AdminUserService : IAdminUserService
 
             if (targetRoleType.HasValue)
             {
-                query = query.Where(u => u.UserRoles.Any(ur => ur.Role != null && ur.Role.RoleCode == targetRoleType.Value));
+                query = query.Where(u => u.Role != null && u.Role.RoleCode == targetRoleType.Value);
             }
         }
 
@@ -378,10 +366,7 @@ public sealed class AdminUserService : IAdminUserService
         // 6. Map to DTOs
         var items = users.Select(u =>
         {
-            var roles = u.UserRoles?
-                .Where(ur => !ur.IsDeleted && ur.Role != null)
-                .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
-                .ToList() ?? new List<string>();
+            var roles = u.GetInheritedRoleClaims();
 
             if (roles.Count == 0)
             {
@@ -432,10 +417,11 @@ public sealed class AdminUserService : IAdminUserService
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role!)
-                    .ThenInclude(r => r.RolePermissions)
-                        .ThenInclude(rp => rp.Permission)
+            .Include(u => u.Role!)
+                .ThenInclude(r => r.ParentRole)
+            .Include(u => u.Role!)
+                .ThenInclude(r => r.RolePermissions)
+                    .ThenInclude(rp => rp.Permission)
             .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .Include(u => u.ReputationLogs)
@@ -448,21 +434,10 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // Roles
-        var roles = user.UserRoles?
-            .Where(ur => !ur.IsDeleted && ur.Role != null)
-            .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
-            .Distinct()
-            .ToList() ?? new List<string>();
-
-        if (roles.Count == 0)
-        {
-            roles.Add("buyer");
-        }
+        var roles = user.GetInheritedRoleClaims();
 
         // Permissions
-        var permissions = user.UserRoles?
-            .Where(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RolePermissions != null)
-            .SelectMany(ur => ur.Role!.RolePermissions)
+        var permissions = user.Role?.RolePermissions?
             .Where(rp => rp.Permission != null)
             .Select(rp => rp.Permission!.PermissionCode.ToLowerInvariant())
             .Distinct()
@@ -612,8 +587,7 @@ public sealed class AdminUserService : IAdminUserService
 
         // 1. Validate user exists
         var targetUser = await _dbContext.Users
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
             .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId && !u.IsDeleted, cancellationToken);
 
@@ -716,19 +690,13 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 4. Demotion Guard: Cannot demote the last active Administrator
-        var currentRoles = targetUser.UserRoles
-            .Where(ur => !ur.IsDeleted && ur.Role != null)
-            .Select(ur => ur.Role!.RoleCode)
-            .ToHashSet();
+        var currentRole = targetUser.Role?.RoleCode;
 
-        if (currentRoles.Contains(RoleType.Admin) && !requestedRoles.Contains(RoleType.Admin))
+        if (currentRole == RoleType.Admin && !requestedRoles.Contains(RoleType.Admin))
         {
-            var activeAdminCount = await _dbContext.UserRoles
-                .Include(ur => ur.User)
-                .Include(ur => ur.Role)
-                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
-                .Select(ur => ur.UserId)
-                .Distinct()
+            var activeAdminCount = await _dbContext.Users
+                .Include(u => u.Role)
+                .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
                 .CountAsync(cancellationToken);
 
             if (activeAdminCount <= 1)
@@ -738,7 +706,7 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 5. Seller Role Guards
-        if (!currentRoles.Contains(RoleType.Seller) && requestedRoles.Contains(RoleType.Seller))
+        if (currentRole != RoleType.Seller && requestedRoles.Contains(RoleType.Seller))
         {
             _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to assign seller role directly to User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
             throw new BusinessRuleValidationException(
@@ -746,7 +714,7 @@ public sealed class AdminUserService : IAdminUserService
                 "Seller role cannot be assigned directly. It must be granted through the seller registration approval workflow.");
         }
 
-        if (currentRoles.Contains(RoleType.Seller) && !requestedRoles.Contains(RoleType.Seller))
+        if (currentRole == RoleType.Seller && !requestedRoles.Contains(RoleType.Seller))
         {
             var isShopSuspended = targetUser.SellerProfile != null && targetUser.SellerProfile.Status == SellerProfileStatus.Suspended;
             if (!isShopSuspended)
@@ -758,65 +726,17 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 6. Update UserRoles
-        var oldRoleNames = targetUser.UserRoles
-            .Where(ur => !ur.IsDeleted && ur.Role != null)
-            .Select(ur => ur.Role!.RoleCode.ToString())
-            .ToList();
-
-        // Mark removed roles as deleted
-        foreach (var existingUr in targetUser.UserRoles.Where(ur => !ur.IsDeleted).ToList())
+        // 6. Update RoleId (1 User 1 Role principle)
+        var oldRoleNames = currentRole.HasValue ? new List<string> { currentRole.Value.ToString() } : new List<string>();
+        var newRoleType = requestedRoles.First();
+        var targetDbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == newRoleType);
+        if (targetDbRole == null)
         {
-            if (existingUr.Role == null || !requestedRoles.Contains(existingUr.Role.RoleCode))
-            {
-                existingUr.IsDeleted = true;
-                existingUr.DeletedAt = DateTimeOffset.UtcNow;
-                existingUr.UpdatedAt = DateTimeOffset.UtcNow;
-            }
+            throw new DomainException("ROLE_NOT_FOUND", $"Role '{newRoleType}' was not found in the system.");
         }
 
-        // Add new roles (reactivate if soft-deleted record exists to respect unique index)
-        foreach (var reqRole in requestedRoles)
-        {
-            var alreadyHas = targetUser.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == reqRole);
-            if (!alreadyHas)
-            {
-                var dbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == reqRole);
-                if (dbRole != null)
-                {
-                    targetUser.RoleId = dbRole.Id;
-                    targetUser.Role = dbRole;
-                    var existingSoftDeletedUr = await _dbContext.UserRoles
-                        .IgnoreQueryFilters()
-                        .FirstOrDefaultAsync(ur => ur.UserId == targetUser.Id && ur.RoleId == dbRole.Id, cancellationToken);
-
-                    if (existingSoftDeletedUr != null)
-                    {
-                        existingSoftDeletedUr.IsDeleted = false;
-                        existingSoftDeletedUr.DeletedAt = null;
-                        existingSoftDeletedUr.UpdatedAt = DateTimeOffset.UtcNow;
-                        existingSoftDeletedUr.AssignedAt = DateTimeOffset.UtcNow;
-                        existingSoftDeletedUr.AssignedBy = adminId ?? Guid.Empty;
-                    }
-                    else
-                    {
-                        targetUser.RoleId = dbRole.Id;
-                        targetUser.Role = dbRole;
-                        _dbContext.UserRoles.Add(new UserRole
-                        {
-                            Id = Guid.NewGuid(),
-                            UserId = targetUser.Id,
-                            RoleId = dbRole.Id,
-                            AssignedAt = DateTimeOffset.UtcNow,
-                            AssignedBy = adminId ?? Guid.Empty,
-                            CreatedAt = DateTimeOffset.UtcNow,
-                            UpdatedAt = DateTimeOffset.UtcNow,
-                            IsDeleted = false
-                        });
-                    }
-                }
-            }
-        }
+        targetUser.RoleId = targetDbRole.Id;
+        targetUser.Role = targetDbRole;
 
         var newRoleNames = requestedRoles.Select(r => r.ToString().ToLowerInvariant()).ToList();
 
@@ -826,12 +746,12 @@ public sealed class AdminUserService : IAdminUserService
         // 8. Ghi AuditLog
         _dbContext.AddAuditLog(
             action: AuditAction.RoleAssign,
-            entityName: "UserRoles",
+            entityName: "Users",
             entityId: targetUserId.ToString(),
             oldValues: oldRoleNames,
             newValues: newRoleNames,
             userId: adminId?.ToString(),
-            changedColumns: new[] { "UserRoles" });
+            changedColumns: new[] { "RoleId" });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -1087,8 +1007,7 @@ public sealed class AdminUserService : IAdminUserService
         // 1. Find user in DB (including query filter scope)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
             .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
@@ -1105,17 +1024,13 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 2. Demotion/Delete Guard for last active Admin
-        var isTargetAdmin = user.UserRoles
-            .Any(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RoleCode == RoleType.Admin);
+        var isTargetAdmin = user.Role != null && user.Role.RoleCode == RoleType.Admin;
 
         if (isTargetAdmin)
         {
-            var activeAdminCount = await _dbContext.UserRoles
-                .Include(ur => ur.User)
-                .Include(ur => ur.Role)
-                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
-                .Select(ur => ur.UserId)
-                .Distinct()
+            var activeAdminCount = await _dbContext.Users
+                .Include(u => u.Role)
+                .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
                 .CountAsync(cancellationToken);
 
             if (activeAdminCount <= 1)
@@ -1208,8 +1123,7 @@ public sealed class AdminUserService : IAdminUserService
         // 1. Find user in DB (including soft-deleted for correct error status)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
             .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
@@ -1232,17 +1146,13 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 2. Guard against banning the last active Administrator
-        var isTargetAdmin = user.UserRoles
-            .Any(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RoleCode == RoleType.Admin);
+        var isTargetAdmin = user.Role != null && user.Role.RoleCode == RoleType.Admin;
 
         if (isTargetAdmin)
         {
-            var activeAdminCount = await _dbContext.UserRoles
-                .Include(ur => ur.User)
-                .Include(ur => ur.Role)
-                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
-                .Select(ur => ur.UserId)
-                .Distinct()
+            var activeAdminCount = await _dbContext.Users
+                .Include(u => u.Role)
+                .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
                 .CountAsync(cancellationToken);
 
             if (activeAdminCount <= 1)

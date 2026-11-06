@@ -26,13 +26,13 @@ public class User : AuditableEntity<Guid>
     public string? BanReason { get; set; }
 
     // 1 User 1 Role core assignment (Default: Buyer)
-    public Guid RoleId { get; set; } = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    public Guid RoleId { get; set; }
 
     // Navigation
     public Role? Role { get; set; }
     public User? BannedByUser { get; set; }
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
-    public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+
     public SellerProfile? SellerProfile { get; set; }
     public ReputationScore? ReputationScore { get; set; }
     public ICollection<ReputationLog> ReputationLogs { get; set; } = new List<ReputationLog>();

@@ -80,10 +80,11 @@ public sealed class AdminUserServiceTests
         Assert.NotEqual("StaffPassword123!", user.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify("StaffPassword123!", user.PasswordHash));
 
-        // Verify UserRole
-        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.Single(userRoles);
-        Assert.Equal(adminId, userRoles[0].AssignedBy);
+        // Verify User.RoleId
+        var createdUser = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(createdUser);
+        var staffRole = await dbContext.Roles.FirstAsync(r => r.RoleCode == RoleType.SupportStaff);
+        Assert.Equal(staffRole.Id, createdUser.RoleId);
 
         // Verify ReputationScore initialized
         var repScore = await dbContext.ReputationScores.FirstOrDefaultAsync(r => r.UserId == userId);
@@ -354,10 +355,10 @@ public sealed class AdminUserServiceTests
         };
 
         dbContext.Users.AddRange(staffUser, buyerUser);
-        dbContext.UserRoles.AddRange(
-            new UserRole { Id = Guid.NewGuid(), UserId = staffUser.Id, RoleId = staffRole.Id },
-            new UserRole { Id = Guid.NewGuid(), UserId = buyerUser.Id, RoleId = buyerRole.Id }
-        );
+        staffUser.RoleId = staffRole.Id;
+        staffUser.Role = staffRole;
+        buyerUser.RoleId = buyerRole.Id;
+        buyerUser.Role = buyerRole;
         await dbContext.SaveChangesAsync();
 
         var staffList = await service.GetUsersAsync(role: "staff", cancellationToken: CancellationToken.None);
@@ -438,8 +439,8 @@ public sealed class AdminUserServiceTests
         };
         dbContext.Users.Add(user);
 
-        var userRole = new UserRole { Id = Guid.NewGuid(), UserId = userId, RoleId = role.Id };
-        dbContext.UserRoles.Add(userRole);
+        user.RoleId = role.Id;
+        user.Role = role;
 
         var repScore = new ReputationScore
         {
@@ -615,8 +616,8 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        var testUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id };
-        dbContext.UserRoles.Add(testUr);
+        user.RoleId = rBuyer.Id;
+        user.Role = rBuyer;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -658,8 +659,8 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        var testUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id };
-        dbContext.UserRoles.Add(testUr);
+        user.RoleId = rBuyer.Id;
+        user.Role = rBuyer;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -696,10 +697,8 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        dbContext.UserRoles.AddRange(
-            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id },
-            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rSeller.Id }
-        );
+        user.RoleId = rSeller.Id;
+        user.Role = rSeller;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -736,10 +735,8 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        dbContext.UserRoles.AddRange(
-            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id },
-            new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rSeller.Id }
-        );
+        user.RoleId = rSeller.Id;
+        user.Role = rSeller;
 
         var sellerProfile = new SellerProfile
         {
@@ -826,7 +823,7 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id });
+        user.RoleId = rBuyer.Id; user.Role = rBuyer;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -897,7 +894,7 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id });
+        user.RoleId = rBuyer.Id; user.Role = rBuyer;
 
         var token1 = new RefreshToken
         {
@@ -935,7 +932,7 @@ public sealed class AdminUserServiceTests
     }
 
     [Fact]
-    public async Task AssignUserRolesAsync_WhenReactivatingSoftDeletedRole_ReactivatesExistingRecordWithoutDuplicateKeyError()
+    public async Task AssignUserRolesAsync_WhenUpdatingRole_UpdatesUsersRoleIdDirectly()
     {
         using var dbContext = CreateInMemoryDbContext();
         var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
@@ -952,20 +949,11 @@ public sealed class AdminUserServiceTests
             PasswordHash = "hash",
             FirstName = "Reactivate",
             LastName = "User",
-            Status = UserStatus.Active
+            Status = UserStatus.Active,
+            RoleId = rBuyer.Id,
+            Role = rBuyer
         };
         dbContext.Users.Add(user);
-
-        var activeBuyerUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id, IsDeleted = false };
-        var softDeletedStaffUr = new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = targetUserId,
-            RoleId = rStaff.Id,
-            IsDeleted = true,
-            DeletedAt = DateTimeOffset.UtcNow.AddDays(-1)
-        };
-        dbContext.UserRoles.AddRange(activeBuyerUr, softDeletedStaffUr);
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -981,20 +969,9 @@ public sealed class AdminUserServiceTests
         Assert.Single(result.Roles);
         Assert.Contains("supportstaff", result.Roles);
 
-        var reactivatedUr = await dbContext.UserRoles
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(ur => ur.Id == softDeletedStaffUr.Id);
-
-        Assert.NotNull(reactivatedUr);
-        Assert.False(reactivatedUr.IsDeleted);
-        Assert.Null(reactivatedUr.DeletedAt);
-
-        var oldBuyerUr = await dbContext.UserRoles
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(ur => ur.Id == activeBuyerUr.Id);
-
-        Assert.NotNull(oldBuyerUr);
-        Assert.True(oldBuyerUr.IsDeleted);
+        var updatedUser = await dbContext.Users.FindAsync(targetUserId);
+        Assert.NotNull(updatedUser);
+        Assert.Equal(rStaff.Id, updatedUser.RoleId);
     }
 
     [Fact]
@@ -1049,7 +1026,7 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(soleAdmin);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = soleAdminId, RoleId = rAdmin.Id });
+        soleAdmin.RoleId = rAdmin.Id; soleAdmin.Role = rAdmin;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -1398,7 +1375,7 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(soleAdmin);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = soleAdminId, RoleId = rAdmin.Id });
+        soleAdmin.RoleId = rAdmin.Id; soleAdmin.Role = rAdmin;
         await dbContext.SaveChangesAsync();
 
         var dto = new DeleteAdminUserDto
@@ -1580,13 +1557,8 @@ public sealed class AdminUserServiceTests
         };
         dbContext.Users.Add(adminUser);
 
-        dbContext.UserRoles.Add(new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = adminId,
-            RoleId = rAdmin.Id,
-            IsDeleted = false
-        });
+        adminUser.RoleId = rAdmin.Id;
+        adminUser.Role = rAdmin;
         await dbContext.SaveChangesAsync();
 
         var dto = new BanAdminUserDto { Reason = "Banning the last admin" };

@@ -54,18 +54,11 @@ public sealed class ProfileServiceTests
             Status = UserStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
-            IsDeleted = false
+            IsDeleted = false,
+            RoleId = roleId,
+            Role = role
         };
         dbContext.Users.Add(user);
-
-        dbContext.UserRoles.Add(new UserRole
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            RoleId = roleId,
-            Role = role,
-            AssignedAt = DateTimeOffset.UtcNow
-        });
 
         dbContext.SellerProfiles.Add(new SellerProfile
         {
