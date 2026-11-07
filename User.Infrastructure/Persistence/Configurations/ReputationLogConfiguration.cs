@@ -10,6 +10,9 @@ public class ReputationLogConfiguration : IEntityTypeConfiguration<ReputationLog
     {
         builder.HasKey(x => x.Id);
         builder.Property(x => x.ReferenceId).HasMaxLength(100);
+        builder.Property(x => x.Note).HasMaxLength(500);
+
+        builder.HasIndex(x => new { x.UserId, x.TargetRole, x.PartnerUserId, x.CreatedAt });
 
         builder.HasOne(l => l.User)
             .WithMany(u => u.ReputationLogs)

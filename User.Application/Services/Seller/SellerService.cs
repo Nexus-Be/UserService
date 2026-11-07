@@ -828,11 +828,20 @@ public sealed class SellerService : ISellerService
             token.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
-        // 2. Update SellerProfile status
+        // 2. Update SellerProfile status and initialize isolated SellerScore (50 - Standard)
         sellerProfile.Status = SellerProfileStatus.Approved;
         sellerProfile.ReviewedBy = reviewerId;
         sellerProfile.ReviewedAt = DateTimeOffset.UtcNow;
         sellerProfile.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (user.ReputationScore != null)
+        {
+            user.ReputationScore.InitializeSellerScore();
+        }
+        else
+        {
+            _dbContext.ReputationScores.Add(ReputationScore.CreateDefault(user.Id));
+        }
 
         // 3. Record audit log
         _dbContext.AddAuditLog(
@@ -1054,6 +1063,8 @@ public sealed class SellerService : ISellerService
 
         var reputationScore = sellerProfile.User?.ReputationScore?.CurrentScore ?? 50;
         var trustLevel = sellerProfile.User?.ReputationScore?.TrustLevel.ToString() ?? TrustLevel.Standard.ToString();
+        var sellerReputationScore = sellerProfile.User?.ReputationScore?.SellerScore ?? 50;
+        var sellerTrustLevel = sellerProfile.User?.ReputationScore?.SellerTrustLevel.ToString() ?? TrustLevel.Standard.ToString();
 
         return new SellerOwnProfileResponseDto(
             SellerId: sellerProfile.Id.ToString(),
@@ -1073,7 +1084,9 @@ public sealed class SellerService : ISellerService
             ReputationScore: reputationScore,
             TrustLevel: trustLevel,
             CreatedAt: sellerProfile.CreatedAt,
-            UpdatedAt: sellerProfile.UpdatedAt
+            UpdatedAt: sellerProfile.UpdatedAt,
+            SellerReputationScore: sellerReputationScore,
+            SellerTrustLevel: sellerTrustLevel
         );
     }
 
@@ -1342,6 +1355,11 @@ public sealed class SellerService : ISellerService
 
         var reputationScore = profile.User?.ReputationScore?.CurrentScore ?? 50;
         var trustLevel = profile.User?.ReputationScore?.TrustLevel.ToString() ?? TrustLevel.Standard.ToString();
+        var sellerReputationScore = profile.User?.ReputationScore?.SellerScore ?? 50;
+        var sellerTrustLevel = profile.User?.ReputationScore?.SellerTrustLevel.ToString() ?? TrustLevel.Standard.ToString();
+        var penaltyCount = (profile.User?.ReputationScore?.SellerPenaltyCount ?? 0) > 0
+            ? profile.User!.ReputationScore!.SellerPenaltyCount
+            : (profile.User?.ReputationScore?.PenaltyCount ?? 0);
 
         var ownerFullName = profile.User != null
             ? $"{profile.User.FirstName} {profile.User.LastName}".Trim()
@@ -1391,14 +1409,16 @@ public sealed class SellerService : ISellerService
             TrustLevel: trustLevel,
             TotalPositiveReviews: totalPositiveReviews,
             TotalNegativeReviews: totalNegativeReviews,
-            PenaltyCount: 0,
+            PenaltyCount: penaltyCount,
             Status: profile.Status.ToString(),
             RejectionReason: profile.RejectionReason,
             ReviewedBy: profile.ReviewedBy?.ToString(),
             ReviewedByName: reviewedByName,
             ReviewedAt: profile.ReviewedAt,
             CreatedAt: profile.CreatedAt,
-            UpdatedAt: profile.UpdatedAt
+            UpdatedAt: profile.UpdatedAt,
+            SellerReputationScore: sellerReputationScore,
+            SellerTrustLevel: sellerTrustLevel
         );
     }
 

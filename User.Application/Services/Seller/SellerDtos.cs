@@ -21,7 +21,9 @@ public sealed record SellerOwnProfileResponseDto(
     [property: JsonPropertyName("reputationScore")] int ReputationScore,
     [property: JsonPropertyName("trustLevel")] string? TrustLevel,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
-    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt,
+    [property: JsonPropertyName("sellerReputationScore")] int SellerReputationScore = 50,
+    [property: JsonPropertyName("sellerTrustLevel")] string SellerTrustLevel = "Standard"
 );
 
 public sealed class UpdateSellerOwnProfileDto

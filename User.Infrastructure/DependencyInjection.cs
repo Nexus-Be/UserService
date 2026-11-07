@@ -1,4 +1,4 @@
-﻿namespace User.Infrastructure;
+namespace User.Infrastructure;
 
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +31,7 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString));
 
         services.AddScoped<IUserDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+        services.AddMemoryCache();
 
         // Redis
         services.AddSingleton<IConnectionMultiplexer>(_ =>

@@ -107,6 +107,11 @@ public sealed record AdminUserDetailDto(
 }
 ```
 
+
+> [!NOTE]
+> **Cơ chế Kế thừa Vai trò (Role Hierarchy):**
+> Mảng `roles` phản ánh vai trò chính và các vai trò kế thừa (Role Hierarchy) của người dùng tương ứng (ví dụ: `["seller", "buyer"]`).
+
 ---
 
 ## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)

@@ -10,7 +10,7 @@
 | 1 | `User` | `Users` | `Users` | `UserConfiguration` | ✅ 8 điểm truy vấn | ✅ |
 | 2 | `RefreshToken` | `RefreshTokens` | `RefreshTokens` | `RefreshTokenConfiguration` | ❌ (chỉ có trong navigation) | ⚠️ schema có, không dùng |
 | 3 | `Role` | `Roles` | `Roles` | `RoleConfiguration` | ✅ 3 điểm | ✅ |
-| 4 | `UserRole` | `UserRoles` | `UserRoles` | `UserRoleConfiguration` | ✅ 6 điểm | ✅ |
+| 4 | `UserRole` | `UserRoles` | `UserRoles` | `UserRoleConfiguration` | ❌ ĐÃ BÃI BỎ | 🗑️ Bảng trung gian đã xóa (Migration `DropUserRolesTable`); chuyển sang 1 User - 1 Role (`Users.RoleId`) |
 | 5 | `Permission` | `Permissions` | `Permissions` | `PermissionConfiguration` | ❌ | ⚠️ schema có, không dùng |
 | 6 | `RolePermission` | `RolePermissions` | `RolePermissions` | `RolePermissionConfiguration` | ❌ (chỉ có trong navigation) | ⚠️ schema có, không dùng |
 | 7 | `SellerProfile` | `SellerProfiles` | `SellerProfiles` | `SellerProfileConfiguration` | ❌ | ⚠️ schema có, không dùng |
@@ -43,7 +43,8 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
    - `Status`: `UserStatus` (`PendingVerification = 0`, `Active = 1`, `Banned = 2`, `Deleted = 3`); entity mặc định `Active`, nhưng `RegisterAsync` **luôn gán** `PendingVerification` (`AuthService.cs:99`).
    - `EmailVerifiedAt`: `DateTimeOffset?`.
    - `BannedAt`: `DateTimeOffset?`, `BannedBy`: `Guid?`, `BanReason`: `string?` (Max 1000).
-   - Navigation: `BannedByUser`, `RefreshTokens`, `UserRoles`, `SellerProfile`, `ReputationScore`, `ReputationLogs`, `ReviewsGiven`, `ReviewsReceived`, `ReportsSubmitted`, `ReportsReceived`, `ReportsResolved`, `PenaltiesReceived`, `PenaltiesIssued` (13 navigation — trùng khớp đặc tả).
+   - `RoleId`: `Guid` (FK $\rightarrow$ `Role.Id`, required). Chuẩn hóa 1 User - 1 Role.
+   - Navigation: `Role`, `BannedByUser`, `RefreshTokens`, `SellerProfile`, `ReputationScore`, `ReputationLogs`, `ReviewsGiven`, `ReviewsReceived`, `ReportsSubmitted`, `ReportsReceived`, `ReportsResolved`, `PenaltiesReceived`, `PenaltiesIssued` (13 navigation — trùng khớp đặc tả).
    - Xóa mềm: `HasQueryFilter(x => !x.IsDeleted)` — `UserConfiguration.cs:79`.
 2. **`RefreshToken` (Quản lý phiên đa thiết bị)** — ⚠️ schema có, code chưa dùng:
    - `Id`: `Guid`.
@@ -54,22 +55,23 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
    - `ExpiresAt`: `DateTimeOffset` (required), `RevokedAt`: `DateTimeOffset?`.
    - Navigation: `User`.
    - ⚠️ **Chưa có code nào tạo/đọc/thu hồi refresh token** — đây là bảng chờ cho tính năng JWT chưa triển khai.
-3. **`Role` (Vai trò cốt lõi & mở rộng)**:
-   - `Id`: **`Guid`** (đặc tả cũ ghi `int Identity` là **sai** — `Role : AuditableEntity<Guid>`).
-   - `RoleCode`: `RoleType` (`Buyer = 0`, `Seller = 1`, `SupportStaff = 2`, `Admin = 3`), unique theo `dbml`, lưu dạng integer trong DB.
+3. **`Role` (Vai trò cốt lõi & Kế thừa vai trò - Role Hierarchy)**:
+   - `Id`: **`Guid`** (`Role : AuditableEntity<Guid>`).
+   - `RoleCode`: `RoleType` (`Buyer = 1`, `Seller = 2`, `SupportStaff = 3`, `Admin = 4`), unique, lưu dạng integer trong DB.
    - `RoleName`: `string` (Max 150 chars).
    - `Description`: `string?` (Max 500 chars).
-   - `IsActive`: `bool` (không có default ở config).
+   - `IsActive`: `bool` (`HasDefaultValue(true)`).
    - `IsSystemRole`: `bool` (`HasDefaultValue(false)`).
-   - Navigation: `UserRoles`, `RolePermissions`.
-   - Seed 4 role cố định: `Buyer` = `11111111-1111-1111-1111-111111111111`, `Seller` = `22222222-...`, `SupportStaff` = `33333333-...`, `Admin` = `44444444-...` (`UserSeedData.cs`).
-4. **`UserRole` (Quan hệ người dùng - vai trò N-N)**:
-   - `Id`: `Guid`.
-   - `UserId`: `Guid` (FK $\rightarrow$ `User.Id`).
-   - `RoleId`: **`Guid`** (FK $\rightarrow$ `Role.Id` — đặc tả cũ ghi `int` là **sai**).
-   - `AssignedAt`: `DateTimeOffset`, `AssignedBy`: `Guid?`.
-   - Unique Index: `(UserId, RoleId)` — `UserRoleConfiguration.cs`.
-   - Navigation: `User`, `Role`.
+   - `ParentRoleId`: `Guid?` (Self-referencing Foreign Key $\rightarrow$ `Role.Id`, OnDelete: Restrict). Cây kế thừa đơn (Single Inheritance):
+     - `Buyer`: `ParentRoleId = null` (Gốc).
+     - `Seller`: `ParentRoleId = Buyer.Id` (Seller tự động kế thừa toàn bộ khả năng của Buyer).
+     - `SupportStaff`: `ParentRoleId = null` (Gốc).
+     - `Admin`: `ParentRoleId = SupportStaff.Id` (Admin kế thừa SupportStaff).
+   - Navigation: `ParentRole`, `SubRoles`, `Users`, `RolePermissions`.
+   - Seed 4 role cố định tại tầng Infrastructure (`UserSeedData.cs`).
+4. **`UserRole` (ĐÃ BÃI BỎ — DROP TABLE)**:
+   - ⚠️ **Trạng thái:** Bảng liên kết trung gian `UserRoles` đã được bãi bỏ hoàn toàn qua migration `20261106144925_DropUserRolesTable.cs`.
+   - UserService chuẩn hóa 1 User - 1 Role chính tại bảng `Users` (`Users.RoleId`) kết hợp cơ chế Kế thừa vai trò tự động (Role Hierarchy) qua `Roles.ParentRoleId`. Khi phát hành Token hoặc nạp thông tin người dùng, hệ thống tự động duyệt ngược cây kế thừa để cấp đủ danh sách vai trò (`["seller", "buyer"]`, `["admin", "staff"]`).
 5. **`Permission` (Danh mục đặc quyền hệ thống)** — ⚠️ schema có, code chưa dùng:
    - `Id`: **`Guid`** (đặc tả cũ ghi `int` là **sai**).
    - `PermissionCode`: `string` (Max 100, required — ⚠️ **không** có `HasIndex().IsUnique()`, xem `PermissionConfiguration.cs:12`), `PermissionName`: `string` (Max 255), `Category`: `string` (Max 100), `Description`: `string?` (Max 500).
