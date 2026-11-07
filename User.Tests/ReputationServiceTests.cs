@@ -103,6 +103,19 @@ public sealed class ReputationServiceTests
             Status = UserStatus.Active
         });
 
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Target Seller Shop",
+            PickupAddress = "123 Seller St",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0912345678",
+            Status = SellerProfileStatus.Approved
+        });
+
         dbContext.ReputationScores.Add(new ReputationScore
         {
             Id = Guid.NewGuid(),
@@ -144,6 +157,110 @@ public sealed class ReputationServiceTests
         var auditLog = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == userId.ToString());
         Assert.NotNull(auditLog);
         Assert.Equal(AuditAction.ReputationAdjust, auditLog.Action);
+    }
+
+    [Fact]
+    public async Task AdjustReputationAsync_WhenTargetingSellerTrack_ForUserWithoutSellerProfile_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new ReputationService(dbContext, NullLogger<ReputationService>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "buyer.only@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Buyer",
+            LastName = "Only",
+            Status = UserStatus.Active
+        });
+
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 50,
+            TrustLevel = TrustLevel.Standard,
+            SellerScore = 50,
+            SellerTrustLevel = TrustLevel.Standard
+        });
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AdjustReputationAsync(
+                userId,
+                new AdjustReputationRequest
+                {
+                    TargetRole = TargetRole.Seller,
+                    ScoreDelta = 10,
+                    Reason = "Attempt to adjust seller reputation for pure buyer"
+                },
+                adminId));
+
+        Assert.Equal("USER_NOT_A_SELLER", ex.ErrorCode);
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Equal("User account does not have an approved or suspended seller profile.", ex.Message);
+    }
+
+    [Fact]
+    public async Task AdjustReputationAsync_WhenTargetingSellerTrack_ForSuspendedSeller_AllowsAdjustment()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new ReputationService(dbContext, NullLogger<ReputationService>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "suspended.seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Suspended",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        });
+
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Suspended Shop",
+            PickupAddress = "456 Suspended Ave",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0987654321",
+            Status = SellerProfileStatus.Suspended
+        });
+
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 50,
+            TrustLevel = TrustLevel.Standard,
+            SellerScore = 50,
+            SellerTrustLevel = TrustLevel.Standard
+        });
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.AdjustReputationAsync(
+            userId,
+            new AdjustReputationRequest
+            {
+                TargetRole = TargetRole.Seller,
+                ScoreDelta = -20,
+                Reason = "Penalize suspended seller for repeated violations."
+            },
+            adminId);
+
+        Assert.Equal(30, response.NewScore);
+        Assert.Equal(-20, response.AppliedDelta);
+        Assert.Equal("Seller", response.TargetRole);
     }
 
     [Fact]
