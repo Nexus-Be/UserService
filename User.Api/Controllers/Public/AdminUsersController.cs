@@ -10,6 +10,7 @@ using User.Api.Extensions;
 using User.Api.Filters;
 using User.Application.Common;
 using User.Application.Services.Admin;
+using User.Application.Services.Reputation;
 using User.Application.Common.Models;
 
 /// <summary>
@@ -22,14 +23,17 @@ using User.Application.Common.Models;
 public sealed class AdminUsersController : ControllerBase
 {
     private readonly IAdminUserService _adminUserService;
+    private readonly IReputationService? _reputationService;
     private readonly ILogger<AdminUsersController> _logger;
 
     public AdminUsersController(
         IAdminUserService adminUserService,
-        ILogger<AdminUsersController> logger)
+        ILogger<AdminUsersController> logger,
+        IReputationService? reputationService = null)
     {
         _adminUserService = adminUserService ?? throw new ArgumentNullException(nameof(adminUserService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _reputationService = reputationService;
     }
 
     /// <summary>
@@ -263,6 +267,27 @@ public sealed class AdminUsersController : ControllerBase
         _logger.LogInformation("[REST Admin UnbanUser] Incoming request to unban UserId: '{UserId}' by Admin: '{AdminId}'", userId, adminId);
 
         var result = await _adminUserService.UnbanUserAsync(userId, request, adminId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Admin] Điều chỉnh điểm uy tín thủ công cho quỹ điểm Buyer hoặc Seller của một người dùng.
+    /// </summary>
+    [HttpPatch("{userId:guid}/reputation")]
+    [RequireRole("admin")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdjustReputationResponse))]
+    public async Task<IActionResult> AdjustUserReputation(
+        [FromRoute] Guid userId,
+        [FromBody] AdjustReputationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var adminId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST Admin AdjustReputation] Adjusting reputation for UserId: '{UserId}' by Admin: '{AdminId}'", userId, adminId);
+        var result = await _reputationService!.AdjustReputationAsync(userId, request, adminId, cancellationToken);
         return Ok(result);
     }
 }

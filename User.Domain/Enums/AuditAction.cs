@@ -11,5 +11,8 @@ public enum AuditAction
     SoftDelete = 6,
     ReputationAdjust = 7,
     PasswordReset = 8,
-    SystemConfigUpdate = 9
+    SystemConfigUpdate = 9,
+    ReviewHide = 10,
+    ReportResolve = 11,
+    ReportDismiss = 12
 }

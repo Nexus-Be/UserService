@@ -285,6 +285,13 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("PartnerUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Reason")
                         .HasColumnType("integer");
 
@@ -293,6 +300,12 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<int?>("ReferenceType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ScoreAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetRole")
                         .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -305,7 +318,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedBy");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "TargetRole", "PartnerUserId", "CreatedAt");
 
                     b.ToTable("ReputationLogs");
 
@@ -313,13 +326,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("30000000-aaaa-bbbb-cccc-000000000001"),
-                            ChangeAmount = 50,
+                            ChangeAmount = 35,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
                             IsDeleted = false,
+                            PartnerUserId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             Reason = 2,
                             ReferenceId = "02000000-0000-0000-0000-000000000001",
                             ReferenceType = 0,
+                            ScoreAfter = 85,
+                            TargetRole = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("cccccccc-3333-3333-3333-333333333333")
                         },
@@ -330,9 +346,12 @@ namespace User.Infrastructure.Persistence.Migrations
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             IsDeleted = false,
+                            PartnerUserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             Reason = 0,
                             ReferenceId = "02000000-0000-0000-0000-000000000001",
                             ReferenceType = 0,
+                            ScoreAfter = 80,
+                            TargetRole = 0,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
                         });
@@ -357,6 +376,21 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<int>("PenaltyCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerNegativeReviews")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerPenaltyCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerPositiveReviews")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerScore")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerTrustLevel")
                         .HasColumnType("integer");
 
                     b.Property<int>("TotalNegativeReviews")
@@ -389,6 +423,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 100,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 0,
+                            SellerScore = 50,
+                            SellerTrustLevel = 2,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 0,
                             TrustLevel = 4,
@@ -402,6 +441,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 100,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 0,
+                            SellerScore = 50,
+                            SellerTrustLevel = 2,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 0,
                             TrustLevel = 4,
@@ -415,6 +459,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 100,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 50,
+                            SellerScore = 85,
+                            SellerTrustLevel = 3,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 50,
                             TrustLevel = 3,
@@ -428,6 +477,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 80,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 0,
+                            SellerScore = 50,
+                            SellerTrustLevel = 2,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 10,
                             TrustLevel = 2,
@@ -838,6 +892,83 @@ namespace User.Infrastructure.Persistence.Migrations
                             Description = "Tự động kích hoạt tài khoản buyer sau xác thực email",
                             IsDeleted = false,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555553"),
+                            ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+                            ConfigValue = "40",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Minimum buyer reputation score required to place a bid in an auction.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555554"),
+                            ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+                            ConfigValue = "50",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Minimum seller reputation score required to create and open an auction.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555555"),
+                            ConfigKey = "FEATURE_REPUTATION_ENFORCEMENT",
+                            ConfigValue = "true",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 3,
+                            Description = "Toggle strict reputation score enforcement across auctions and commerce.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555556"),
+                            ConfigKey = "PAYMENT_TIMEOUT_PENALTY_SCORE",
+                            ConfigValue = "10",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Reputation score points deducted when a buyer defaults on auction payment.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555557"),
+                            ConfigKey = "SELLER_CANCEL_PENALTY_SCORE",
+                            ConfigValue = "5",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Reputation score points deducted when a seller cancels an order or auction.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555558"),
+                            ConfigKey = "ANTI_FARMING_COOLDOWN_DAYS",
+                            ConfigValue = "7",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Minimum days between positive reputation rewards for the same trading pair.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555559"),
+                            ConfigKey = "ORDER_COMPLETED_REWARD_SCORE",
+                            ConfigValue = "1",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Reputation score points rewarded upon completing an order.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         });
                 });
 
@@ -1156,6 +1287,13 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("ReferenceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("ReferenceType")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ReportedUserId")
                         .HasColumnType("uuid");
 
@@ -1166,10 +1304,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("ResolvedBy")
                         .HasColumnType("uuid");
 
                     b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetRole")
                         .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -1199,8 +1343,10 @@ namespace User.Infrastructure.Persistence.Migrations
                             ReportedUserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             ReporterId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ResolutionNote = "Người bán đã xuất hoá đơn điện tử gửi qua email.",
+                            ResolvedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             ResolvedBy = new Guid("bbbbbbbb-2222-2222-2222-222222222222"),
                             Status = 2,
+                            TargetRole = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             ViolationType = 4
                         });
@@ -1221,6 +1367,16 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HiddenBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HiddenReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -1255,6 +1411,9 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<int>("ReviewerRole")
                         .HasColumnType("integer");
 
+                    b.Property<int>("ScoreImpact")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1262,7 +1421,8 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("RevieweeId");
 
-                    b.HasIndex("ReviewerId");
+                    b.HasIndex("ReviewerId", "ReferenceType", "ReferenceId")
+                        .IsUnique();
 
                     b.ToTable("UserReviews");
 
@@ -1282,6 +1442,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             RevieweeId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             ReviewerId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ReviewerRole = 0,
+                            ScoreImpact = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         });
                 });
