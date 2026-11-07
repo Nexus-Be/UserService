@@ -84,7 +84,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AuditLogs");
+                    b.ToTable("AuditLogs", (string)null);
 
                     b.HasData(
                         new
@@ -152,7 +152,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Permissions");
+                    b.ToTable("Permissions", (string)null);
 
                     b.HasData(
                         new
@@ -261,7 +261,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("User.Domain.Entities.ReputationLog", b =>
@@ -320,7 +320,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId", "TargetRole", "PartnerUserId", "CreatedAt");
 
-                    b.ToTable("ReputationLogs");
+                    b.ToTable("ReputationLogs", (string)null);
 
                     b.HasData(
                         new
@@ -413,7 +413,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("ReputationScores");
+                    b.ToTable("ReputationScores", (string)null);
 
                     b.HasData(
                         new
@@ -541,7 +541,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ParentRoleId");
 
-                    b.ToTable("Roles");
+                    b.ToTable("Roles", (string)null);
 
                     b.HasData(
                         new
@@ -641,7 +641,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId", "PermissionId")
                         .IsUnique();
 
-                    b.ToTable("RolePermissions");
+                    b.ToTable("RolePermissions", (string)null);
 
                     b.HasData(
                         new
@@ -802,7 +802,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("SellerProfiles");
+                    b.ToTable("SellerProfiles", (string)null);
 
                     b.HasData(
                         new
@@ -868,7 +868,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("ConfigKey")
                         .IsUnique();
 
-                    b.ToTable("SystemConfigs");
+                    b.ToTable("SystemConfigs", (string)null);
 
                     b.HasData(
                         new
@@ -1074,7 +1074,7 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"Username\" IS NOT NULL");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
 
                     b.HasData(
                         new
@@ -1241,7 +1241,7 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_UserPenalties_Active_Evaluation")
                         .HasFilter("\"Status\" = 0");
 
-                    b.ToTable("UserPenalties");
+                    b.ToTable("UserPenalties", (string)null);
 
                     b.HasData(
                         new
@@ -1330,7 +1330,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ResolvedBy");
 
-                    b.ToTable("UserReports");
+                    b.ToTable("UserReports", (string)null);
 
                     b.HasData(
                         new
@@ -1424,7 +1424,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReviewerId", "ReferenceType", "ReferenceId")
                         .IsUnique();
 
-                    b.ToTable("UserReviews");
+                    b.ToTable("UserReviews", (string)null);
 
                     b.HasData(
                         new
