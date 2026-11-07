@@ -148,7 +148,9 @@ public sealed record AdminSellerProfileResponseDto(
     [property: JsonPropertyName("reviewedByName")] string? ReviewedByName,
     [property: JsonPropertyName("reviewedAt")] DateTimeOffset? ReviewedAt,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
-    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt,
+    [property: JsonPropertyName("sellerReputationScore")] int SellerReputationScore = 50,
+    [property: JsonPropertyName("sellerTrustLevel")] string SellerTrustLevel = "Standard"
 );
 
 public sealed record SuspendSellerResponseDto(

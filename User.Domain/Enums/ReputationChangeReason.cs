@@ -8,5 +8,7 @@ public enum ReputationChangeReason
     AuctionPaymentTimeout = 3,
     DisputeCompensation = 4,
     ManualAdjustment = 5,
-    ViolationPenalty = 6
+    ViolationPenalty = 6,
+    SellerCancellation = 7,
+    ReportPenalty = 8
 }

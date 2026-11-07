@@ -10,6 +10,7 @@ public class UserReportConfiguration : IEntityTypeConfiguration<UserReport>
     {
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Description).IsRequired();
+        builder.Property(x => x.ReferenceId).HasMaxLength(100);
         builder.Property(x => x.EvidenceUrls).HasColumnType("text[]");
         builder.Property(x => x.ResolutionNote).HasMaxLength(2000);
 

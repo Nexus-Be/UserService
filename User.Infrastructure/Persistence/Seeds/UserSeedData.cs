@@ -206,6 +206,11 @@ public static class UserSeedData
                 TotalPositiveReviews = 50,
                 TotalNegativeReviews = 0,
                 PenaltyCount = 0,
+                SellerScore = 85,
+                SellerTrustLevel = TrustLevel.Good,
+                SellerPositiveReviews = 50,
+                SellerNegativeReviews = 0,
+                SellerPenaltyCount = 0,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -245,6 +250,83 @@ public static class UserSeedData
                 ConfigValue = "true",
                 DataType = ConfigDataType.Boolean,
                 Description = "Tự động kích hoạt tài khoản buyer sau xác thực email",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555553"),
+                ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+                ConfigValue = "40",
+                DataType = ConfigDataType.Int,
+                Description = "Minimum buyer reputation score required to place a bid in an auction.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555554"),
+                ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+                ConfigValue = "50",
+                DataType = ConfigDataType.Int,
+                Description = "Minimum seller reputation score required to create and open an auction.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555555"),
+                ConfigKey = "FEATURE_REPUTATION_ENFORCEMENT",
+                ConfigValue = "true",
+                DataType = ConfigDataType.Boolean,
+                Description = "Toggle strict reputation score enforcement across auctions and commerce.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555556"),
+                ConfigKey = "PAYMENT_TIMEOUT_PENALTY_SCORE",
+                ConfigValue = "10",
+                DataType = ConfigDataType.Int,
+                Description = "Reputation score points deducted when a buyer defaults on auction payment.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555557"),
+                ConfigKey = "SELLER_CANCEL_PENALTY_SCORE",
+                ConfigValue = "5",
+                DataType = ConfigDataType.Int,
+                Description = "Reputation score points deducted when a seller cancels an order or auction.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555558"),
+                ConfigKey = "ANTI_FARMING_COOLDOWN_DAYS",
+                ConfigValue = "7",
+                DataType = ConfigDataType.Int,
+                Description = "Minimum days between positive reputation rewards for the same trading pair.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555559"),
+                ConfigKey = "ORDER_COMPLETED_REWARD_SCORE",
+                ConfigValue = "1",
+                DataType = ConfigDataType.Int,
+                Description = "Reputation score points rewarded upon completing an order.",
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -380,10 +462,13 @@ public static class UserSeedData
             {
                 Id = Guid.Parse("30000000-aaaa-bbbb-cccc-000000000001"),
                 UserId = sellerUserId,
-                ChangeAmount = 50,
+                TargetRole = TargetRole.Seller,
+                ChangeAmount = 35,
+                ScoreAfter = 85,
                 Reason = ReputationChangeReason.OrderCompleted,
                 ReferenceType = ReferenceType.Order,
                 ReferenceId = "02000000-0000-0000-0000-000000000001",
+                PartnerUserId = buyerUserId,
                 CreatedBy = adminUserId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
@@ -393,10 +478,13 @@ public static class UserSeedData
             {
                 Id = Guid.Parse("30000000-aaaa-bbbb-cccc-000000000002"),
                 UserId = buyerUserId,
+                TargetRole = TargetRole.Buyer,
                 ChangeAmount = 10,
+                ScoreAfter = 80,
                 Reason = ReputationChangeReason.PositiveReview,
                 ReferenceType = ReferenceType.Order,
                 ReferenceId = "02000000-0000-0000-0000-000000000001",
+                PartnerUserId = sellerUserId,
                 CreatedBy = sellerUserId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
@@ -417,6 +505,7 @@ public static class UserSeedData
                 Rating = 5,
                 Comment = "Người bán phản hồi nhanh, hàng chuẩn chính hãng đóng gói kỹ lưỡng.",
                 MediaUrls = new List<string> { "https://images.nexus.local/reviews/user-review-01.png" },
+                ScoreImpact = 1,
                 IsDisputed = false,
                 IsDisabled = false,
                 CreatedAt = seedDate,
@@ -432,11 +521,13 @@ public static class UserSeedData
                 Id = Guid.Parse("50000000-aaaa-bbbb-cccc-000000000001"),
                 ReporterId = buyerUserId,
                 ReportedUserId = sellerUserId,
+                TargetRole = TargetRole.Seller,
                 ViolationType = ReportViolationType.Other,
                 Description = "Yêu cầu cung cấp thêm hoá đơn VAT cho đơn hàng",
                 EvidenceUrls = new List<string> { "https://images.nexus.local/reports/invoice-request.png" },
                 Status = ReportStatus.Resolved,
                 ResolvedBy = staffUserId,
+                ResolvedAt = seedDate,
                 ResolutionNote = "Người bán đã xuất hoá đơn điện tử gửi qua email.",
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,

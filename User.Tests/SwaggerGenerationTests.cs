@@ -97,4 +97,31 @@ public sealed class SwaggerGenerationTests
         Assert.NotNull(unbanOp);
         Assert.Contains("200", unbanOp.Responses.Keys);
     }
+
+    [Fact]
+    public void Reputation_reviews_reports_configs_and_internal_routes_are_declared_in_swagger()
+    {
+        var swaggerDoc = CreateSwaggerProvider().GetSwagger("v1");
+
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/me/reputation"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/me/penalties"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/me/reports"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/{userId}/reputation"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/{userId}/reputation/history"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/{userId}/reviews"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/reports"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/reviews"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/reputation/policy"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/users/{userId}/reputation"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reviews/{reviewId}/hide"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reports"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reports/{reportId}/resolve"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reports/{reportId}/dismiss"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/configs"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/check-reputation"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/verify-bid-eligibility"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/batch-public-info"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/penalties"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/reputation-adjust"));
+    }
 }

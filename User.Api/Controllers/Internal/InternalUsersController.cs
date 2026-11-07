@@ -7,34 +7,33 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using User.Application.Services.Admin;
+using User.Application.Services.Internal;
 
 /// <summary>
 /// Controller nội bộ phục vụ giao tiếp liên service (Internal Inter-Service Communication).
-/// Cung cấp endpoint cho Gateway và các service khác (Order, Catalog) kiểm tra quyền thao tác thời gian thực.
+/// Cung cấp endpoint cho Gateway, AuctionService và OrderService kiểm tra quyền thao tác và cập nhật uy tín thời gian thực.
 /// </summary>
 [ApiController]
 [Route("api/v1/internal/users")]
 public sealed class InternalUsersController : ControllerBase
 {
     private readonly IAdminPenaltyService _penaltyService;
+    private readonly IInternalUserService? _internalUserService;
     private readonly ILogger<InternalUsersController> _logger;
 
     public InternalUsersController(
         IAdminPenaltyService penaltyService,
-        ILogger<InternalUsersController> logger)
+        ILogger<InternalUsersController> logger,
+        IInternalUserService? internalUserService = null)
     {
         _penaltyService = penaltyService ?? throw new ArgumentNullException(nameof(penaltyService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _internalUserService = internalUserService;
     }
 
     /// <summary>
     /// Kiểm tra quyền hạn thực hiện hành vi của người dùng dựa trên các án phạt đang hiệu lực.
     /// </summary>
-    /// <param name="userId">ID định danh người dùng cần kiểm tra.</param>
-    /// <param name="action">Hành vi mục tiêu (ví dụ: Buy, Sell, Login, Comment).</param>
-    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
-    /// <returns>Đối tượng UserActionPermissionCheckResponseDto chứa IsAllowed, Reason, ActiveSanctions.</returns>
-    /// <response code="200">Kiểm tra hoàn tất, trả về kết quả cho phép hoặc bị cấm kèm lý do.</response>
     [HttpGet("{userId:guid}/permission-check")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserActionPermissionCheckResponseDto))]
     public async Task<IActionResult> CheckUserActionPermission(
@@ -44,6 +43,76 @@ public sealed class InternalUsersController : ControllerBase
     {
         _logger.LogInformation("[Internal CheckUserActionPermission] Checking permission for UserId: '{UserId}', Action: '{Action}'", userId, action);
         var result = await _penaltyService.CheckUserActionPermissionAsync(userId, action, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [INT-04] Kiểm tra điều kiện điểm uy tín Seller để tạo và mở phiên đấu giá.
+    /// </summary>
+    [HttpPost("check-reputation")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(CheckReputationResponse))]
+    public async Task<ActionResult<CheckReputationResponse>> CheckReputation(
+        [FromBody] CheckReputationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal CheckReputation] Checking seller eligibility for UserId: '{UserId}'", request.UserId);
+        var result = await _internalUserService!.CheckReputationAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [INT-01] Kiểm tra điều kiện điểm uy tín Buyer để đặt giá thầu trong phiên đấu giá.
+    /// </summary>
+    [HttpPost("verify-bid-eligibility")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(VerifyBidEligibilityResponse))]
+    public async Task<ActionResult<VerifyBidEligibilityResponse>> VerifyBidEligibility(
+        [FromBody] VerifyBidEligibilityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal VerifyBidEligibility] Verifying bid eligibility for UserId: '{UserId}', AuctionId: '{AuctionId}'", request.UserId, request.AuctionId);
+        var result = await _internalUserService!.VerifyBidEligibilityAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [INT-02] Truy vấn thông tin hiển thị công khai hàng loạt theo danh sách UserIds.
+    /// </summary>
+    [HttpPost("batch-public-info")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(BatchPublicInfoResponse))]
+    public async Task<ActionResult<BatchPublicInfoResponse>> GetBatchPublicInfo(
+        [FromBody] BatchPublicInfoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal BatchPublicInfo] Fetching public info for {Count} users", request.UserIds.Count);
+        var result = await _internalUserService!.GetBatchPublicInfoAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [INT-06] Ghi nhận chế tài trừ điểm uy tín tự động khi vi phạm giao dịch (bùng thanh toán đấu giá / hủy phiên).
+    /// </summary>
+    [HttpPost("penalties")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(InternalPenaltyResponse))]
+    public async Task<ActionResult<InternalPenaltyResponse>> ApplyInternalPenalty(
+        [FromBody] InternalPenaltyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal ApplyPenalty] Applying penalty for UserId: '{UserId}', ReferenceId: '{RefId}'", request.UserId, request.ReferenceId);
+        var result = await _internalUserService!.ApplyInternalPenaltyAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [INT-07] Cộng điểm uy tín tự động khi hoàn tất đơn hàng (có bảo vệ Idempotency và chống cày điểm 7 ngày).
+    /// </summary>
+    [HttpPost("reputation-adjust")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(InternalReputationAdjustResponse))]
+    public async Task<ActionResult<InternalReputationAdjustResponse>> ApplyInternalReputationAdjust(
+        [FromBody] InternalReputationAdjustRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal ReputationAdjust] Adjusting reputation for UserId: '{UserId}', ReferenceId: '{RefId}'", request.UserId, request.ReferenceId);
+        var result = await _internalUserService!.ApplyInternalReputationAdjustAsync(request, cancellationToken);
         return Ok(result);
     }
 }
