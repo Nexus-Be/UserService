@@ -18,6 +18,7 @@ using User.Infrastructure.Persistence;
 using Xunit;
 using Microsoft.AspNetCore.Mvc.Filters;
 using User.Api.Filters;
+using User.Application.Services.Reputation;
 
 public sealed class AdminUsersControllerRestTests
 {
@@ -142,6 +143,15 @@ public sealed class AdminUsersControllerRestTests
             LastName = "Le",
             Status = UserStatus.Active
         });
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 65,
+            TrustLevel = TrustLevel.Good,
+            SellerScore = 70,
+            SellerTrustLevel = TrustLevel.Good
+        });
         await dbContext.SaveChangesAsync();
 
         var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
@@ -160,6 +170,10 @@ public sealed class AdminUsersControllerRestTests
         Assert.Equal(userId.ToString(), detail.Id);
         Assert.Equal("detail.user@nexus.local", detail.Email);
         Assert.Equal("Hoang Le", detail.DisplayName);
+        Assert.Equal(65, detail.ReputationScore);
+        Assert.Equal("Good", detail.TrustLevel);
+        Assert.Equal(70, detail.SellerReputationScore);
+        Assert.Equal("Good", detail.SellerTrustLevel);
     }
 
     [Fact]
@@ -409,5 +423,94 @@ public sealed class AdminUsersControllerRestTests
         filter.OnAuthorization(filterContext);
 
         Assert.Null(filterContext.Result);
+    }
+
+    [Fact]
+    public async Task AdjustUserReputation_ValidSellerRequest_Returns200OkWithAdjustReputationResponse()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var sellerRole = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.Add(sellerRole);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "adjust.rep@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Van",
+            LastName = "Nguyen",
+            Status = UserStatus.Active,
+            RoleId = sellerRole.Id,
+            Role = sellerRole,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        var repScore = new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 50,
+            TrustLevel = TrustLevel.Standard,
+            SellerScore = 60,
+            SellerTrustLevel = TrustLevel.Standard
+        };
+        dbContext.ReputationScores.Add(repScore);
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var reputationService = new ReputationService(dbContext, NullLogger<ReputationService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance, reputationService);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new AdjustReputationRequest
+        {
+            TargetRole = TargetRole.Seller,
+            ScoreDelta = 15,
+            Reason = "Admin adjustment: Excellent auction fulfillment record"
+        };
+
+        var result = await controller.AdjustUserReputation(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdjustReputationResponse>(okResult.Value);
+        Assert.Equal(userId, response.UserId);
+        Assert.Equal("Seller", response.TargetRole);
+        Assert.Equal(60, response.PreviousScore);
+        Assert.Equal(75, response.NewScore);
+        Assert.Equal(15, response.AppliedDelta);
+        Assert.Equal("Good", response.NewTrustLevel);
+    }
+
+    [Fact]
+    public async Task AdjustUserReputation_MissingCallerIdentity_Returns401Unauthorized()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var reputationService = new ReputationService(dbContext, NullLogger<ReputationService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance, reputationService);
+
+        var httpContext = new DefaultHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new AdjustReputationRequest
+        {
+            TargetRole = TargetRole.Buyer,
+            ScoreDelta = 5,
+            Reason = "Some valid adjustment reason"
+        };
+
+        var result = await controller.AdjustUserReputation(Guid.NewGuid(), request, CancellationToken.None);
+
+        var unauthorizedResult = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
     }
 }
