@@ -25,6 +25,8 @@ public sealed record AdminUserListItemDto(
     [property: JsonPropertyName("address")] string? Address,
     [property: JsonPropertyName("reputationScore")] int ReputationScore,
     [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("sellerReputationScore")] int? SellerReputationScore,
+    [property: JsonPropertyName("sellerTrustLevel")] string? SellerTrustLevel,
     [property: JsonPropertyName("isSeller")] bool IsSeller,
     [property: JsonPropertyName("roles")] List<string> Roles,
     [property: JsonPropertyName("status")] string Status,
@@ -50,10 +52,13 @@ public sealed record AdminSellerProfileDetailDto(
 
 public sealed record AdminUserReputationLogDto(
     [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("targetRole")] string TargetRole,
     [property: JsonPropertyName("changeAmount")] int ChangeAmount,
+    [property: JsonPropertyName("scoreAfter")] int ScoreAfter,
     [property: JsonPropertyName("reason")] string Reason,
     [property: JsonPropertyName("referenceType")] string? ReferenceType,
     [property: JsonPropertyName("referenceId")] string? ReferenceId,
+    [property: JsonPropertyName("note")] string? Note,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
 );
 
@@ -75,6 +80,8 @@ public sealed record AdminUserDetailDto(
     [property: JsonPropertyName("isSeller")] bool IsSeller,
     [property: JsonPropertyName("reputationScore")] int ReputationScore,
     [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("sellerReputationScore")] int? SellerReputationScore,
+    [property: JsonPropertyName("sellerTrustLevel")] string? SellerTrustLevel,
     [property: JsonPropertyName("roles")] List<string> Roles,
     [property: JsonPropertyName("permissions")] List<string> Permissions,
     [property: JsonPropertyName("sellerProfile")] AdminSellerProfileDetailDto? SellerProfile,

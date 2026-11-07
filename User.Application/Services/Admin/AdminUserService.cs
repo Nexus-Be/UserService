@@ -376,7 +376,9 @@ public sealed class AdminUserService : IAdminUserService
             var displayName = $"{u.FirstName} {u.LastName}".Trim();
             var repScore = u.ReputationScore?.CurrentScore ?? 50;
             var trustLevel = (u.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString();
-            var isSeller = roles.Contains("seller") || u.SellerProfile != null;
+            var sellerRepScore = u.ReputationScore?.SellerScore ?? 50;
+            var sellerTrustLevel = (u.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToString();
+            var isSeller = roles.Contains("seller") || (u.SellerProfile != null && (u.SellerProfile.Status == SellerProfileStatus.Approved || u.SellerProfile.Status == SellerProfileStatus.Suspended));
 
             return new AdminUserListItemDto(
                 Id: u.Id.ToString(),
@@ -391,6 +393,8 @@ public sealed class AdminUserService : IAdminUserService
                 Address: u.Address,
                 ReputationScore: repScore,
                 TrustLevel: trustLevel,
+                SellerReputationScore: sellerRepScore,
+                SellerTrustLevel: sellerTrustLevel,
                 IsSeller: isSeller,
                 Roles: roles,
                 Status: u.Status.ToString(),
@@ -447,10 +451,12 @@ public sealed class AdminUserService : IAdminUserService
         // Reputation
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
         var trustLevel = (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString();
+        var sellerRepScore = user.ReputationScore?.SellerScore ?? 50;
+        var sellerTrustLevel = (user.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToString();
 
         // Seller Profile
         AdminSellerProfileDetailDto? sellerProfileDto = null;
-        var isSeller = roles.Contains("seller") || (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved);
+        var isSeller = roles.Contains("seller") || (user.SellerProfile != null && (user.SellerProfile.Status == SellerProfileStatus.Approved || user.SellerProfile.Status == SellerProfileStatus.Suspended));
 
         if (user.SellerProfile != null)
         {
@@ -479,10 +485,13 @@ public sealed class AdminUserService : IAdminUserService
             .Take(10)
             .Select(l => new AdminUserReputationLogDto(
                 Id: l.Id.ToString(),
+                TargetRole: l.TargetRole.ToString(),
                 ChangeAmount: l.ChangeAmount,
+                ScoreAfter: l.ScoreAfter,
                 Reason: l.Reason.ToString(),
                 ReferenceType: l.ReferenceType?.ToString(),
                 ReferenceId: l.ReferenceId,
+                Note: l.Note,
                 CreatedAt: l.CreatedAt
             ))
             .ToList() ?? new List<AdminUserReputationLogDto>();
@@ -507,6 +516,8 @@ public sealed class AdminUserService : IAdminUserService
             IsSeller: isSeller,
             ReputationScore: repScore,
             TrustLevel: trustLevel,
+            SellerReputationScore: sellerRepScore,
+            SellerTrustLevel: sellerTrustLevel,
             Roles: roles,
             Permissions: permissions,
             SellerProfile: sellerProfileDto,

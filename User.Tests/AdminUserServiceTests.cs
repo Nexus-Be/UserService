@@ -447,7 +447,9 @@ public sealed class AdminUserServiceTests
             Id = Guid.NewGuid(),
             UserId = userId,
             CurrentScore = 80,
-            TrustLevel = TrustLevel.Good
+            TrustLevel = TrustLevel.Good,
+            SellerScore = 75,
+            SellerTrustLevel = TrustLevel.Good
         };
         dbContext.ReputationScores.Add(repScore);
 
@@ -455,8 +457,11 @@ public sealed class AdminUserServiceTests
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            TargetRole = TargetRole.Seller,
             ChangeAmount = 5,
+            ScoreAfter = 75,
             Reason = ReputationChangeReason.OrderCompleted,
+            Note = "Delivered on time",
             CreatedAt = DateTimeOffset.UtcNow
         };
         dbContext.ReputationLogs.Add(repLog);
@@ -475,11 +480,16 @@ public sealed class AdminUserServiceTests
         Assert.Equal("Male", detail.Gender);
         Assert.Equal(80, detail.ReputationScore);
         Assert.Equal("Good", detail.TrustLevel);
+        Assert.Equal(75, detail.SellerReputationScore);
+        Assert.Equal("Good", detail.SellerTrustLevel);
         Assert.Contains("support staff", detail.Roles);
         Assert.Contains("user.view", detail.Permissions);
         Assert.Contains("order.create", detail.Permissions);
         Assert.Single(detail.ReputationLogs);
+        Assert.Equal("Seller", detail.ReputationLogs[0].TargetRole);
         Assert.Equal(5, detail.ReputationLogs[0].ChangeAmount);
+        Assert.Equal(75, detail.ReputationLogs[0].ScoreAfter);
+        Assert.Equal("Delivered on time", detail.ReputationLogs[0].Note);
     }
 
     [Fact]
@@ -1901,5 +1911,80 @@ public sealed class AdminUserServiceTests
         Assert.Equal("appealed@nexus.local", emailClient.UnbannedEmails[0].Email);
         Assert.Equal("Jane Smith", emailClient.UnbannedEmails[0].FullName);
         Assert.Equal("Appeal accepted after investigation", emailClient.UnbannedEmails[0].Reason);
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_And_GetUserDetailAsync_WhenSellerReputationAdjusted_ReturnsSellerReputationFields()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var sellerRole = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.Add(sellerRole);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "seller.rep@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Minh",
+            LastName = "Tran",
+            Status = UserStatus.Active,
+            RoleId = sellerRole.Id,
+            Role = sellerRole,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        var repScore = new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 50,
+            TrustLevel = TrustLevel.Standard,
+            SellerScore = 85,
+            SellerTrustLevel = TrustLevel.Excellent
+        };
+        dbContext.ReputationScores.Add(repScore);
+
+        var repLog = new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TargetRole = TargetRole.Seller,
+            ChangeAmount = 35,
+            ScoreAfter = 85,
+            Reason = ReputationChangeReason.ManualAdjustment,
+            Note = "Manual reputation boost by Admin",
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.ReputationLogs.Add(repLog);
+
+        await dbContext.SaveChangesAsync();
+
+        // 1. Verify GetUsersAsync list
+        var listResult = await service.GetUsersAsync(keyword: "seller.rep", cancellationToken: CancellationToken.None);
+        Assert.Single(listResult.Items);
+        var listItem = listResult.Items[0];
+        Assert.Equal(50, listItem.ReputationScore);
+        Assert.Equal("Standard", listItem.TrustLevel);
+        Assert.Equal(85, listItem.SellerReputationScore);
+        Assert.Equal("Excellent", listItem.SellerTrustLevel);
+        Assert.True(listItem.IsSeller);
+
+        // 2. Verify GetUserDetailAsync
+        var detailResult = await service.GetUserDetailAsync(userId, CancellationToken.None);
+        Assert.Equal(50, detailResult.ReputationScore);
+        Assert.Equal("Standard", detailResult.TrustLevel);
+        Assert.Equal(85, detailResult.SellerReputationScore);
+        Assert.Equal("Excellent", detailResult.SellerTrustLevel);
+        Assert.True(detailResult.IsSeller);
+        Assert.Single(detailResult.ReputationLogs);
+        Assert.Equal("Seller", detailResult.ReputationLogs[0].TargetRole);
+        Assert.Equal(35, detailResult.ReputationLogs[0].ChangeAmount);
+        Assert.Equal(85, detailResult.ReputationLogs[0].ScoreAfter);
+        Assert.Equal("Manual reputation boost by Admin", detailResult.ReputationLogs[0].Note);
     }
 }

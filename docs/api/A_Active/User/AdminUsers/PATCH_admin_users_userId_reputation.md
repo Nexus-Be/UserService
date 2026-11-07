@@ -1,4 +1,4 @@
-﻿# [PATCH] /api/v1/admin/users/{userId}/reputation
+# [PATCH] /api/v1/admin/users/{userId}/reputation
 
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Reputation`  
@@ -74,6 +74,7 @@
 |:---:|:---|:---|:---|
 | `400` | `VAL_INVALID_INPUT` | "Score delta must be a non-zero integer between -50 and 50." | `ScoreDelta == 0` hoặc nằm ngoài khoảng `[-50, 50]`. |
 | `400` | `VAL_INVALID_INPUT` | "Adjustment reason must be at least 10 characters long." | Lý do điều chỉnh ngắn hơn 10 ký tự. |
+| `400` | `USER_NOT_A_SELLER` | "User account does not have an approved or suspended seller profile." | Khi `targetRole == TargetRole.Seller` nhưng người dùng không có hồ sơ Shop (`Approved` hoặc `Suspended`) hoặc vai trò `Seller`. |
 | `401` | `UNAUTHORIZED` | "Authentication is required to access this resource." | Chưa đăng nhập. |
 | `403` | `FORBIDDEN` | "You do not have permission to perform this action." | Không có quyền `admin`. |
 | `404` | `USER_NOT_FOUND` | "User account was not found for the specified identifier." | Không tìm thấy người dùng theo `userId`. |

@@ -294,12 +294,29 @@ public sealed class ReputationService : IReputationService
         }
 
         var user = await _dbContext.Users
+            .Include(u => u.Role)
+            .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
         {
             throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var effectiveTrack = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+
+        if (effectiveTrack == TargetRole.Seller)
+        {
+            var isSeller = (user.Role != null && user.Role.RoleCode == RoleType.Seller)
+                || (user.SellerProfile != null && (user.SellerProfile.Status == SellerProfileStatus.Approved || user.SellerProfile.Status == SellerProfileStatus.Suspended));
+
+            if (!isSeller)
+            {
+                throw new BusinessRuleValidationException(
+                    "USER_NOT_A_SELLER",
+                    "User account does not have an approved or suspended seller profile.");
+            }
         }
 
         var repScore = user.ReputationScore;
@@ -309,7 +326,6 @@ public sealed class ReputationService : IReputationService
             _dbContext.ReputationScores.Add(repScore);
         }
 
-        var effectiveTrack = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
         var prevTrustLevel = effectiveTrack == TargetRole.Seller
             ? repScore.SellerTrustLevel.ToEnumString()
             : repScore.TrustLevel.ToEnumString();
