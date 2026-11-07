@@ -92,6 +92,11 @@ public sealed record PagedData<T>(
 }
 ```
 
+
+> [!NOTE]
+> **Cơ chế Kế thừa Vai trò (Role Hierarchy):**
+> Mỗi đối tượng người dùng trong danh sách trả về mảng `roles` bao gồm cả vai trò chính và các vai trò kế thừa (Role Hierarchy).
+
 ---
 
 ## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)

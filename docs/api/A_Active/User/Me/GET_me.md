@@ -84,6 +84,11 @@ public sealed record UserProfileDto(
 }
 ```
 
+
+> [!NOTE]
+> **Cơ chế Kế thừa Vai trò (Role Hierarchy):**
+> Mảng `roles` trong thông tin hồ sơ cá nhân trả về vai trò chính kèm theo các vai trò được kế thừa qua quan hệ cây vai trò trong cơ sở dữ liệu (ví dụ tài khoản người bán `Seller` tự động kế thừa `Buyer` $\rightarrow$ `["seller", "buyer"]`).
+
 ---
 
 ## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)

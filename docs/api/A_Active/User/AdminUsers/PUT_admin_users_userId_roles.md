@@ -80,6 +80,11 @@ public sealed record AdminUserRolesResponseDto(
 }
 ```
 
+
+> [!NOTE]
+> **Cơ chế Kế thừa Vai trò (Role Hierarchy):**
+> Admin cập nhật 1 vai trò chính duy nhất (`Users.RoleId`). Hệ thống tự động kích hoạt các đặc quyền và vai trò được kế thừa qua cây phân cấp vai trò `Roles.ParentRoleId` (ví dụ: khi gán `Admin`, người dùng tự động kế thừa vai trò `SupportStaff`).
+
 ---
 
 ## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)

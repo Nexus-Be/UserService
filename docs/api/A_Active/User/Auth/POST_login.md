@@ -92,6 +92,13 @@ public sealed record LoginApiResponse(
 }
 ```
 
+
+> [!NOTE]
+> **Cơ chế Kế thừa Vai trò (Role Hierarchy Claims):**
+> UserService chuẩn hóa theo mô hình 1 User - 1 Role lưu tại DB (`Users.RoleId`), kết hợp cây kế thừa tự động (`Roles.ParentRoleId`). Khi xác thực thành công:
+> - Mảng `roles` trả về danh sách vai trò người dùng đã bao gồm toàn bộ vai trò được kế thừa (ví dụ: `Seller` kế thừa `Buyer` $\rightarrow$ `["seller", "buyer"]`; `Admin` kế thừa `SupportStaff` $\rightarrow$ `["admin", "staff"]`).
+> - Claims `roles` này cũng được nhúng trực tiếp vào JWT Access Token, cho phép các downstream services (`OrderService`, `AuctionService`) thực hiện phân quyền `[Authorize(Roles = "buyer")]` hoặc `[Authorize(Roles = "seller")]` tương thích 100% mà không bị gián đoạn nghiệp vụ.
+
 ---
 
 ## 4. Ma trận Mã lỗi RFC 9110 (Error Matrix)
