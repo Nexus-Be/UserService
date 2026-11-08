@@ -145,4 +145,118 @@ public sealed class AuditLogExtensionsTests
         Assert.Equal("trace-abc-123", result.TraceId);
         Assert.Equal("custom-user-service", result.ServiceName);
     }
+
+    [Fact]
+    public async Task AddAuditLog_WithSensitiveFields_MasksSensitiveValues()
+    {
+        // Arrange
+        using var dbContext = CreateInMemoryDbContext();
+        var payload = new
+        {
+            Email = "user@nexus.local",
+            Password = "PlainTextPassword123!",
+            PasswordHash = "$2a$11$SomeHashedSecretValue",
+            RefreshToken = "token-secret-123",
+            Otp = "123456",
+            Secret = "api-secret-key",
+            PublicNote = "Account created normally"
+        };
+
+        // Act
+        var log = dbContext.AddAuditLog(
+            action: AuditAction.UserUpdate,
+            entityName: "User",
+            entityId: Guid.NewGuid().ToString(),
+            newValues: payload);
+
+        await dbContext.SaveChangesAsync();
+
+        // Assert
+        Assert.NotNull(log.NewValues);
+        Assert.DoesNotContain("PlainTextPassword123!", log.NewValues);
+        Assert.DoesNotContain("$2a$11$SomeHashedSecretValue", log.NewValues);
+        Assert.DoesNotContain("token-secret-123", log.NewValues);
+        Assert.DoesNotContain("123456", log.NewValues);
+        Assert.DoesNotContain("api-secret-key", log.NewValues);
+
+        Assert.Contains("\"Password\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"PasswordHash\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"RefreshToken\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"Otp\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"Secret\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"PublicNote\":\"Account created normally\"", log.NewValues);
+    }
+
+    [Fact]
+    public async Task AddAuditLog_WithSensitiveDictionary_MasksSensitiveKeys()
+    {
+        // Arrange
+        using var dbContext = CreateInMemoryDbContext();
+        var dict = new Dictionary<string, object?>
+        {
+            ["Username"] = "nexus_admin",
+            ["CurrentPassword"] = "SecretPassword",
+            ["Code"] = "987654"
+        };
+
+        // Act
+        var log = dbContext.AddAuditLog(
+            action: AuditAction.PasswordReset,
+            entityName: "User",
+            entityId: Guid.NewGuid().ToString(),
+            newValues: dict);
+
+        await dbContext.SaveChangesAsync();
+
+        // Assert
+        Assert.NotNull(log.NewValues);
+        Assert.Contains("\"CurrentPassword\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"Code\":\"***REDACTED***\"", log.NewValues);
+        Assert.Contains("\"Username\":\"nexus_admin\"", log.NewValues);
+    }
+
+    [Fact]
+    public async Task AddAuditLog_WithCyclicReferences_SerializesSafelyWithoutThrowing()
+    {
+        // Arrange
+        using var dbContext = CreateInMemoryDbContext();
+        var parent = new Node { Name = "Parent" };
+        var child = new Node { Name = "Child", Parent = parent };
+        parent.Child = child;
+
+        // Act
+        var log = dbContext.AddAuditLog(
+            action: AuditAction.UserUpdate,
+            entityName: "Node",
+            entityId: "1",
+            newValues: parent);
+
+        await dbContext.SaveChangesAsync();
+
+        // Assert
+        Assert.NotNull(log.NewValues);
+        Assert.Contains("Parent", log.NewValues);
+    }
+
+    [Fact]
+    public void AddAuditLog_InvalidArguments_ThrowsException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+
+        Assert.Throws<ArgumentNullException>(() =>
+            AuditLogExtensions.AddAuditLog(null!, AuditAction.UserUpdate, "User", "1"));
+
+        Assert.Throws<ArgumentException>(() =>
+            dbContext.AddAuditLog(AuditAction.UserUpdate, "", "1"));
+
+        Assert.Throws<ArgumentException>(() =>
+            dbContext.AddAuditLog(AuditAction.UserUpdate, "User", "   "));
+    }
+
+    private sealed class Node
+    {
+        public string Name { get; set; } = string.Empty;
+        public Node? Parent { get; set; }
+        public Node? Child { get; set; }
+    }
 }
