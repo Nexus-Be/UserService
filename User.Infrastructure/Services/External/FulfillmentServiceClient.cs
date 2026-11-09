@@ -31,10 +31,11 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         string wardCode,
         CancellationToken cancellationToken = default)
     {
+        var effectiveSellerId = userId != Guid.Empty ? userId : sellerId;
         var payload = new
         {
-            seller_id = sellerId,
-            user_id = userId,
+            seller_id = effectiveSellerId,
+            user_id = effectiveSellerId,
             shop_name = shopName,
             contact_name = contactName,
             contact_phone = contactPhone,
@@ -46,27 +47,36 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
 
         try
         {
-            _logger.LogInformation("[FULFILLMENT CLIENT] Creating warehouse for Seller '{SellerId}', Shop: '{ShopName}' at public route /api/v1/warehouses/initialize", sellerId, shopName);
+            _logger.LogInformation("[FULFILLMENT CLIENT] Creating warehouse for Seller '{SellerId}' (User: '{UserId}'), Shop: '{ShopName}' at public route /api/v1/warehouses/initialize",
+                sellerId, effectiveSellerId, shopName);
             var response = await _httpClient.PostAsJsonAsync("api/v1/warehouses/initialize", payload, cancellationToken);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogWarning("[FULFILLMENT CLIENT] Route 'api/v1/warehouses/initialize' returned 404 for Seller '{SellerId}'. Retrying via legacy route 'api/v1/internal/warehouses'...",
+                    effectiveSellerId);
+                response.Dispose();
+                response = await _httpClient.PostAsJsonAsync("api/v1/internal/warehouses", payload, cancellationToken);
+            }
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("[FULFILLMENT CLIENT] Successfully created warehouse for Seller '{SellerId}'. StatusCode: {StatusCode}", sellerId, (int)response.StatusCode);
+                _logger.LogInformation("[FULFILLMENT CLIENT] Successfully created warehouse for Seller '{SellerId}'. StatusCode: {StatusCode}", effectiveSellerId, (int)response.StatusCode);
                 return true;
             }
 
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogWarning("[FULFILLMENT CLIENT] Warehouse creation rejected by FulfillmentService for Seller '{SellerId}'. StatusCode: {StatusCode}, Error: {Error}", sellerId, (int)response.StatusCode, errorBody);
+            _logger.LogWarning("[FULFILLMENT CLIENT] Warehouse creation rejected by FulfillmentService for Seller '{SellerId}'. StatusCode: {StatusCode}, Error: {Error}", effectiveSellerId, (int)response.StatusCode, errorBody);
             return false;
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "[FULFILLMENT CLIENT] Warehouse creation timed out (>5s) for Seller '{SellerId}'.", sellerId);
+            _logger.LogError(ex, "[FULFILLMENT CLIENT] Warehouse creation timed out (>5s) for Seller '{SellerId}'.", effectiveSellerId);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[FULFILLMENT CLIENT] Network or unexpected failure while calling FulfillmentService for Seller '{SellerId}'.", sellerId);
+            _logger.LogError(ex, "[FULFILLMENT CLIENT] Network or unexpected failure while calling FulfillmentService for Seller '{SellerId}'.", effectiveSellerId);
             return false;
         }
     }
@@ -130,4 +140,3 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         }
     }
 }
-

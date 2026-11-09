@@ -861,7 +861,7 @@ public sealed class SellerService : ISellerService
             _logger.LogCritical(ex, "[SELLER APPROVAL] DB commit failed after warehouse created for Seller '{SellerId}'. Initiating compensating deletion...", sellerProfile.Id);
             try
             {
-                await _fulfillmentClient.DeleteWarehouseBySellerIdAsync(sellerProfile.Id, CancellationToken.None);
+                await _fulfillmentClient.DeleteWarehouseBySellerIdAsync(sellerProfile.UserId, CancellationToken.None);
             }
             catch (Exception compEx)
             {
@@ -958,7 +958,7 @@ public sealed class SellerService : ISellerService
         // Compensating cleanup in case downstream warehouse had been created
         try
         {
-            await _fulfillmentClient.DeleteWarehouseBySellerIdAsync(sellerProfile.Id, cancellationToken);
+            await _fulfillmentClient.DeleteWarehouseBySellerIdAsync(sellerProfile.UserId, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1238,7 +1238,7 @@ public sealed class SellerService : ISellerService
             try
             {
                 _ = _fulfillmentClient.UpdateWarehouseAsync(
-                    sellerId: sellerProfile.Id,
+                    sellerId: sellerProfile.UserId,
                     shopName: sellerProfile.ShopName,
                     contactPhone: sellerProfile.Hotline,
                     pickupAddress: sellerProfile.PickupAddress,
