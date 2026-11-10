@@ -10,9 +10,11 @@ public sealed record CheckReputationRequest
     [Required(ErrorMessage = "User ID is required.")]
     public Guid UserId { get; init; }
 
-    [Required(ErrorMessage = "Required action is required.")]
-    [StringLength(100, MinimumLength = 1, ErrorMessage = "Required action must be between 1 and 100 characters long.")]
-    public string RequiredAction { get; init; } = string.Empty;
+    public string? Action { get; init; } = "SELL";
+
+    public string? RequiredAction { get; init; }
+
+    public string EffectiveAction => !string.IsNullOrWhiteSpace(Action) ? Action : (RequiredAction ?? "SELL");
 }
 
 public sealed record VerifyBidEligibilityRequest
@@ -20,8 +22,7 @@ public sealed record VerifyBidEligibilityRequest
     [Required(ErrorMessage = "User ID is required.")]
     public Guid UserId { get; init; }
 
-    [Required(ErrorMessage = "Auction ID is required.")]
-    public Guid AuctionId { get; init; }
+    public Guid? AuctionId { get; init; }
 }
 
 public sealed record BatchPublicInfoRequest

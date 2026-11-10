@@ -43,6 +43,19 @@ public sealed class InternalUserServiceTests
             Status = UserStatus.Active
         });
 
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Violating Shop",
+            PickupAddress = "123 St",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0900000000",
+            Status = SellerProfileStatus.Approved
+        });
+
         // Seller violated rules -> SellerScore dropped to 42 (< 50 required to create auction)
         // Even though user farmed BuyerScore up to 85, CheckReputationAsync MUST block auction creation!
         dbContext.ReputationScores.Add(new ReputationScore
@@ -65,7 +78,7 @@ public sealed class InternalUserServiceTests
 
         Assert.False(sellerCheck.IsEligible);
         Assert.Equal(42, sellerCheck.CurrentScore);
-        Assert.Equal("ERR_REPUTATION_TOO_LOW", sellerCheck.FailureReason);
+        Assert.Equal("REPUTATION_TOO_LOW", sellerCheck.FailureReason);
 
         // INT-01: Buyer Bid Eligibility Check -> Uses CurrentScore/BuyerScore (85 >= 40) -> Allowed!
         var buyerCheck = await service.VerifyBidEligibilityAsync(new VerifyBidEligibilityRequest
@@ -238,6 +251,6 @@ public sealed class InternalUserServiceTests
         });
 
         Assert.False(check.IsEligible);
-        Assert.Equal("ERR_ACCOUNT_RESTRICTED", check.FailureReason);
+        Assert.Equal("SELLER_NOT_APPROVED", check.FailureReason);
     }
 }

@@ -41,23 +41,153 @@ public sealed class InternalUserService : IInternalUserService
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "[InternalUserService] Checking seller reputation for UserId: '{UserId}', RequiredAction: '{RequiredAction}'",
+            "[InternalUserService] Checking seller reputation for UserId: '{UserId}', Action: '{Action}'",
             request.UserId,
-            request.RequiredAction);
+            request.EffectiveAction);
 
-        var (isEligible, currentScore, trustLevel, failureReason) = await EvaluateUserEligibilityAsync(
-            request.UserId,
-            targetRole: TargetRole.Seller,
-            configKey: CreateAuctionMinScoreConfigKey,
-            defaultMinScore: ReputationRules.DefaultMinScoreToSell,
-            cancellationToken);
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(u => u.ReputationScore)
+            .Include(u => u.SellerProfile)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+
+        if (user is null)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = "NotFound",
+                CurrentScore = 0,
+                TrustLevel = TrustLevel.Untrusted.ToEnumString(),
+                FailureReason = "USER_NOT_FOUND"
+            };
+        }
+
+        var isDeleted = user.IsDeleted || user.Status == UserStatus.Deleted;
+        var currentScore = user.ReputationScore?.SellerScore ?? ReputationRules.DefaultInitialScore;
+        var trustLevel = (user.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToEnumString();
+        var isApprovedSeller = user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Approved;
+
+        if (isDeleted)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = UserStatus.Deleted.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "USER_DELETED"
+            };
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = UserStatus.Banned.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (user.Status != UserStatus.Active)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_INACTIVE"
+            };
+        }
+
+        if (!isApprovedSeller)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "SELLER_NOT_APPROVED"
+            };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var activePenalties = await _dbContext.UserPenalties
+            .AsNoTracking()
+            .Where(p => p.UserId == request.UserId
+                        && p.Status == PenaltyStatus.Active
+                        && (p.TargetRole == TargetRole.Account || p.TargetRole == TargetRole.Seller)
+                        && (p.ExpiresAt == null || p.ExpiresAt > now))
+            .ToListAsync(cancellationToken);
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.BanAccount))
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = true,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.Restriction))
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = true,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_RESTRICTED"
+            };
+        }
+
+        var minRequiredScore = await GetThresholdScoreAsync(CreateAuctionMinScoreConfigKey, ReputationRules.DefaultMinScoreToSell, cancellationToken);
+        if (currentScore < minRequiredScore)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = true,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "REPUTATION_TOO_LOW"
+            };
+        }
 
         return new CheckReputationResponse
         {
-            IsEligible = isEligible,
+            UserId = request.UserId,
+            Allowed = true,
+            IsApprovedSeller = true,
+            UserStatus = "Active",
             CurrentScore = currentScore,
             TrustLevel = trustLevel,
-            FailureReason = failureReason
+            FailureReason = null
         };
     }
 
@@ -70,18 +200,108 @@ public sealed class InternalUserService : IInternalUserService
             request.UserId,
             request.AuctionId);
 
-        var (isEligible, currentScore, _, failureReason) = await EvaluateUserEligibilityAsync(
-            request.UserId,
-            targetRole: TargetRole.Buyer,
-            configKey: BidMinScoreConfigKey,
-            defaultMinScore: ReputationRules.DefaultMinScoreToBid,
-            cancellationToken);
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+
+        if (user is null)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = 0,
+                FailureReason = "USER_NOT_FOUND"
+            };
+        }
+
+        var isDeleted = user.IsDeleted || user.Status == UserStatus.Deleted;
+        var currentScore = user.ReputationScore?.CurrentScore ?? ReputationRules.DefaultInitialScore;
+
+        if (isDeleted)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "USER_DELETED"
+            };
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (user.Status != UserStatus.Active)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_INACTIVE"
+            };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var activePenalties = await _dbContext.UserPenalties
+            .AsNoTracking()
+            .Where(p => p.UserId == request.UserId
+                        && p.Status == PenaltyStatus.Active
+                        && (p.TargetRole == TargetRole.Account || p.TargetRole == TargetRole.Buyer)
+                        && (p.ExpiresAt == null || p.ExpiresAt > now))
+            .ToListAsync(cancellationToken);
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.BanAccount))
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.Restriction))
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_RESTRICTED"
+            };
+        }
+
+        var minRequiredScore = await GetThresholdScoreAsync(BidMinScoreConfigKey, ReputationRules.DefaultMinScoreToBid, cancellationToken);
+        if (currentScore < minRequiredScore)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "REPUTATION_TOO_LOW"
+            };
+        }
 
         return new VerifyBidEligibilityResponse
         {
-            IsEligible = isEligible,
+            UserId = request.UserId,
+            Allowed = true,
             CurrentScore = currentScore,
-            FailureReason = failureReason
+            FailureReason = null
         };
     }
 
@@ -94,10 +314,16 @@ public sealed class InternalUserService : IInternalUserService
             return new BatchPublicInfoResponse { Users = Array.Empty<UserPublicInfoItem>() };
         }
 
+        if (request.UserIds.Count > 100)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "User IDs list cannot exceed 100 identifiers per batch request.", 400);
+        }
+
         var distinctIds = request.UserIds.Distinct().ToList();
 
         var users = await _dbContext.Users
             .AsNoTracking()
+            .IgnoreQueryFilters()
             .Include(u => u.ReputationScore)
             .Include(u => u.SellerProfile)
             .Where(u => distinctIds.Contains(u.Id))
@@ -108,6 +334,8 @@ public sealed class InternalUserService : IInternalUserService
                 u.LastName,
                 u.Username,
                 u.AvatarUrl,
+                u.IsDeleted,
+                u.Status,
                 ShopName = u.SellerProfile != null ? u.SellerProfile.ShopName : null,
                 BuyerScore = u.ReputationScore != null ? u.ReputationScore.CurrentScore : ReputationRules.DefaultInitialScore,
                 SellerScore = u.ReputationScore != null ? u.ReputationScore.SellerScore : ReputationRules.DefaultInitialScore
@@ -130,11 +358,15 @@ public sealed class InternalUserService : IInternalUserService
                 ? $"{rawForMask[0]}***{rawForMask[^1]}"
                 : "u***r";
 
+            var isDeleted = u.IsDeleted || u.Status == UserStatus.Deleted;
+
             return new UserPublicInfoItem
             {
                 UserId = u.Id,
                 DisplayName = displayName,
                 MaskedDisplayName = maskedName,
+                MaskedName = maskedName,
+                IsDeleted = isDeleted,
                 AvatarUrl = u.AvatarUrl,
                 ReputationScore = u.BuyerScore,
                 SellerReputationScore = u.SellerScore

@@ -17,17 +17,17 @@ using User.Application.Services.Internal;
 [Route("api/v1/internal/users")]
 public sealed class InternalUsersController : ControllerBase
 {
-    private readonly IAdminPenaltyService _penaltyService;
+    private readonly IAdminPenaltyService? _penaltyService;
     private readonly IInternalUserService? _internalUserService;
     private readonly ILogger<InternalUsersController> _logger;
 
     public InternalUsersController(
-        IAdminPenaltyService penaltyService,
+        IAdminPenaltyService? penaltyService,
         ILogger<InternalUsersController> logger,
         IInternalUserService? internalUserService = null)
     {
-        _penaltyService = penaltyService ?? throw new ArgumentNullException(nameof(penaltyService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _penaltyService = penaltyService;
         _internalUserService = internalUserService;
     }
 
@@ -42,6 +42,10 @@ public sealed class InternalUsersController : ControllerBase
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("[Internal CheckUserActionPermission] Checking permission for UserId: '{UserId}', Action: '{Action}'", userId, action);
+        if (_penaltyService == null)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, "Penalty service is not available.");
+        }
         var result = await _penaltyService.CheckUserActionPermissionAsync(userId, action, cancellationToken);
         return Ok(result);
     }
@@ -50,42 +54,42 @@ public sealed class InternalUsersController : ControllerBase
     /// [INT-04] Kiểm tra điều kiện điểm uy tín Seller để tạo và mở phiên đấu giá.
     /// </summary>
     [HttpPost("check-reputation")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(CheckReputationResponse))]
-    public async Task<ActionResult<CheckReputationResponse>> CheckReputation(
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> CheckReputation(
         [FromBody] CheckReputationRequest request,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("[Internal CheckReputation] Checking seller eligibility for UserId: '{UserId}'", request.UserId);
         var result = await _internalUserService!.CheckReputationAsync(request, cancellationToken);
-        return Ok(result);
+        return Ok(new { data = result });
     }
 
     /// <summary>
     /// [INT-01] Kiểm tra điều kiện điểm uy tín Buyer để đặt giá thầu trong phiên đấu giá.
     /// </summary>
     [HttpPost("verify-bid-eligibility")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(VerifyBidEligibilityResponse))]
-    public async Task<ActionResult<VerifyBidEligibilityResponse>> VerifyBidEligibility(
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> VerifyBidEligibility(
         [FromBody] VerifyBidEligibilityRequest request,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("[Internal VerifyBidEligibility] Verifying bid eligibility for UserId: '{UserId}', AuctionId: '{AuctionId}'", request.UserId, request.AuctionId);
         var result = await _internalUserService!.VerifyBidEligibilityAsync(request, cancellationToken);
-        return Ok(result);
+        return Ok(new { data = result });
     }
 
     /// <summary>
     /// [INT-02] Truy vấn thông tin hiển thị công khai hàng loạt theo danh sách UserIds.
     /// </summary>
     [HttpPost("batch-public-info")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(BatchPublicInfoResponse))]
-    public async Task<ActionResult<BatchPublicInfoResponse>> GetBatchPublicInfo(
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> GetBatchPublicInfo(
         [FromBody] BatchPublicInfoRequest request,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("[Internal BatchPublicInfo] Fetching public info for {Count} users", request.UserIds.Count);
         var result = await _internalUserService!.GetBatchPublicInfoAsync(request, cancellationToken);
-        return Ok(result);
+        return Ok(new { data = result.Users });
     }
 
     /// <summary>
