@@ -1,4 +1,4 @@
-﻿# DANH MỤC REST NỘI BỘ SERVICE KHÁC GỌI VÀO USER SERVICE (INBOUND REST)
+# DANH MỤC REST NỘI BỘ SERVICE KHÁC GỌI VÀO USER SERVICE (INBOUND REST)
 
 > **Phân hệ thụ lý:** `UserService`  
 > **Base URL:** `http://user-service:8001/api/v1/internal/*`  
@@ -12,66 +12,70 @@
 ## Danh Sách Inbound REST Endpoints (`InternalUsersController`)
 
 ### 1. `[POST] /api/v1/internal/users/verify-bid-eligibility` (`INT-01`)
+> *Dual-Route Alias:* `[POST] /api/v1/users/verify-bid-eligibility`
 - **Service gọi:** Auction Service
-- **Mô tả:** Thẩm định quyền đặt giá đấu giá của người mua dựa trên quỹ điểm **Buyer Track (`CurrentScore`)**, trạng thái tài khoản `Active` và các án phạt `TargetRole.Buyer` / `TargetRole.Account` đang hiệu lực.
+- **Mô tả:** Thẩm định quyền đặt giá đấu giá của người mua dựa trên quỹ điểm **Buyer Track (`CurrentScore`)**, trạng thái tài khoản `Active` và các án phạt `TargetRole.Buyer` / `TargetRole.Account` đang hiệu lực. Timeout nhanh (<800ms).
 - **Request (`VerifyBidEligibilityRequest`):**
   ```json
   {
-    "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "auctionId": "7fa85f64-5717-4562-b3fc-2c963f66afa9"
+    "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
   }
   ```
-- **Response (`VerifyBidEligibilityResponse`):**
+- **Response 200 OK:**
   ```json
   {
-    "isEligible": true,
-    "currentScore": 85,
-    "failureReason": null
+    "data": {
+      "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "allowed": true,
+      "failureReason": null
+    }
   }
   ```
 
 ### 2. `[POST] /api/v1/internal/users/batch-public-info` (`INT-02`)
+> *Dual-Route Alias:* `[POST] /api/v1/users/batch-public-info`
 - **Service gọi:** Auction Service, Order/Commerce Service (Tối đa 100 IDs/request)
-- **Mô tả:** Truy vấn hàng loạt thông tin hiển thị công khai kèm tên che PII (`MaskedDisplayName`), `AvatarUrl`, điểm `ReputationScore` (Buyer) và `SellerReputationScore` (Seller).
+- **Mô tả:** Truy vấn hàng loạt thông tin hiển thị công khai kèm tên che PII (`MaskedName`), cờ `IsDeleted`, điểm uy tín.
 - **Request (`BatchPublicInfoRequest`):**
   ```json
   {
     "userIds": ["3fa85f64-5717-4562-b3fc-2c963f66afa6"]
   }
   ```
-- **Response (`BatchPublicInfoResponse`):**
+- **Response 200 OK:**
   ```json
   {
-    "users": [
+    "data": [
       {
         "userId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-        "displayName": "Nexus Official Store",
-        "maskedDisplayName": "T***h",
-        "avatarUrl": null,
-        "reputationScore": 85,
-        "sellerReputationScore": 85
+        "maskedName": "T***h",
+        "isDeleted": false
       }
     ]
   }
   ```
 
 ### 3. `[POST] /api/v1/internal/users/check-reputation` (`INT-04`)
+> *Dual-Route Alias:* `[POST] /api/v1/users/check-reputation`
 - **Service gọi:** Auction Service
-- **Mô tả:** Kiểm tra điều kiện mở phiên đấu giá của người bán dựa trên quỹ điểm độc lập **Seller Track (`SellerScore`)** ($\ge 50$), trạng thái `SellerProfile != Suspended` và không có án phạt `TargetRole.Seller` / `TargetRole.Account`.
+- **Mô tả:** Kiểm tra điều kiện mở phiên đấu giá của người bán dựa trên quỹ điểm độc lập **Seller Track (`SellerScore`)** ($\ge 50$), trạng thái `SellerProfile == Approved` và không có án phạt `TargetRole.Seller` / `TargetRole.Account`.
 - **Request (`CheckReputationRequest`):**
   ```json
   {
-    "userId": "cccccccc-3333-3333-3333-333333333333",
-    "requiredAction": "CREATE_AUCTION"
+    "action": "SELL",
+    "userId": "cccccccc-3333-3333-3333-333333333333"
   }
   ```
-- **Response (`CheckReputationResponse`):**
+- **Response 200 OK:**
   ```json
   {
-    "isEligible": true,
-    "currentScore": 50,
-    "trustLevel": "Standard",
-    "failureReason": null
+    "data": {
+      "userId": "cccccccc-3333-3333-3333-333333333333",
+      "allowed": true,
+      "isApprovedSeller": true,
+      "userStatus": "Active",
+      "failureReason": null
+    }
   }
   ```
 

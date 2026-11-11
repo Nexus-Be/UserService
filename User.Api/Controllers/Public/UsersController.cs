@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using User.Api.Extensions;
 using User.Api.Filters;
 using User.Application.Common.Models;
+using User.Application.Services.Internal;
 using User.Application.Services.Profile;
 using User.Application.Services.Report;
 using User.Application.Services.Reputation;
@@ -27,6 +28,7 @@ public sealed class UsersController : ControllerBase
     private readonly IReputationService? _reputationService;
     private readonly IReviewService? _reviewService;
     private readonly IReportService? _reportService;
+    private readonly IInternalUserService? _internalUserService;
     private readonly ILogger<UsersController> _logger;
 
     public UsersController(
@@ -34,13 +36,15 @@ public sealed class UsersController : ControllerBase
         ILogger<UsersController> logger,
         IReputationService? reputationService = null,
         IReviewService? reviewService = null,
-        IReportService? reportService = null)
+        IReportService? reportService = null,
+        IInternalUserService? internalUserService = null)
     {
         _profileService = profileService;
         _logger = logger;
         _reputationService = reputationService;
         _reviewService = reviewService;
         _reportService = reportService;
+        _internalUserService = internalUserService;
     }
 
     /// <summary>
@@ -143,6 +147,51 @@ public sealed class UsersController : ControllerBase
         _logger.LogInformation("[REST CreateUserReport] Submitting report from '{ReporterId}' against '{ReportedUserId}'", reporterId, request.ReportedUserId);
         var result = await _reportService!.CreateReportAsync(reporterId, request, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, result);
+    }
+
+    /// <summary>
+    /// [Inter-Service / Public] Kiểm tra tư cách và điểm uy tín người bán trước khi tạo phiên đấu giá.
+    /// </summary>
+    [HttpPost("check-reputation")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> CheckReputation(
+        [FromBody] CheckReputationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST CheckReputation] Checking seller eligibility for UserId: '{UserId}'", request.UserId);
+        var result = await _internalUserService!.CheckReputationAsync(request, cancellationToken);
+        return Ok(new { data = result });
+    }
+
+    /// <summary>
+    /// [Inter-Service / Public] Xác thực điều kiện tài khoản người mua trước khi đặt giá thầu.
+    /// </summary>
+    [HttpPost("verify-bid-eligibility")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> VerifyBidEligibility(
+        [FromBody] VerifyBidEligibilityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST VerifyBidEligibility] Verifying bid eligibility for UserId: '{UserId}', AuctionId: '{AuctionId}'", request.UserId, request.AuctionId);
+        var result = await _internalUserService!.VerifyBidEligibilityAsync(request, cancellationToken);
+        return Ok(new { data = result });
+    }
+
+    /// <summary>
+    /// [Inter-Service / Public] Truy vấn danh sách thông tin hiển thị công khai ẩn danh hàng loạt.
+    /// </summary>
+    [HttpPost("batch-public-info")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetBatchPublicInfo(
+        [FromBody] BatchPublicInfoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST BatchPublicInfo] Fetching public info for {Count} users", request.UserIds.Count);
+        var result = await _internalUserService!.GetBatchPublicInfoAsync(request, cancellationToken);
+        return Ok(new { data = result.Users });
     }
 
     /// <summary>
