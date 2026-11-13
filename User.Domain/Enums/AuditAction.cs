@@ -14,5 +14,6 @@ public enum AuditAction
     SystemConfigUpdate = 9,
     ReviewHide = 10,
     ReportResolve = 11,
-    ReportDismiss = 12
+    ReportDismiss = 12,
+    AuctionViolationAdjust = 13
 }

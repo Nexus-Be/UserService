@@ -119,4 +119,41 @@ public sealed class InternalUsersController : ControllerBase
         var result = await _internalUserService!.ApplyInternalReputationAdjustAsync(request, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>[INT-19] Tra cứu hồ sơ đặt cọc đấu giá của Buyer (trạng thái tài khoản, uy tín, violation streak, hạn chế đấu giá).</summary>
+    [HttpGet("{userId:guid}/auction-deposit-profile")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AuctionDepositProfileResponse))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AuctionDepositProfileResponse>> GetAuctionDepositProfile(
+        [FromRoute] Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal GetAuctionDepositProfile] Fetching auction deposit profile for UserId: '{UserId}'", userId);
+        var result = await _internalUserService!.GetAuctionDepositProfileAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[INT-20] Ghi nhận vi phạm đấu giá (không thanh toán sau khi thắng), tăng Streak, trừ uy tín và áp chế tài đấu giá idempotent.</summary>
+    [HttpPost("{userId:guid}/auction-violations")]
+    [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(RecordAuctionViolationResponse))]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(RecordAuctionViolationResponse))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<ActionResult<RecordAuctionViolationResponse>> RecordAuctionViolation(
+        [FromRoute] Guid userId,
+        [FromBody] RecordAuctionViolationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "[Internal RecordAuctionViolation] Recording violation for UserId: '{UserId}', AuctionId: '{AuctionId}', Type: '{ViolationType}'",
+            userId,
+            request.AuctionId,
+            request.ViolationType);
+
+        var result = await _internalUserService!.RecordAuctionViolationAsync(userId, request, cancellationToken);
+        return result.Created
+            ? StatusCode(StatusCodes.Status201Created, result)
+            : Ok(result);
+    }
 }

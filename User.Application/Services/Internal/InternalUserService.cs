@@ -621,6 +621,243 @@ public sealed class InternalUserService : IInternalUserService
         };
     }
 
+    public async Task<AuctionDepositProfileResponse> GetAuctionDepositProfileAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var userSnapshot = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                u.Id,
+                u.Status,
+                u.IsDeleted,
+                HasReputationScore = u.ReputationScore != null,
+                BuyerScore = u.ReputationScore != null ? u.ReputationScore.CurrentScore : ReputationRules.DefaultInitialScore,
+                HasBuyerReputationLog = _dbContext.ReputationLogs.Any(l => l.UserId == userId && l.TargetRole == TargetRole.Buyer)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (userSnapshot is null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var profile = await _dbContext.UserAuctionProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        var accountStatus = (userSnapshot.IsDeleted || userSnapshot.Status == UserStatus.Deleted)
+            ? UserStatus.Deleted
+            : userSnapshot.Status;
+
+        var isNewUser = !userSnapshot.HasReputationScore || !userSnapshot.HasBuyerReputationLog;
+        int? reputationScore = isNewUser ? null : userSnapshot.BuyerScore;
+        var restriction = profile.ResolveActiveRestriction(now);
+
+        return new AuctionDepositProfileResponse
+        {
+            UserId = userSnapshot.Id,
+            AccountStatus = accountStatus,
+            ReputationScore = reputationScore,
+            IsNewUser = isNewUser,
+            ViolationStreak = profile?.ViolationStreak ?? 0,
+            AuctionRestriction = new AuctionRestrictionDto
+            {
+                IsRestricted = restriction.IsRestricted,
+                Type = restriction.Type,
+                Until = restriction.Until,
+                Reason = restriction.Reason
+            }
+        };
+    }
+
+    public async Task<RecordAuctionViolationResponse> RecordAuctionViolationAsync(
+        Guid userId,
+        RecordAuctionViolationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ViolationType))
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Violation type is required.", 400);
+        }
+
+        if (!request.ViolationType.TryToEnum<AuctionViolationType>(out var violationType))
+        {
+            throw new DomainException("INVALID_VIOLATION_TYPE", "Auction violation type is invalid.", 422);
+        }
+
+        if (!request.AuctionId.HasValue || request.AuctionId.Value == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Auction ID is required.", 400);
+        }
+
+        if (!request.OrderId.HasValue || request.OrderId.Value == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Order ID is required.", 400);
+        }
+
+        if (!request.OccurredAt.HasValue)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Occurred at timestamp is required.", 400);
+        }
+
+        if (request.DepositForfeitedAmount < 0)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Deposit forfeited amount must be non-negative.", 400);
+        }
+
+        if (violationType == AuctionViolationType.SecondChanceNonPayment && request.DepositForfeitedAmount > 0)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Deposit forfeited amount must be 0 for second-chance non-payment.", 400);
+        }
+
+        var auctionId = request.AuctionId.Value;
+        var orderId = request.OrderId.Value;
+        var occurredAt = request.OccurredAt.Value;
+
+        var user = await _dbContext.Users
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == userId && u.Status != UserStatus.Deleted, cancellationToken);
+
+        if (user is null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var existingViolation = await FindSystemViolationAsync(userId, auctionId, violationType, cancellationToken);
+
+        if (existingViolation is not null)
+        {
+            return MapRecordViolationResponse(existingViolation, created: false);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var profile = await _dbContext.GetOrCreateAuctionProfileAsync(userId, now, cancellationToken);
+
+        var previousStreak = profile.ViolationStreak;
+        var newStreak = previousStreak + 1;
+        profile.ViolationStreak = newStreak;
+        profile.UpdatedAt = now;
+
+        var repScore = EnsureReputationScore(user);
+        var delta = AuctionRules.GetStreakReputationDelta(newStreak);
+        var (repBefore, repAfter, appliedDelta) = repScore.ApplyScoreChange(TargetRole.Buyer, delta, isPenalty: true);
+        var (sanctionType, sanctionUntil) = AuctionRules.GetStreakSanction(newStreak, now);
+
+        if (sanctionType == AuctionSanctionType.TempRestricted && profile.RestrictionType != AuctionRestrictionType.Suspended)
+        {
+            var effectiveUntil = profile.RestrictionType == AuctionRestrictionType.TempRestricted &&
+                                 profile.RestrictionUntil.HasValue &&
+                                 profile.RestrictionUntil.Value > sanctionUntil
+                ? profile.RestrictionUntil
+                : sanctionUntil;
+
+            profile.RestrictionType = AuctionRestrictionType.TempRestricted;
+            profile.RestrictionUntil = effectiveUntil;
+            profile.RestrictionReason = $"Temporary auction restriction due to repeated non-payment violations (streak {newStreak}).";
+        }
+        else if (sanctionType == AuctionSanctionType.Suspended)
+        {
+            profile.RestrictionType = AuctionRestrictionType.Suspended;
+            profile.RestrictionUntil = null;
+            profile.RestrictionReason = $"Auction privileges suspended due to repeated non-payment violations (streak {newStreak}).";
+        }
+
+        if (appliedDelta != 0)
+        {
+            _dbContext.ReputationLogs.Add(new ReputationLog
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TargetRole = TargetRole.Buyer,
+                ChangeAmount = appliedDelta,
+                ScoreAfter = repAfter,
+                Reason = ReputationChangeReason.AuctionPaymentTimeout,
+                ReferenceType = ReferenceType.Auction,
+                ReferenceId = auctionId.ToString(),
+                Note = $"Auction non-payment violation ({violationType}, streak {newStreak}).",
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+
+        var violation = new AuctionViolation
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ViolationType = violationType,
+            AuctionId = auctionId,
+            OrderId = orderId,
+            OccurredAt = occurredAt,
+            DepositForfeitedAmount = request.DepositForfeitedAmount,
+            Source = AuctionViolationSource.System,
+            PreviousStreak = previousStreak,
+            NewStreak = newStreak,
+            ReputationBefore = repBefore,
+            ReputationAfter = repAfter,
+            SanctionType = sanctionType,
+            SanctionUntil = sanctionUntil,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        _dbContext.AuctionViolations.Add(violation);
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return MapRecordViolationResponse(violation, created: true);
+        }
+        catch (DbUpdateException)
+        {
+            var duplicate = await FindSystemViolationAsync(userId, auctionId, violationType, cancellationToken);
+
+            if (duplicate is not null)
+            {
+                return MapRecordViolationResponse(duplicate, created: false);
+            }
+
+            throw;
+        }
+    }
+
+    private Task<AuctionViolation?> FindSystemViolationAsync(
+        Guid userId,
+        Guid auctionId,
+        AuctionViolationType violationType,
+        CancellationToken cancellationToken)
+    {
+        return _dbContext.AuctionViolations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(v =>
+                v.UserId == userId &&
+                v.AuctionId == auctionId &&
+                v.ViolationType == violationType &&
+                v.Source == AuctionViolationSource.System,
+                cancellationToken);
+    }
+
+    private static RecordAuctionViolationResponse MapRecordViolationResponse(AuctionViolation violation, bool created)
+    {
+        return new RecordAuctionViolationResponse
+        {
+            ViolationId = violation.Id,
+            Created = created,
+            PreviousStreak = violation.PreviousStreak,
+            NewStreak = violation.NewStreak,
+            ReputationBefore = violation.ReputationBefore,
+            ReputationAfter = violation.ReputationAfter,
+            Sanction = new AuctionSanctionDto
+            {
+                Type = violation.SanctionType,
+                Until = violation.SanctionUntil
+            }
+        };
+    }
+
     private ReputationScore EnsureReputationScore(User user)
     {
         if (user.ReputationScore != null)

@@ -30,6 +30,8 @@ public class AppDbContext : DbContext, IUserDbContext
     public DbSet<UserPenalty> UserPenalties => Set<UserPenalty>();
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<UserAuctionProfile> UserAuctionProfiles => Set<UserAuctionProfile>();
+    public DbSet<AuctionViolation> AuctionViolations => Set<AuctionViolation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -2,6 +2,7 @@ namespace User.Application.Services.Internal;
 
 using System;
 using System.Collections.Generic;
+using User.Domain.Enums;
 
 public sealed record CheckReputationResponse
 {
@@ -63,4 +64,39 @@ public sealed record InternalReputationAdjustResponse
     public int NewScore { get; init; }
     public int AppliedDelta { get; init; }
     public string NewTrustLevel { get; init; } = string.Empty;
+}
+
+public sealed record AuctionRestrictionDto
+{
+    public bool IsRestricted { get; init; }
+    public AuctionRestrictionType? Type { get; init; }
+    public DateTimeOffset? Until { get; init; }
+    public string? Reason { get; init; }
+}
+
+public sealed record AuctionDepositProfileResponse
+{
+    public Guid UserId { get; init; }
+    public UserStatus AccountStatus { get; init; }
+    public int? ReputationScore { get; init; }
+    public bool IsNewUser { get; init; }
+    public int ViolationStreak { get; init; }
+    public AuctionRestrictionDto AuctionRestriction { get; init; } = new();
+}
+
+public sealed record AuctionSanctionDto
+{
+    public AuctionSanctionType Type { get; init; }
+    public DateTimeOffset? Until { get; init; }
+}
+
+public sealed record RecordAuctionViolationResponse
+{
+    public Guid ViolationId { get; init; }
+    public bool Created { get; init; }
+    public int PreviousStreak { get; init; }
+    public int NewStreak { get; init; }
+    public int ReputationBefore { get; init; }
+    public int ReputationAfter { get; init; }
+    public AuctionSanctionDto Sanction { get; init; } = new();
 }
