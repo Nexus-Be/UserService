@@ -564,9 +564,10 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
-        var token = _jwtTokenGenerator.GenerateToken(user, roles, Array.Empty<string>(), out var expiresAt);
+        var sessionId = Guid.NewGuid();
+        var token = _jwtTokenGenerator.GenerateToken(user, roles, Array.Empty<string>(), sessionId, out var expiresAt);
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
-        if (expiresIn == 0) expiresIn = 3600;
+        if (expiresIn == 0) expiresIn = 900;
 
         // Generate secure Refresh Token and store SHA-256 hash in database (TTL: 7 days)
         var rawRefreshToken = GenerateSecureToken();
@@ -576,7 +577,10 @@ public class AuthService : IAuthService
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
+            SessionId = sessionId,
             TokenHash = tokenHash,
+            DeviceInfo = Truncate(dto.DeviceInfo, 255),
+            IpAddress = Truncate(dto.IpAddress, 100),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
             IsRevoked = false,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -645,7 +649,11 @@ public class AuthService : IAuthService
 
         if (tokenEntity.IsRevoked)
         {
-            _logger.LogWarning("[AUTH] Refresh token rejected: Token '{TokenId}' has already been revoked.", tokenEntity.Id);
+            _logger.LogWarning("[AUTH] Refresh token reuse detected: Token '{TokenId}' (Session '{SessionId}') has already been revoked.", tokenEntity.Id, tokenEntity.SessionId);
+            if (tokenEntity.SessionId != Guid.Empty)
+            {
+                await _dbContext.RevokeSessionTokensAsync(tokenEntity.SessionId, DateTimeOffset.UtcNow, cancellationToken);
+            }
             throw new DomainException("REFRESH_TOKEN_REVOKED", "Refresh token has been revoked.");
         }
 
@@ -675,13 +683,19 @@ public class AuthService : IAuthService
             throw new DomainException("USER_BANNED", banMessage);
         }
 
-        // --- Refresh Token Rotation (RTR) ---
-        // 1. Revoke current refresh token
-        tokenEntity.IsRevoked = true;
-        tokenEntity.RevokedAt = DateTimeOffset.UtcNow;
-        tokenEntity.UpdatedAt = DateTimeOffset.UtcNow;
+        // --- Refresh Token Rotation (RTR) with Atomic Revoke & Reuse Detection ---
+        var now = DateTimeOffset.UtcNow;
+        var sessionId = tokenEntity.SessionId != Guid.Empty ? tokenEntity.SessionId : tokenEntity.Id;
 
-        // 2. Generate new refresh token and persist to database
+        var wonAtomicRevoke = await _dbContext.TryRevokeRefreshTokenAtomicAsync(tokenEntity.Id, now, cancellationToken);
+        if (!wonAtomicRevoke)
+        {
+            _logger.LogWarning("[AUTH] Concurrent or replayed refresh detected for Token '{TokenId}' (Session '{SessionId}'). Revoking session.", tokenEntity.Id, sessionId);
+            await _dbContext.RevokeSessionTokensAsync(sessionId, now, cancellationToken);
+            throw new DomainException("REFRESH_TOKEN_REVOKED", "Refresh token has been revoked.");
+        }
+
+        // 2. Generate new refresh token and persist to database (preserving SessionId)
         var newRawRefreshToken = GenerateSecureToken();
         var newTokenHash = ComputeSha256Hash(newRawRefreshToken);
 
@@ -689,13 +703,14 @@ public class AuthService : IAuthService
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
+            SessionId = sessionId,
             TokenHash = newTokenHash,
-            DeviceInfo = dto.DeviceInfo ?? tokenEntity.DeviceInfo,
-            IpAddress = dto.IpAddress ?? tokenEntity.IpAddress,
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            DeviceInfo = Truncate(dto.DeviceInfo, 255) ?? tokenEntity.DeviceInfo,
+            IpAddress = Truncate(dto.IpAddress, 100) ?? tokenEntity.IpAddress,
+            ExpiresAt = now.AddDays(7),
             IsRevoked = false,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
         _dbContext.RefreshTokens.Add(newRefreshTokenEntity);
@@ -714,10 +729,10 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("JwtTokenGenerator is not configured.");
         }
 
-        // 4. Issue new access token with updated claims
-        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, Array.Empty<string>(), out var expiresAt);
+        // 4. Issue new access token with updated claims & stable sid
+        var newAccessToken = _jwtTokenGenerator.GenerateToken(user, roles, Array.Empty<string>(), sessionId, out var expiresAt);
         var expiresIn = (int)Math.Max(0, (expiresAt - DateTime.UtcNow).TotalSeconds);
-        if (expiresIn == 0) expiresIn = 3600;
+        if (expiresIn == 0) expiresIn = 900;
 
         var primaryRole = roles.FirstOrDefault() ?? "buyer";
         var userResponse = new LoginUserApiResponse(
@@ -1177,5 +1192,16 @@ public class AuthService : IAuthService
         {
             roles.Add("buyer");
         }
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 }

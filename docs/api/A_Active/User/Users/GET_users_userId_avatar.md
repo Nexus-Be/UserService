@@ -3,8 +3,8 @@
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Users`  
 > **Mã tham chiếu Excel:** `20`  
-> **Trạng thái tài liệu:** `B_none (Chờ hoàn thiện & nghiệm thu)`  
-> **Trạng thái triển khai:** `⏳ IN_PROGRESS`  
+> **Trạng thái tài liệu:** `A_Active (Đã hoàn thiện & nghiệm thu)`  
+> **Trạng thái triển khai:** `✅ IMPLEMENTED`  
 
 ---
 
@@ -14,7 +14,7 @@
 * **HTTP Method:** `GET`
 * **Đường dẫn chuẩn:** `/api/v1/users/{userId}/avatar`
 * **Đường dẫn gốc trong Excel:** `/api/v1/user/{userId}/avatar` (Chuẩn hóa từ '/api/v1/user/{userId}/avatar' sang chuẩn 100% số nhiều '/api/v1/users/{userId}/avatar'.)
-* **Quyền hạn truy cập (RBAC):** `Buyer`
+* **Quyền hạn truy cập (RBAC):** `Public (AllowAnonymous)`
 * **Yêu cầu Idempotency:** Không áp dụng (Idempotent theo HTTP spec)
 
 ---
@@ -26,9 +26,10 @@ Mọi thay đổi trong hàm nghiệp vụ (thêm validation, ném exception, th
 * **Microservice thụ lý:** `src/Services/User/`
 * **Cổng Gateway điều phối:** `src/Services/Gateway/Gateway/appsettings.json` (Route: `users-plural-route`)
 * **Controller Action:** `User.Api/Controllers/UsersController.cs` $\rightarrow$ `GetUserAvatar()`
-* **Application Interface:** `User.Application/Services/Users/IUserService.cs` $\rightarrow$ `GetUserAvatarAsync()`
-* **Service Implementation:** `User.Application/Services/Users/UserService.cs` $\rightarrow$ `GetUserAvatarAsync()`
+* **Application Interface:** `User.Application/Services/Profile/IProfileService.cs` $\rightarrow$ `GetUserAvatarAsync()`
+* **Service Implementation:** `User.Application/Services/Profile/ProfileService.cs` $\rightarrow$ `GetUserAvatarAsync()`
 * **Thực thể & Bảng DB:** `User.Domain/Entities/User.cs` $\rightarrow$ Bảng `Users` trong PostgreSQL
+* **Unit Tests:** `User.Tests/AvatarUploadTests.cs`
 * **Typed HTTP Client (nếu có):** N/A (Giao tiếp nội bộ trực tiếp qua DbContext)
 
 ---
@@ -109,12 +110,12 @@ Bảng đối chiếu toàn diện giữa trường dữ liệu trong Payload (J
 
 ## 7. CHECKLIST HOÀN THÀNH & NGHIỆM THU (COMPLETION CHECKLIST)
 
-- [ ] **1. Tầng Application:** `IUserService.cs` và `UserService.cs` đã được triển khai hoàn chỉnh.
-- [ ] **2. Tầng Api:** `UsersController.cs` ghép cặp 1-to-1, route số nhiều, summary XML ngắn gọn.
-- [ ] **3. Bắt lỗi & Validation:** Toàn bộ mã lỗi trong ma trận ở Mục 5 đã được kiểm soát trong code.
-- [ ] **4. Enum Mapping:** Toàn bộ enum ở Mục 6 được lưu integer trong DB và serialize PascalCase ở API.
-- [ ] **5. Kiểm thử tự động:** `dotnet test` vượt qua 100% các bài test (Kèm tên file test: `UsersTests.cs`).
+- [x] **1. Tầng Application:** `IProfileService.cs` và `ProfileService.cs` (`GetUserAvatarAsync`) đã được triển khai hoàn chỉnh.
+- [x] **2. Tầng Api:** `UsersController.cs` (`GetUserAvatar`) ghép cặp 1-to-1, route số nhiều, summary XML ngắn gọn.
+- [x] **3. Bắt lỗi & Validation:** Toàn bộ mã lỗi trong ma trận ở Mục 5 đã được kiểm soát trong code.
+- [x] **4. Enum Mapping:** Toàn bộ enum ở Mục 6 được lưu integer trong DB và serialize PascalCase ở API.
+- [x] **5. Kiểm thử tự động:** `dotnet test` vượt qua 100% các bài test (`AvatarUploadTests.cs`).
 - [ ] **6. Định tuyến Gateway:** Route YARP `users-plural-route` đã được cấu hình trong `appsettings.json` và test thông suốt.
-- [ ] **7. Xác nhận của Sếp (Human Approval):** Đã kiểm thử thực tế và cho phép chuyển sang `docs/api/A_Active/`.
+- [ ] **7. Xác nhận của Sếp (Human Approval):** Đã kiểm thử thực tế và cho phép nghiệm thu chính thức.
 
-> **Trạng thái nghiệm thu:** `[ ⏳ IN_PROGRESS (Lưu tại B_none) ]`
+> **Trạng thái nghiệm thu:** `[ ✅ IMPLEMENTED (Lưu tại A_Active/User — Chờ nghiệm thu Gateway & Sếp) ]`

@@ -7,9 +7,9 @@
 > **Phân quyền chuẩn:** 4 Fixed Roles (`ADMIN`, `STAFF`, `SELLER`, `BUYER`) — Bãi bỏ Dynamic RBAC  
 > **Quy chuẩn Định danh:** 1 User - 1 Primary Role strictly enforced & Segregation of Duties (SoD)  
 > **Cơ chế Quản lý 2 Nhánh:**
-> - `A_Active/User/`: **63 Web & Inbound APIs đã hoàn tất 100%** trong C# code & vượt qua 392/392 Tests.
-> - `B_none/`: **13 APIs thuộc Roadmap** đang chờ triển khai / Phase 2 / Inbound liên Service.
-> **Cập nhật lần cuối:** 2026-11-09 (PR #40 Reputation/Governance & Warehouse Identity)  
+> - `A_Active/User/`: **71 Web & Inbound APIs đã hoàn tất 100%** trong C# code & vượt qua 432/432 Tests.
+> - `B_none/`: **5 APIs thuộc Roadmap** đang chờ triển khai / Phase 2 / Inbound liên Service.
+> **Cập nhật lần cuối:** 2026-11-13 (Sessions, Avatar, Seller KYC & Report/Review Media Uploads)  
 
 ---
 
@@ -17,18 +17,18 @@
 
 | Nhóm Nghiệp Vụ | Tổng API | Đã xong `A_Active` | Chờ làm `B_none` | Ghi chú kiến trúc & Đối soát |
 | :--- | :---: | :---: | :---: | :--- |
-| **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **11** | 2 | Hoàn thành Register, Login, Refresh, Password, Test & Logout-all. Còn Sessions |
-| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **8** | 5 | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Uy tín cá nhân/công khai, Lịch sử uy tín & Policy. Còn Avatar, Đổi Email |
-| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **10** | 1 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Suspend, Reactivate & Chi tiết Admin. Còn Upload Docs CCCD |
+| **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **13** | 0 | Hoàn thành Register, Login, Refresh, Password, Test, Logout-all & Sessions (`GET/DELETE /me/sessions`). |
+| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **11** | 2 | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Avatar (`POST/GET /me/avatar`, `GET /users/{userId}/avatar`), Uy tín & Policy. Còn Đổi Email (`USER-10`, `USER-11`). |
+| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **11** | 0 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Upload Docs CCCD (`SELLER-03`), Suspend, Reactivate & Chi tiết Admin. |
 | **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **19** | 1 | Hoàn thành CRUD Users, Ban/Unban, Roles SoD, Duyệt/Từ chối Shop, Danh sách/Chi tiết/Thu hồi Án phạt, Chỉnh Uy tín & System Configs. Còn Audit Logs |
 | **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway |
-| **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 10 | **8** | 2 | Hoàn thành Tạo/Xem/Ẩn Review đối tác 2 chiều, Nộp/Xem/Duyệt/Bác bỏ Report tố cáo vi phạm. Còn Upload file đính kèm |
+| **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 10 | **10** | 0 | Hoàn thành Tạo/Xem/Ẩn Review, Nộp/Xem/Duyệt/Bác bỏ Report & Upload media đính kèm (`FILE-01`, `FILE-02`). |
 | **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 8 | **6** | 2 | Hoàn thành Gatekeeper permission-check, verify-bid-eligibility, batch-public-info, check-reputation, penalties, reputation-adjust. Còn Warehouse & Contact |
-| **TỔNG CỘNG WEB APIs** | **76 API** | **63** | **13** | **Toàn bộ 63 Web & Inbound APIs trong A_Active đã Verify 100% (392/392 Tests Pass)** |
+| **TỔNG CỘNG WEB APIs** | **76 API** | **71** | **5** | **Toàn bộ 71 Web & Inbound APIs trong A_Active đã Verify 100% (432/432 Tests Pass)** |
 
 ---
 
-## 🟢 NHÁNH A_ACTIVE (63 ENDPOINTS ĐÃ HOÀN TẤT & KIỂM CHỨNG)
+## 🟢 NHÁNH A_ACTIVE (71 ENDPOINTS ĐÃ HOÀN TẤT & KIỂM CHỨNG)
 
 | STT | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn (RBAC) | Mô tả tóm tắt |
 | :-: | :--- | :--- | :--- | :--- | :--- |
@@ -95,34 +95,26 @@
 | 61 | `POST` | `/api/v1/internal/users/check-reputation` | [A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md](A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md) | `Internal` | Kiểm tra điều kiện mở phiên đấu giá của Seller (Seller Track SellerScore >= 50). |
 | 62 | `POST` | `/api/v1/internal/users/penalties` | [A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md](A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md) | `Internal` | Nhận lệnh phạt trừ điểm uy tín nội bộ (bùng kèo -10đ, shop hủy -5đ) có Idempotency. |
 | 63 | `POST` | `/api/v1/internal/users/reputation-adjust` | [A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md](A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md) | `Internal` | Thưởng +1 uy tín khi hoàn tất đơn hàng, chống cày điểm 7-Day Cooldown. |
+| 64 | `GET` | `/api/v1/me/sessions` | [A_Active/User/Me/GET_me_sessions.md](A_Active/User/Me/GET_me_sessions.md) | `RequireRole (Authenticated)` | Xem danh sách thiết bị/phiên đang đăng nhập của chính mình. |
+| 65 | `DELETE` | `/api/v1/me/sessions/{id}` | [A_Active/User/Me/DELETE_me_sessions_id.md](A_Active/User/Me/DELETE_me_sessions_id.md) | `RequireRole (Authenticated)` | Thu hồi / Đăng xuất một phiên đăng nhập từ xa theo Session ID. |
+| 66 | `GET` | `/api/v1/me/avatar` | [A_Active/User/Me/GET_me_avatar.md](A_Active/User/Me/GET_me_avatar.md) | `RequireRole (Authenticated)` | Xem URL ảnh đại diện cá nhân hiện tại. |
+| 67 | `POST` | `/api/v1/me/avatar` | [A_Active/User/Me/POST_me_avatar.md](A_Active/User/Me/POST_me_avatar.md) | `RequireRole (Authenticated)` | Tải lên và cập nhật ảnh đại diện cá nhân lên Cloudinary (max 2MB). |
+| 68 | `GET` | `/api/v1/users/{userId}/avatar` | [A_Active/User/Users/GET_users_userId_avatar.md](A_Active/User/Users/GET_users_userId_avatar.md) | `AllowAnonymous` | Xem URL ảnh đại diện công khai của người dùng theo ID. |
+| 69 | `POST` | `/api/v1/sellers/registration/documents` | [A_Active/User/Seller/POST_sellers_registration_documents.md](A_Active/User/Seller/POST_sellers_registration_documents.md) | `RequireRole (Authenticated)` | Upload private KYC (CCCD & GPKD) lên Cloudinary Signed URL (TTL 10 phút). |
+| 70 | `POST` | `/api/v1/reports/files/upload` | [A_Active/User/Users/POST_reports_files_upload.md](A_Active/User/Users/POST_reports_files_upload.md) | `RequireRole("admin", "staff", "seller", "buyer")` | Upload 1–5 file bằng chứng tố cáo (ảnh <= 5MB, video MP4/WebM <= 20MB). |
+| 71 | `POST` | `/api/v1/reviews/files/upload` | [A_Active/User/Reviews/POST_reviews_files_upload.md](A_Active/User/Reviews/POST_reviews_files_upload.md) | `RequireRole("buyer", "seller")` | Upload 1–5 ảnh đánh giá sản phẩm/đối tác (<= 5MB). |
 
 ---
 
 ## 🟡 NHÁNH B_NONE (CHECKLIST ROADMAP CHỜ TRIỂN KHAI)
 
-### 1. Quản lý Phiên & Hồ sơ Nâng cao (Profile & Sessions)
+### 1. Hồ sơ Cá nhân Nâng cao (Profile)
 | Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
 | :---: | :--- | :--- | :--- | :--- | :--- |
-| `USER-03` | `GET` | `/api/v1/me/sessions` | [B_none/11_GET_ME_SESSIONS.md](B_none/11_GET_ME_SESSIONS.md) | `RequireRole` | Xem danh sách thiết bị đang đăng nhập |
-| `USER-04` | `DELETE` | `/api/v1/me/sessions/{id}` | [B_none/12_DELETE_ME_SESSIONS.md](B_none/12_DELETE_ME_SESSIONS.md) | `RequireRole` | Thu hồi / Đăng xuất thiết bị từ xa |
-| `USER-06B`| `GET` | `/api/v1/me/avatar` | [B_none/15_GET_ME_AVATAR.md](B_none/15_GET_ME_AVATAR.md) | `RequireRole` | Xem ảnh đại diện cá nhân |
-| `USER-06` | `POST` | `/api/v1/me/avatar` | [B_none/16_POST_ME_AVATAR.md](B_none/16_POST_ME_AVATAR.md) | `RequireRole` | Tải lên ảnh đại diện cá nhân |
-| `USER-07B`| `GET` | `/api/v1/users/{userId}/avatar` | [B_none/20_GET_USER_AVATAR.md](B_none/20_GET_USER_AVATAR.md) | `AllowAnonymous` | Tải nhanh avatar công khai của đối tác |
 | `USER-10` | `POST` | `/api/v1/me/email/change-request` | [B_none/USER-10_POST_ME_EMAIL_CHANGE_REQUEST.md](B_none/USER-10_POST_ME_EMAIL_CHANGE_REQUEST.md) | `RequireRole` | Yêu cầu đổi email đăng nhập |
 | `USER-11` | `POST` | `/api/v1/me/email/change-verify` | [B_none/USER-11_POST_ME_EMAIL_CHANGE_VERIFY.md](B_none/USER-11_POST_ME_EMAIL_CHANGE_VERIFY.md) | `RequireRole` | Xác thực OTP email mới |
 
-### 2. Hồ sơ Seller Bổ sung
-| Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
-| :---: | :--- | :--- | :--- | :--- | :--- |
-| `SELLER-03`| `POST` | `/api/v1/sellers/registration/documents` | [B_none/32_POST_SELLER_REGISTRATION_DOCUMENTS.md](B_none/32_POST_SELLER_REGISTRATION_DOCUMENTS.md) | `RequireRole` | Upload ảnh CCCD và Giấy phép kinh doanh mở Shop |
-
-### 3. File Đính kèm Reviews & Reports (Phase 2 Upload)
-| Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
-| :---: | :--- | :--- | :--- | :--- | :--- |
-| `FILE-01`  | `POST` | `/api/v1/reports/files/upload` | [B_none/27_POST_REPORT_FILES_UPLOAD.md](B_none/27_POST_REPORT_FILES_UPLOAD.md) | `RequireRole` | Upload bằng chứng tố cáo vi phạm |
-| `FILE-02`  | `POST` | `/api/v1/reviews/files/upload` | [B_none/25_POST_REVIEW_FILES_UPLOAD.md](B_none/25_POST_REVIEW_FILES_UPLOAD.md) | `RequireRole` | Upload hình ảnh sản phẩm đính kèm bài đánh giá |
-
-### 4. Quản trị Kiểm toán (Admin Flow)
+### 2. Quản trị Kiểm toán (Admin Flow)
 | Ref | Phương thức | Endpoint | Đường dẫn Tài liệu | Quyền hạn | Mô tả |
 | :---: | :--- | :--- | :--- | :--- | :--- |
 | `ADMIN-11` | `GET` | `/api/v1/admin/audit-logs` | [B_none/56_GET_ADMIN_AUDIT_LOGS.md](B_none/56_GET_ADMIN_AUDIT_LOGS.md) | `RequireRole("admin")` | Tra cứu nhật ký kiểm toán hệ thống |

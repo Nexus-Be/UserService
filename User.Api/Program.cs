@@ -25,6 +25,7 @@ var app = builder.Build();
 
 // 4. Default Middleware Pipeline (Exception Handler, Swagger UI)
 app.UseServiceDefaults();
+app.UseStaticFiles();
 
 // Automatically apply database migrations on startup if relational DB is available
 using (var scope = app.Services.CreateScope())

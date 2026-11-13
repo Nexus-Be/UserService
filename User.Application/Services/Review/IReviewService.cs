@@ -1,6 +1,7 @@
 namespace User.Application.Services.Review;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using User.Application.Common.Models;
@@ -25,5 +26,10 @@ public interface IReviewService
         Guid reviewId,
         HideReviewRequest request,
         Guid actorId,
+        CancellationToken cancellationToken = default);
+
+    Task<UploadMediaFilesResponse> UploadReviewFilesAsync(
+        Guid userId,
+        IReadOnlyList<UploadMediaFileInput> files,
         CancellationToken cancellationToken = default);
 }

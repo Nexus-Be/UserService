@@ -136,4 +136,15 @@ public interface ISellerService
     /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
     /// <returns>Xác nhận kích hoạt lại gian hàng.</returns>
     Task<ReactivateSellerResponseDto> ReactivateSellerAsync(Guid sellerId, ReactivateSellerDto? dto = null, Guid? adminId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// [Authenticated] Tải lên ảnh 2 mặt CCCD và Giấy phép kinh doanh (tùy chọn) phục vụ thẩm định hồ sơ Seller.
+    /// </summary>
+    Task<UploadSellerDocumentsResponseDto> UploadSellerDocumentsAsync(
+        Guid userId,
+        SellerDocumentFileInput frontCccd,
+        SellerDocumentFileInput backCccd,
+        SellerDocumentFileInput? businessLicense = null,
+        Guid? registrationId = null,
+        CancellationToken cancellationToken = default);
 }

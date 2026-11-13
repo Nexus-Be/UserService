@@ -1,6 +1,7 @@
 namespace User.Application.Services.Report;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using User.Application.Common.Models;
@@ -37,5 +38,10 @@ public interface IReportService
         Guid reportId,
         DismissReportRequest request,
         Guid actorId,
+        CancellationToken cancellationToken = default);
+
+    Task<UploadMediaFilesResponse> UploadReportFilesAsync(
+        Guid userId,
+        IReadOnlyList<UploadMediaFileInput> files,
         CancellationToken cancellationToken = default);
 }

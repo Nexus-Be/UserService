@@ -2,12 +2,16 @@ namespace User.Application.Services.Profile;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common.Extensions;
+using User.Application.Common.Helpers;
+using User.Application.Common.Models;
 using User.Application.Interfaces;
 using User.Domain.Exceptions;
 
@@ -15,11 +19,16 @@ public class ProfileService : IProfileService
 {
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<ProfileService> _logger;
+    private readonly IFileStorageService? _fileStorageService;
 
-    public ProfileService(IUserDbContext dbContext, ILogger<ProfileService> logger)
+    public ProfileService(
+        IUserDbContext dbContext,
+        ILogger<ProfileService> logger,
+        IFileStorageService? fileStorageService = null)
     {
         _dbContext = dbContext;
         _logger = logger;
+        _fileStorageService = fileStorageService;
     }
 
     // =========================================================================================
@@ -278,5 +287,177 @@ public class ProfileService : IProfileService
             ReputationScore: repScore,
             TrustLevel: trustLevel,
             CreatedAt: user.CreatedAt);
+    }
+
+    public async Task<PagedData<ActiveSessionDto>> GetActiveSessionsAsync(
+        Guid userId,
+        Guid? currentSessionId,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var now = DateTimeOffset.UtcNow;
+
+        var baseQuery = _dbContext.RefreshTokens
+            .AsNoTracking()
+            .Where(t => t.UserId == userId && !t.IsRevoked && t.ExpiresAt > now);
+
+        var query = baseQuery.Where(t => t.Id == baseQuery
+            .Where(inner => (inner.SessionId != Guid.Empty ? inner.SessionId : inner.Id)
+                         == (t.SessionId != Guid.Empty ? t.SessionId : t.Id))
+            .OrderByDescending(inner => inner.UpdatedAt)
+            .ThenByDescending(inner => inner.CreatedAt)
+            .Select(inner => inner.Id)
+            .FirstOrDefault());
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var tokens = await query
+            .OrderByDescending(t => t.UpdatedAt)
+            .ThenByDescending(t => t.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(t => new
+            {
+                t.Id,
+                t.SessionId,
+                t.DeviceInfo,
+                t.IpAddress,
+                t.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = tokens.Select(t =>
+        {
+            var effectiveSessionId = t.SessionId != Guid.Empty ? t.SessionId : t.Id;
+            var isCurrent = currentSessionId.HasValue && effectiveSessionId == currentSessionId.Value;
+
+            return new ActiveSessionDto(
+                SessionId: effectiveSessionId,
+                DeviceInfo: t.DeviceInfo,
+                IpAddress: t.IpAddress,
+                LastActiveAt: t.UpdatedAt,
+                IsCurrent: isCurrent);
+        }).ToList();
+
+        return PagedData<ActiveSessionDto>.From(items, page, pageSize, totalCount);
+    }
+
+    public async Task RevokeSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || sessionId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier and session ID are required.");
+        }
+
+        var token = await _dbContext.RefreshTokens
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.SessionId == sessionId || t.Id == sessionId, cancellationToken);
+
+        if (token == null)
+        {
+            throw new DomainException("SESSION_NOT_FOUND", "The specified session was not found.", 404);
+        }
+
+        if (token.UserId != userId)
+        {
+            throw new DomainException("FORBIDDEN", "You do not have permission to manage another user session.", 403);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var targetSessionId = token.SessionId != Guid.Empty ? token.SessionId : token.Id;
+
+        if (token.SessionId != Guid.Empty)
+        {
+            await _dbContext.RevokeSessionTokensAsync(targetSessionId, now, cancellationToken);
+        }
+        else
+        {
+            await _dbContext.TryRevokeRefreshTokenAtomicAsync(token.Id, now, cancellationToken);
+        }
+
+        _logger.LogInformation("[SESSION] User '{UserId}' revoked session '{SessionId}'.", userId, targetSessionId);
+    }
+
+    public async Task<UploadAvatarResponse> UploadMyAvatarAsync(
+        Guid userId,
+        Stream content,
+        string fileName,
+        string contentType,
+        long fileSize,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        FileValidationHelper.ValidateImage(
+            content,
+            fileName,
+            fileSize,
+            maxSizeMb: 2,
+            invalidTypeMessage: "Unsupported file format, only JPG, PNG, and WEBP are accepted.");
+
+        if (_fileStorageService == null)
+        {
+            throw new DomainException("STORAGE_UPLOAD_FAILED", "File storage service is not configured.", 500);
+        }
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        var stored = await _fileStorageService.UploadAsync(
+            content,
+            fileName,
+            contentType,
+            folder: "avatars",
+            isPrivate: false,
+            isVideo: false,
+            cancellationToken: cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        user.AvatarUrl = stored.Url;
+        user.UpdatedAt = now;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("[PROFILE] Updated avatar for UserId '{UserId}'.", userId);
+
+        return new UploadAvatarResponse(stored.Url, now);
+    }
+
+    public async Task<UserAvatarResponse> GetUserAvatarAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId && !u.IsDeleted)
+            .Select(u => new { u.Id, u.AvatarUrl })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        return new UserAvatarResponse(user.Id, user.AvatarUrl);
     }
 }

@@ -19,7 +19,9 @@ public record ResendOtpDto(
 
 public record LoginDto(
     string UsernameOrEmail,
-    string Password);
+    string Password,
+    string? DeviceInfo = null,
+    string? IpAddress = null);
 
 public record LoginResultDto(
     string AccessToken,

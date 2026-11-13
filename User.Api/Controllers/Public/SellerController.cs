@@ -206,4 +206,57 @@ public sealed class SellerController : ControllerBase
         var result = await _sellerService.GetPublicSellerProfileAsync(id, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>
+    /// [Authenticated] Tải lên ảnh 2 mặt CCCD và Giấy phép kinh doanh phục vụ thẩm định hồ sơ mở Shop.
+    /// </summary>
+    [HttpPost("registration/documents")]
+    [RequireRole]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UploadSellerDocumentsResponseDto))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+    public async Task<IActionResult> UploadSellerDocuments(
+        IFormFile? frontCccd,
+        IFormFile? backCccd,
+        IFormFile? businessLicense = null,
+        [FromForm] Guid? registrationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        if (frontCccd == null || frontCccd.Length <= 0 || backCccd == null || backCccd.Length <= 0)
+        {
+            throw new User.Domain.Exceptions.BusinessRuleValidationException(
+                "VAL_INVALID_INPUT",
+                "Front and back identity card images are required.");
+        }
+
+        await using var frontStream = frontCccd.OpenReadStream();
+        await using var backStream = backCccd.OpenReadStream();
+        await using var licenseStream = businessLicense?.OpenReadStream();
+
+        var frontInput = new SellerDocumentFileInput(frontStream, frontCccd.FileName, frontCccd.ContentType, frontCccd.Length);
+        var backInput = new SellerDocumentFileInput(backStream, backCccd.FileName, backCccd.ContentType, backCccd.Length);
+        var licenseInput = businessLicense != null && licenseStream != null
+            ? new SellerDocumentFileInput(licenseStream, businessLicense.FileName, businessLicense.ContentType, businessLicense.Length)
+            : null;
+
+        _logger.LogInformation("[REST UploadSellerDocuments] Uploading KYC documents for UserId: '{UserId}'", userId);
+        var result = await _sellerService.UploadSellerDocumentsAsync(
+            userId,
+            frontInput,
+            backInput,
+            licenseInput,
+            registrationId,
+            cancellationToken);
+
+        return Ok(result);
+    }
 }

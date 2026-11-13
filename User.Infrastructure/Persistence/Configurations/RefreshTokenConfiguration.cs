@@ -9,6 +9,7 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
     public void Configure(EntityTypeBuilder<RefreshToken> builder)
     {
         builder.HasKey(x => x.Id);
+        builder.HasIndex(x => x.SessionId);
         builder.Property(x => x.TokenHash).HasMaxLength(500).IsRequired();
         builder.HasIndex(x => x.TokenHash).IsUnique();
         builder.Property(x => x.DeviceInfo).HasMaxLength(255);
