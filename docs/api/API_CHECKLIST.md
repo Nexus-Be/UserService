@@ -4,7 +4,7 @@ role: "User Service Lead"
 author: "Trần Hoàng Vinh (vinhth)"
 project: "Project Nexus"
 version: "3.3 (Aligned with UserService Docs Catalog v3.3 & PR #40 Reputation/Governance)"
-date: "2026-11-10"
+date: "2026-11-13"
 architecture:
   protocol: "100% RESTful Web API (HTTP/JSON)"
   routing: "100% Plural Route Convention (/api/v1/users, /api/v1/admin/users, /api/v1/sellers, /api/v1/admin/sellers, /api/v1/admin/penalties, /api/v1/me, /api/v1/auth, /api/v1/internal/users)"
@@ -43,14 +43,14 @@ tags:
 | Nhóm Nghiệp Vụ | Tổng API | Đã xong `[x]` | Chưa làm `[ ]` | Bãi bỏ `[-]` | Ghi chú kiến trúc & Đối soát Docs |
 | :--- | :---: | :---: | :---: | :---: | :--- |
 | **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **13** | 0 | 0 | Hoàn thành Register, Login, Refresh, Password, Test, Logout-all & Sessions (`GET/DELETE /me/sessions`). |
-| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **11** | 2 | 0 | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Avatar (`POST/GET /me/avatar`, `GET /users/{userId}/avatar`), Uy tín & Policy. Còn Đổi Email |
+| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **11** | 0 | **2** | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Avatar (`POST/GET /me/avatar`, `GET /users/{userId}/avatar`), Uy tín & Policy. Bãi bỏ Đổi Email (`USER-10`, `USER-11`). |
 | **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **11** | 0 | 0 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Upload Docs CCCD, Suspend, Reactivate & Chi tiết Admin. |
-| **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **19** | 1 | 0 | Hoàn thành CRUD Users, Ban/Unban, Roles SoD, Duyệt/Từ chối Shop, Danh sách/Chi tiết/Thu hồi Án phạt, Chỉnh Uy tín & System Configs. Còn Audit Logs |
+| **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **19** | 0 | **1** | Hoàn thành CRUD Users, Ban/Unban, Roles SoD, Duyệt/Từ chối Shop, Danh sách/Chi tiết/Thu hồi Án phạt, Chỉnh Uy tín & System Configs. Bãi bỏ Audit Logs (`ADMIN-11`). |
 | **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway |
 | **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 10 | **10** | 0 | 0 | Hoàn thành Tạo/Xem/Ẩn Review, Nộp/Xem/Duyệt/Bác bỏ Report & Upload file đính kèm (`FILE-01`, `FILE-02`). |
-| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 8 | **6** | 2 | 0 | Hoàn thành Gatekeeper permission-check, verify-bid-eligibility, batch-public-info, check-reputation, penalties, reputation-adjust. Còn Warehouse & Contact |
+| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 8 | **6** | 0 | **2** | Hoàn thành Gatekeeper permission-check, verify-bid-eligibility, batch-public-info, check-reputation, penalties, reputation-adjust. Bãi bỏ Warehouse (`INT-03`) & Contact (`INT-05`). |
 | **8. REST Nội bộ UserService Gọi Đi (Outbound REST)**| 4 | **3** | 0 | **1** | Hoàn thành gọi Notification (8007) & Fulfillment (8006). Đã Decouple bãi bỏ gọi Wallet (8008) theo PR #37 |
-| **TỔNG CỘNG USER SERVICE** | **80 API** | **74** | **5** | **1** | **Toàn bộ 71 Web & Inbound APIs trong A_Active Docs đã Verify 100% (432/432 Tests Pass)** |
+| **TỔNG CỘNG USER SERVICE** | **80 API** | **74** | **0** | **6** | **Toàn bộ 71 Web & Inbound APIs trong A_Active Docs đã Verify 100% (432/432 Tests Pass); 6 API còn lại đã Bãi bỏ.** |
 
 ---
 
@@ -164,11 +164,13 @@ tags:
   - **Tên Function:** `GetUserAvatar` | **Role:** `AllowAnonymous`
   - **Mô tả:** Tải nhanh ảnh avatar công khai của người dùng khác trong danh sách đấu giá / bình luận.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Users/GET_users_userId_avatar.md`
-- [ ] **USER-10** — `POST /api/v1/me/email/change-request`
+- [-] **USER-10** — `POST /api/v1/me/email/change-request`
+  - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Tên Function:** `RequestEmailChange` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Yêu cầu đổi email đăng nhập & gọi REST nội bộ sang Notification để gửi OTP về email mới.
   - **Tài liệu đặc tả:** `docs/api/B_none/USER-10_POST_ME_EMAIL_CHANGE_REQUEST.md`
-- [ ] **USER-11** — `POST /api/v1/me/email/change-verify`
+- [-] **USER-11** — `POST /api/v1/me/email/change-verify`
+  - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Tên Function:** `VerifyEmailChange` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Xác thực OTP email mới, cập nhật email trong CSDL và thu hồi mọi phiên đăng nhập cũ.
   - **Tài liệu đặc tả:** `docs/api/B_none/USER-11_POST_ME_EMAIL_CHANGE_VERIFY.md`
@@ -313,7 +315,8 @@ tags:
   - **Tên Function:** `UpdateConfig` | **Role:** `RequireRole("admin")`
   - **Mô tả:** Cập nhật các tham số cấu hình động toàn hệ thống với kiểm tra kiểu dữ liệu và ghi vết kiểm toán.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminConfigs/PUT_admin_configs.md`
-- [ ] **ADMIN-11** — `GET /api/v1/admin/audit-logs`
+- [-] **ADMIN-11** — `GET /api/v1/admin/audit-logs`
+  - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Tên Function:** `GetAuditLogs` | **Role:** `RequireRole("admin")`
   - **Mô tả:** Tra cứu nhật ký thao tác kiểm toán bảo mật của hệ thống.
   - **Tài liệu đặc tả:** `docs/api/B_none/56_GET_ADMIN_AUDIT_LOGS.md`
@@ -407,14 +410,14 @@ tags:
   - **Tên Function:** `AdjustReputation` | **Service gọi:** Commerce/Order Service
   - **Mô tả:** Thưởng +1 điểm uy tín cho Buyer hoặc Seller khi đơn hàng hoàn tất (`OrderCompleted`), có chống cày điểm 7-Day Cooldown và bảo vệ Idempotency theo `ReferenceId`.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#5-post-apiv1internalusersreputation-adjust-int-07`
-- [ ] **INT-03** — `GET /api/v1/internal/sellers/{sellerId}/pickup-address`
+- [-] **INT-03** — `GET /api/v1/internal/sellers/{sellerId}/pickup-address`
+  - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Service gọi:** Fulfillment Service
-  - **Mô tả:** Lấy địa chỉ kho lấy hàng GHN chuẩn 4 cấp hành chính của Shop phục vụ tính phí ship và lập vận đơn (Chờ tích hợp liên Service).
-  - **Tài liệu đặc tả:** `Bảo lưu lộ trình tích hợp Fulfillment Service`
-- [ ] **INT-05** — `GET /api/v1/internal/users/{id}/contact`
+  - **Mô tả:** Lấy địa chỉ kho lấy hàng GHN chuẩn 4 cấp hành chính của Shop phục vụ tính phí ship và lập vận đơn.
+- [-] **INT-05** — `GET /api/v1/internal/users/{id}/contact`
+  - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Service gọi:** Notification Service
-  - **Mô tả:** Cung cấp thông tin họ tên, email, SĐT của User để gửi thông báo giao dịch (Chờ tích hợp liên Service).
-  - **Tài liệu đặc tả:** `Bảo lưu lộ trình tích hợp Notification Service`
+  - **Mô tả:** Cung cấp thông tin họ tên, email, SĐT của User để gửi thông báo giao dịch.
 
 ---
 
@@ -439,6 +442,6 @@ tags:
 ---
 
 ### 💡 Ghi Chú Đồng Bộ & Hướng Dẫn:
-- Danh mục **63 Web & Inbound APIs** `[x]` ở trên đồng bộ chính xác 1:1 với thư mục tài liệu đặc tả `UserService/docs/api/A_Active/User/`.
-- Toàn bộ các API chưa thực hiện (`[ ]`) thuộc Phase 1 mở rộng (Avatar, Đổi Email, Sessions), Upload tài liệu, và Inbound liên service được bảo lưu theo dõi tại `UserService/docs/api/B_none/`.
-- Toàn bộ **402/402 bài kiểm thử xUnit tại `User.Tests` đều đã vượt qua với 0 lỗi**.
+- Danh mục **71 Web & Inbound APIs** `[x]` ở trên (cùng **3 Outbound APIs**) đồng bộ chính xác 1:1 với thư mục tài liệu đặc tả `UserService/docs/api/A_Active/User/`.
+- Toàn bộ 5 API chưa thực hiện trước đây (`USER-10`, `USER-11`, `ADMIN-11`, `INT-03`, `INT-05`) cùng `OUT-03` đã được đánh dấu bãi bỏ `[-]`.
+- Toàn bộ **432/432 bài kiểm thử xUnit tại `User.Tests` đều đã vượt qua với 0 lỗi**.

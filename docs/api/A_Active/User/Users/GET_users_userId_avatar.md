@@ -110,12 +110,12 @@ Bảng đối chiếu toàn diện giữa trường dữ liệu trong Payload (J
 
 ## 7. CHECKLIST HOÀN THÀNH & NGHIỆM THU (COMPLETION CHECKLIST)
 
-- [ ] **1. Tầng Application:** `IUserService.cs` và `UserService.cs` đã được triển khai hoàn chỉnh.
-- [ ] **2. Tầng Api:** `UsersController.cs` ghép cặp 1-to-1, route số nhiều, summary XML ngắn gọn.
-- [ ] **3. Bắt lỗi & Validation:** Toàn bộ mã lỗi trong ma trận ở Mục 5 đã được kiểm soát trong code.
-- [ ] **4. Enum Mapping:** Toàn bộ enum ở Mục 6 được lưu integer trong DB và serialize PascalCase ở API.
-- [ ] **5. Kiểm thử tự động:** `dotnet test` vượt qua 100% các bài test (Kèm tên file test: `UsersTests.cs`).
+- [x] **1. Tầng Application:** `IProfileService.cs` và `ProfileService.cs` (`GetUserAvatarAsync`) đã được triển khai hoàn chỉnh.
+- [x] **2. Tầng Api:** `UsersController.cs` (`GetUserAvatar`) ghép cặp 1-to-1, route số nhiều, summary XML ngắn gọn.
+- [x] **3. Bắt lỗi & Validation:** Toàn bộ mã lỗi trong ma trận ở Mục 5 đã được kiểm soát trong code.
+- [x] **4. Enum Mapping:** Toàn bộ enum ở Mục 6 được lưu integer trong DB và serialize PascalCase ở API.
+- [x] **5. Kiểm thử tự động:** `dotnet test` vượt qua 100% các bài test (`AvatarUploadTests.cs`).
 - [ ] **6. Định tuyến Gateway:** Route YARP `users-plural-route` đã được cấu hình trong `appsettings.json` và test thông suốt.
-- [ ] **7. Xác nhận của Sếp (Human Approval):** Đã kiểm thử thực tế và cho phép chuyển sang `docs/api/A_Active/`.
+- [ ] **7. Xác nhận của Sếp (Human Approval):** Đã kiểm thử thực tế và cho phép nghiệm thu chính thức.
 
-> **Trạng thái nghiệm thu:** `[ ⏳ IN_PROGRESS (Lưu tại B_none) ]`
+> **Trạng thái nghiệm thu:** `[ ✅ IMPLEMENTED (Lưu tại A_Active/User — Chờ nghiệm thu Gateway & Sếp) ]`
