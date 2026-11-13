@@ -169,7 +169,10 @@ public sealed class MeController : ControllerBase
             return authError;
         }
 
-        Guid? currentSessionId = Guid.TryParse(User?.FindFirst("sid")?.Value, out var parsedSid)
+        var sidRaw = User?.FindFirst("sid")?.Value
+            ?? Request.Headers["X-Session-Id"].FirstOrDefault();
+
+        Guid? currentSessionId = Guid.TryParse(sidRaw, out var parsedSid)
             ? parsedSid
             : null;
 
