@@ -20,6 +20,9 @@ public class JwtTokenGenerator : IJwtTokenGenerator
     }
 
     public string GenerateToken(User user, IEnumerable<string> roles, IEnumerable<string>? permissions, out DateTime expiresAt)
+        => GenerateToken(user, roles, permissions, null, out expiresAt);
+
+    public string GenerateToken(User user, IEnumerable<string> roles, IEnumerable<string>? permissions, Guid? sessionId, out DateTime expiresAt)
     {
         var issuer = _configuration["Jwt:Issuer"]
             ?? _configuration["JWT_ISSUER"]
@@ -43,7 +46,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             throw new InvalidOperationException("JWT signing key is missing, contains placeholder or is shorter than 32 bytes. Set 'Jwt:Signature' or environment variable 'JWT_SIGNATURE'.");
         }
 
-        var expirationInMinutes = 60;
+        var expirationInMinutes = 15;
         var expirationConfig = _configuration["Jwt:ExpirationInMinutes"]
             ?? _configuration["JWT_EXPIRATION_IN_MINUTES"]
             ?? Environment.GetEnvironmentVariable("JWT_EXPIRATION_IN_MINUTES");
@@ -65,6 +68,11 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             new(JwtRegisteredClaimNames.Name, $"{user.FirstName} {user.LastName}".Trim()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
+        if (sessionId.HasValue && sessionId.Value != Guid.Empty)
+        {
+            claims.Add(new("sid", sessionId.Value.ToString()));
+        }
 
         if (roles != null)
         {

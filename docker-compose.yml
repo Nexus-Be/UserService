@@ -28,6 +28,9 @@ services:
       FULFILLMENT_SERVICE_URL: "${FULFILLMENT_SERVICE_URL:-http://fulfillment-service:8006}"
       InternalSecurity__ServiceKey: "${INTERNAL_SERVICE_SECRET:-eaT0Ombups70WJzd85CBBpp8rAno55SxKn1qvYBGH9e}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}"
+      CLOUDINARY_CLOUD_NAME: "${CLOUDINARY_CLOUD_NAME:-}"
+      CLOUDINARY_API_KEY: "${CLOUDINARY_API_KEY:-}"
+      CLOUDINARY_API_SECRET: "${CLOUDINARY_API_SECRET:-}"
     restart: unless-stopped
 
 networks:

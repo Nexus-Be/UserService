@@ -1,5 +1,6 @@
 namespace User.Application.Interfaces;
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -23,4 +24,15 @@ public interface IUserDbContext
     DbSet<AuditLog> AuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically marks an active refresh token as revoked (WHERE Id == tokenId AND !IsRevoked).
+    /// Returns true if this caller won the atomic transition; false if already revoked.
+    /// </summary>
+    Task<bool> TryRevokeRefreshTokenAtomicAsync(Guid tokenId, DateTimeOffset now, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Revokes all active refresh tokens belonging to the specified sessionId.
+    /// </summary>
+    Task<int> RevokeSessionTokensAsync(Guid sessionId, DateTimeOffset now, CancellationToken cancellationToken = default);
 }

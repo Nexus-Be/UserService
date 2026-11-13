@@ -3,8 +3,8 @@
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Users`  
 > **Mã tham chiếu Excel:** `20`  
-> **Trạng thái tài liệu:** `B_none (Chờ hoàn thiện & nghiệm thu)`  
-> **Trạng thái triển khai:** `⏳ IN_PROGRESS`  
+> **Trạng thái tài liệu:** `A_Active (Đã hoàn thiện & nghiệm thu)`  
+> **Trạng thái triển khai:** `✅ IMPLEMENTED`  
 
 ---
 
@@ -14,7 +14,7 @@
 * **HTTP Method:** `GET`
 * **Đường dẫn chuẩn:** `/api/v1/users/{userId}/avatar`
 * **Đường dẫn gốc trong Excel:** `/api/v1/user/{userId}/avatar` (Chuẩn hóa từ '/api/v1/user/{userId}/avatar' sang chuẩn 100% số nhiều '/api/v1/users/{userId}/avatar'.)
-* **Quyền hạn truy cập (RBAC):** `Buyer`
+* **Quyền hạn truy cập (RBAC):** `Public (AllowAnonymous)`
 * **Yêu cầu Idempotency:** Không áp dụng (Idempotent theo HTTP spec)
 
 ---
@@ -26,9 +26,10 @@ Mọi thay đổi trong hàm nghiệp vụ (thêm validation, ném exception, th
 * **Microservice thụ lý:** `src/Services/User/`
 * **Cổng Gateway điều phối:** `src/Services/Gateway/Gateway/appsettings.json` (Route: `users-plural-route`)
 * **Controller Action:** `User.Api/Controllers/UsersController.cs` $\rightarrow$ `GetUserAvatar()`
-* **Application Interface:** `User.Application/Services/Users/IUserService.cs` $\rightarrow$ `GetUserAvatarAsync()`
-* **Service Implementation:** `User.Application/Services/Users/UserService.cs` $\rightarrow$ `GetUserAvatarAsync()`
+* **Application Interface:** `User.Application/Services/Profile/IProfileService.cs` $\rightarrow$ `GetUserAvatarAsync()`
+* **Service Implementation:** `User.Application/Services/Profile/ProfileService.cs` $\rightarrow$ `GetUserAvatarAsync()`
 * **Thực thể & Bảng DB:** `User.Domain/Entities/User.cs` $\rightarrow$ Bảng `Users` trong PostgreSQL
+* **Unit Tests:** `User.Tests/AvatarUploadTests.cs`
 * **Typed HTTP Client (nếu có):** N/A (Giao tiếp nội bộ trực tiếp qua DbContext)
 
 ---

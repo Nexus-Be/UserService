@@ -1,5 +1,6 @@
 namespace User.Api.Controllers;
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -145,6 +146,109 @@ public sealed class MeController : ControllerBase
 
         _logger.LogInformation("[REST GetMyReports] Fetching reports submitted by UserId: '{UserId}'", userId);
         var result = await _reportService!.GetMyReportsAsync(userId, page, pageSize, status, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Authenticated] Xem danh sách các phiên đăng nhập đang hoạt động của chính người dùng.
+    /// </summary>
+    [HttpGet("sessions")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PagedData<ActiveSessionDto>))]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetActiveSessions(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        Guid? currentSessionId = Guid.TryParse(User?.FindFirst("sid")?.Value, out var parsedSid)
+            ? parsedSid
+            : null;
+
+        _logger.LogInformation("[REST GetActiveSessions] Fetching active sessions for UserId: '{UserId}'", userId);
+        var result = await _profileService.GetActiveSessionsAsync(userId, currentSessionId, page, pageSize, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Authenticated] Thu hồi / đăng xuất thiết bị từ xa theo Session ID cụ thể.
+    /// </summary>
+    [HttpDelete("sessions/{id:guid}")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RevokeSession([FromRoute] Guid id, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST RevokeSession] User '{UserId}' revoking session '{SessionId}'", userId, id);
+        await _profileService.RevokeSessionAsync(userId, id, cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// [Authenticated] Tải lên và cập nhật ảnh đại diện cá nhân (JPG/PNG/WebP, tối đa 2MB).
+    /// </summary>
+    [HttpPost("avatar")]
+    [RequireRole]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UploadAvatarResponse))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+    public async Task<IActionResult> UploadMyAvatar(IFormFile? file, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        if (file == null || file.Length <= 0)
+        {
+            throw new User.Domain.Exceptions.BusinessRuleValidationException("VAL_INVALID_INPUT", "Avatar image file is required.");
+        }
+
+        await using var stream = file.OpenReadStream();
+        var result = await _profileService.UploadMyAvatarAsync(
+            userId,
+            stream,
+            file.FileName,
+            file.ContentType,
+            file.Length,
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Authenticated] Lấy nhanh URL ảnh đại diện cá nhân phục vụ Header UI.
+    /// </summary>
+    [HttpGet("avatar")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserAvatarResponse))]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyAvatar(CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        var result = await _profileService.GetUserAvatarAsync(userId, cancellationToken);
         return Ok(result);
     }
 }

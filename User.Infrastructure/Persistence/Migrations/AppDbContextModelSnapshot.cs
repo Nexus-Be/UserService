@@ -84,7 +84,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AuditLogs", (string)null);
+                    b.ToTable("AuditLogs");
 
                     b.HasData(
                         new
@@ -152,7 +152,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Permissions", (string)null);
+                    b.ToTable("Permissions");
 
                     b.HasData(
                         new
@@ -243,6 +243,9 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -256,12 +259,14 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("SessionId");
+
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens", (string)null);
+                    b.ToTable("RefreshTokens");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.ReputationLog", b =>
@@ -320,7 +325,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId", "TargetRole", "PartnerUserId", "CreatedAt");
 
-                    b.ToTable("ReputationLogs", (string)null);
+                    b.ToTable("ReputationLogs");
 
                     b.HasData(
                         new
@@ -413,7 +418,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("ReputationScores", (string)null);
+                    b.ToTable("ReputationScores");
 
                     b.HasData(
                         new
@@ -541,7 +546,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ParentRoleId");
 
-                    b.ToTable("Roles", (string)null);
+                    b.ToTable("Roles");
 
                     b.HasData(
                         new
@@ -641,7 +646,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId", "PermissionId")
                         .IsUnique();
 
-                    b.ToTable("RolePermissions", (string)null);
+                    b.ToTable("RolePermissions");
 
                     b.HasData(
                         new
@@ -802,7 +807,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("SellerProfiles", (string)null);
+                    b.ToTable("SellerProfiles");
 
                     b.HasData(
                         new
@@ -868,7 +873,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("ConfigKey")
                         .IsUnique();
 
-                    b.ToTable("SystemConfigs", (string)null);
+                    b.ToTable("SystemConfigs");
 
                     b.HasData(
                         new
@@ -1074,7 +1079,7 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"Username\" IS NOT NULL");
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users");
 
                     b.HasData(
                         new
@@ -1241,7 +1246,7 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_UserPenalties_Active_Evaluation")
                         .HasFilter("\"Status\" = 0");
 
-                    b.ToTable("UserPenalties", (string)null);
+                    b.ToTable("UserPenalties");
 
                     b.HasData(
                         new
@@ -1330,7 +1335,7 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ResolvedBy");
 
-                    b.ToTable("UserReports", (string)null);
+                    b.ToTable("UserReports");
 
                     b.HasData(
                         new
@@ -1424,7 +1429,7 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReviewerId", "ReferenceType", "ReferenceId")
                         .IsUnique();
 
-                    b.ToTable("UserReviews", (string)null);
+                    b.ToTable("UserReviews");
 
                     b.HasData(
                         new

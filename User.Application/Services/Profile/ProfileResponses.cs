@@ -33,3 +33,18 @@ public sealed record PublicUserProfileDto(
     IReadOnlyList<string> Badges,
     bool IsSeller,
     DateTimeOffset JoinedAt);
+
+public sealed record ActiveSessionDto(
+    Guid SessionId,
+    string? DeviceInfo,
+    string? IpAddress,
+    DateTimeOffset LastActiveAt,
+    bool IsCurrent);
+
+public sealed record UploadAvatarResponse(
+    string AvatarUrl,
+    DateTimeOffset UpdatedAt);
+
+public sealed record UserAvatarResponse(
+    Guid UserId,
+    string? AvatarUrl);

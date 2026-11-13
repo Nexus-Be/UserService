@@ -119,7 +119,8 @@ public sealed class AuthController : ControllerBase
     public async Task<IActionResult> Login([FromBody] LoginApiRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("[REST Login] Incoming login for: '{Identifier}'", request?.Identifier);
-        var dto = new LoginDto(request?.Identifier ?? string.Empty, request?.Password ?? string.Empty);
+        var (deviceInfo, ipAddress) = ExtractClientMetadata();
+        var dto = new LoginDto(request?.Identifier ?? string.Empty, request?.Password ?? string.Empty, deviceInfo, ipAddress);
         var result = await _authService.LoginAsync(dto, cancellationToken);
 
         return Ok(new LoginApiResponse(
@@ -150,7 +151,8 @@ public sealed class AuthController : ControllerBase
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenApiRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("[REST RefreshToken] Refreshing token");
-        var dto = new RefreshTokenDto(request?.RefreshToken ?? string.Empty, request?.DeviceInfo);
+        var (deviceInfo, ipAddress) = ExtractClientMetadata();
+        var dto = new RefreshTokenDto(request?.RefreshToken ?? string.Empty, request?.DeviceInfo ?? deviceInfo, ipAddress);
         var result = await _authService.RefreshTokenAsync(dto, cancellationToken);
 
         return Ok(new RefreshTokenApiResponse(
@@ -278,5 +280,24 @@ public sealed class AuthController : ControllerBase
         var result = await _authService.ChangePasswordAsync(userId, dto, cancellationToken);
 
         return Ok(new ChangePasswordApiResponse(result.Success));
+    }
+
+    private (string? DeviceInfo, string? IpAddress) ExtractClientMetadata()
+    {
+        var userAgent = Request?.Headers.UserAgent.ToString();
+        var deviceInfo = string.IsNullOrWhiteSpace(userAgent) ? null : userAgent.Trim();
+
+        string? ipAddress = null;
+        var forwardedFor = Request?.Headers["X-Forwarded-For"].ToString();
+        if (!string.IsNullOrWhiteSpace(forwardedFor))
+        {
+            ipAddress = forwardedFor.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0];
+        }
+        else
+        {
+            ipAddress = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+        }
+
+        return (deviceInfo, ipAddress);
     }
 }

@@ -1,6 +1,8 @@
 namespace User.Api.Controllers;
 
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -192,6 +194,48 @@ public sealed class UsersController : ControllerBase
         _logger.LogInformation("[REST BatchPublicInfo] Fetching public info for {Count} users", request.UserIds.Count);
         var result = await _internalUserService!.GetBatchPublicInfoAsync(request, cancellationToken);
         return Ok(new { data = result.Users });
+    }
+
+    /// <summary>
+    /// [Public] Lấy nhanh URL ảnh đại diện công khai của một người dùng theo ID.
+    /// </summary>
+    [HttpGet("{userId:guid}/avatar")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserAvatarResponse))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUserAvatar([FromRoute] Guid userId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[REST GetUserAvatar] Fetching avatar for UserId: '{UserId}'", userId);
+        var result = await _profileService.GetUserAvatarAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Admin / Staff / Seller / Buyer] Tải lên ảnh chụp màn hình hoặc video bằng chứng tố cáo vi phạm (tối đa 5 files).
+    /// </summary>
+    [HttpPost("/api/v1/reports/files/upload")]
+    [RequireRole("admin", "staff", "seller", "buyer")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UploadMediaFilesResponse))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+    public async Task<IActionResult> UploadReportFile(
+        List<IFormFile>? files,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        return await files.ExecuteWithMediaFilesAsync(async inputs =>
+        {
+            _logger.LogInformation("[REST UploadReportFile] Uploading {Count} report evidence file(s) for UserId: '{UserId}'", inputs.Count, userId);
+            var result = await _reportService!.UploadReportFilesAsync(userId, inputs, cancellationToken);
+            return Ok(result);
+        });
     }
 
     /// <summary>

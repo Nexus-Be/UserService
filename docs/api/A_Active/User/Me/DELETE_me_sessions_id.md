@@ -1,19 +1,19 @@
-# [GET] /api/v1/me/avatar
+# [DELETE] /api/v1/me/sessions/{id}
 
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Users`  
-> **Mã tham chiếu Excel:** `15`  
-> **Trạng thái tài liệu:** `B_none (Chờ hoàn thiện & nghiệm thu)`  
-> **Trạng thái triển khai:** `⏳ IN_PROGRESS`  
+> **Mã tham chiếu Excel:** `12`  
+> **Trạng thái tài liệu:** `A_Active (Đã hoàn thiện & nghiệm thu)`  
+> **Trạng thái triển khai:** `✅ IMPLEMENTED`  
 
 ---
 
 ## 1. MÔ TẢ NGHIỆP VỤ & PHÂN QUYỀN
 
-* **Mô tả chức năng:** Xem ảnh avatar cá nhân
-* **HTTP Method:** `GET`
-* **Đường dẫn chuẩn:** `/api/v1/me/avatar`
-* **Đường dẫn gốc trong Excel:** `/api/v1/me/avatar` (Contextual Singleton giữ nguyên theo chuẩn RFC 9110.)
+* **Mô tả chức năng:** Thu hồi / Đăng xuất thiết bị từ xa
+* **HTTP Method:** `DELETE`
+* **Đường dẫn chuẩn:** `/api/v1/me/sessions/{id}`
+* **Đường dẫn gốc trong Excel:** `/api/v1/me/sessions/{id}` (Contextual Singleton giữ nguyên theo chuẩn RFC 9110.)
 * **Quyền hạn truy cập (RBAC):** `Buyer`
 * **Yêu cầu Idempotency:** Không áp dụng (Idempotent theo HTTP spec)
 
@@ -25,10 +25,11 @@ Mọi thay đổi trong hàm nghiệp vụ (thêm validation, ném exception, th
 
 * **Microservice thụ lý:** `src/Services/User/`
 * **Cổng Gateway điều phối:** `src/Services/Gateway/Gateway/appsettings.json` (Route: `user-me-route`)
-* **Controller Action:** `User.Api/Controllers/UsersController.cs` $\rightarrow$ `GetMeAvatar()`
-* **Application Interface:** `User.Application/Services/Users/IUserService.cs` $\rightarrow$ `GetMeAvatarAsync()`
-* **Service Implementation:** `User.Application/Services/Users/UserService.cs` $\rightarrow$ `GetMeAvatarAsync()`
-* **Thực thể & Bảng DB:** `User.Domain/Entities/User.cs` $\rightarrow$ Bảng `Users` trong PostgreSQL
+* **Controller Action:** `User.Api/Controllers/MeController.cs` $\rightarrow$ `RevokeSession()`
+* **Application Interface:** `User.Application/Services/Profile/IProfileService.cs` $\rightarrow$ `RevokeSessionAsync()`
+* **Service Implementation:** `User.Application/Services/Profile/ProfileService.cs` $\rightarrow$ `RevokeSessionAsync()`
+* **Thực thể & Bảng DB:** `User.Domain/Entities/RefreshToken.cs` $\rightarrow$ Bảng `RefreshTokens` trong PostgreSQL
+* **Unit Tests:** `User.Tests/SessionFoundationTests.cs`, `User.Tests/MeSessionsTests.cs`
 * **Typed HTTP Client (nếu có):** N/A (Giao tiếp nội bộ trực tiếp qua DbContext)
 
 ---
@@ -36,7 +37,9 @@ Mọi thay đổi trong hàm nghiệp vụ (thêm validation, ném exception, th
 ## 3. QUY CHUẨN VALIDATION & THAM SỐ ĐẦU VÀO
 
 ### 3.1. Route Parameters (Tham số đường dẫn)
-*Không có tham số đường dẫn.*
+| Tên tham số | Kiểu dữ liệu | Bắt buộc? | Ràng buộc & Định dạng |
+|:---|:---|:---:|:---|
+| `id` | `Guid (UUID)` | Có | Mã định danh duy nhất (UUIDv4) |
 
 ### 3.2. Query Parameters (Tham số truy vấn)
 *Không có tham số truy vấn.*
@@ -47,6 +50,11 @@ Header:
 {
   "Authorization": "Bearer <JWT>"
 }
+
+Path:
+{
+"id": "uuid"
+}
 ```
 
 
@@ -54,21 +62,10 @@ Header:
 
 ## 4. PHONG BÌ DỮ LIỆU ĐẦU RA (RESPONSE ENVELOPE)
 
-### 4.1. Phản hồi Thành công Đơn lẻ (`ApiResponse<T>`)
-Áp dụng cho API trả về 1 đối tượng hoặc kết quả thực thi:
-```json
-200 OK:
-{
-  "success": true,
-  "statusCode": 200,
-  "message": "Avatar retrieved successfully.",
-  "data": {
-    "userId": "uuid",
-    "avatarUrl": "string"
-  },
-  "traceId": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-  "timestamp": "2026-10-26T00:00:00Z"
-}
+### 4.1. Phản hồi Không có Body (`204 NoContent`)
+Áp dụng cho thao tác xóa hoặc cập nhật không cần trả payload dữ liệu.
+```http
+HTTP/1.1 204 No Content
 ```
 
 ---
@@ -81,10 +78,10 @@ Frontend bắt buộc dựa vào cột `errorCode` để map và hiển thị gi
 |:---:|:---|:---|:---|
 | `400` | `VAL_INVALID_INPUT` | "One or more validation errors occurred." | Dữ liệu đầu vào vi phạm FluentValidation hoặc model binding. |
 | `401` | `UNAUTHORIZED` | "Authentication token is missing, expired, or invalid." | Người dùng chưa đăng nhập hoặc JWT không hợp lệ. |
-| `404` | `USER_NOT_FOUND` | "User was not found." | Điều kiện nghiệp vụ đặc thù: USER_NOT_FOUND. |
-| `401` | `UNAUTHORIZED` | "Authentication required, token is missing or expired." | Điều kiện nghiệp vụ đặc thù: UNAUTHORIZED. |
+| `404` | `SESSION_NOT_FOUND` | "The specified session was not found." | Điều kiện nghiệp vụ đặc thù: SESSION_NOT_FOUND. |
+| `403` | `FORBIDDEN` | "You do not have permission to manage another user session." | Điều kiện nghiệp vụ đặc thù: FORBIDDEN. |
 | `403` | `FORBIDDEN` | "You do not have permission to perform this action." | Người dùng không đủ quyền RBAC theo quy định. |
-| `404` | `USER_NOT_FOUND` | "User not found with the specified ID." | Không tìm thấy bản ghi trong Database tương ứng. |
+| `404` | `USERSESSION_NOT_FOUND` | "Usersession not found with the specified ID." | Không tìm thấy bản ghi trong Database tương ứng. |
 | `500` | `INTERNAL_SERVER_ERROR` | "An unexpected error occurred. Please try again later." | Lỗi hệ thống nội bộ chưa được xử lý. |
 
 ---

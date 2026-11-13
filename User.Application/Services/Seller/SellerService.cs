@@ -1,6 +1,7 @@
 namespace User.Application.Services.Seller;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -9,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common.Extensions;
 using User.Application.Common;
+using User.Application.Common.Helpers;
 using User.Application.Common.Models;
 using User.Application.Interfaces;
 using User.Application.Models;
@@ -25,19 +27,22 @@ public sealed class SellerService : ISellerService
     private readonly IEmailNotificationClient? _emailNotificationClient;
     private readonly IFulfillmentServiceClient _fulfillmentClient;
     private readonly ILogger<SellerService> _logger;
+    private readonly IFileStorageService? _fileStorageService;
 
     public SellerService(
         IUserDbContext dbContext,
         IRedisOtpService otpService,
         IEmailNotificationClient? emailNotificationClient,
         IFulfillmentServiceClient fulfillmentClient,
-        ILogger<SellerService> logger)
+        ILogger<SellerService> logger,
+        IFileStorageService? fileStorageService = null)
     {
         _dbContext = dbContext;
         _otpService = otpService;
         _emailNotificationClient = emailNotificationClient;
         _fulfillmentClient = fulfillmentClient;
         _logger = logger;
+        _fileStorageService = fileStorageService;
     }
 
     // =========================================================================================
@@ -1584,5 +1589,118 @@ public sealed class SellerService : ISellerService
             ReactivatedAt: now,
             Reason: reason
         );
+    }
+
+    public async Task<UploadSellerDocumentsResponseDto> UploadSellerDocumentsAsync(
+        Guid userId,
+        SellerDocumentFileInput frontCccd,
+        SellerDocumentFileInput backCccd,
+        SellerDocumentFileInput? businessLicense = null,
+        Guid? registrationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        FileValidationHelper.ValidateKycDocument(frontCccd.Content, frontCccd.FileName, frontCccd.SizeBytes, maxSizeMb: 5);
+        FileValidationHelper.ValidateKycDocument(backCccd.Content, backCccd.FileName, backCccd.SizeBytes, maxSizeMb: 5);
+
+        if (businessLicense != null)
+        {
+            FileValidationHelper.ValidateKycDocument(businessLicense.Content, businessLicense.FileName, businessLicense.SizeBytes, maxSizeMb: 5);
+        }
+
+        if (_fileStorageService == null)
+        {
+            throw new DomainException("STORAGE_UPLOAD_FAILED", "File storage service is not configured.", 500);
+        }
+
+        SellerProfile? profile = null;
+        if (registrationId.HasValue && registrationId.Value != Guid.Empty)
+        {
+            profile = await _dbContext.SellerProfiles
+                .FirstOrDefaultAsync(p => p.Id == registrationId.Value && !p.IsDeleted, cancellationToken);
+
+            if (profile == null)
+            {
+                throw new DomainException("REGISTRATION_NOT_FOUND", "Registration request was not found.", 404);
+            }
+
+            if (profile.UserId != userId)
+            {
+                throw new DomainException("FORBIDDEN", "You do not have permission to upload documents for another user registration.", 403);
+            }
+        }
+        else
+        {
+            profile = await _dbContext.SellerProfiles
+                .Where(p => p.UserId == userId && !p.IsDeleted)
+                .OrderByDescending(p => p.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        var folder = $"seller-kyc/{userId}";
+        var frontResult = await _fileStorageService.UploadAsync(frontCccd.Content, frontCccd.FileName, frontCccd.ContentType, folder, isPrivate: true, isVideo: false, cancellationToken);
+        var backResult = await _fileStorageService.UploadAsync(backCccd.Content, backCccd.FileName, backCccd.ContentType, folder, isPrivate: true, isVideo: false, cancellationToken);
+
+        string? licenseUrl = null;
+        if (businessLicense != null)
+        {
+            var licenseResult = await _fileStorageService.UploadAsync(businessLicense.Content, businessLicense.FileName, businessLicense.ContentType, folder, isPrivate: true, isVideo: false, cancellationToken);
+            licenseUrl = licenseResult.Url;
+        }
+
+        if (profile != null)
+        {
+            var oldValues = new
+            {
+                profile.IdCardFrontUrl,
+                profile.IdCardBackUrl,
+                profile.BusinessLicenseUrl
+            };
+
+            profile.IdCardFrontUrl = frontResult.Url;
+            profile.IdCardBackUrl = backResult.Url;
+            if (licenseUrl != null)
+            {
+                profile.BusinessLicenseUrl = licenseUrl;
+            }
+            profile.UpdatedAt = DateTimeOffset.UtcNow;
+
+            var newValues = new
+            {
+                profile.IdCardFrontUrl,
+                profile.IdCardBackUrl,
+                profile.BusinessLicenseUrl
+            };
+
+            _dbContext.AddAuditLog(
+                action: AuditAction.UserUpdate,
+                entityName: nameof(SellerProfile),
+                entityId: profile.Id.ToString(),
+                oldValues: oldValues,
+                newValues: newValues,
+                userId: userId.ToString(),
+                changedColumns: new[] { nameof(SellerProfile.IdCardFrontUrl), nameof(SellerProfile.IdCardBackUrl), nameof(SellerProfile.BusinessLicenseUrl) });
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        var urls = new List<string> { frontResult.Url, backResult.Url };
+        if (licenseUrl != null)
+        {
+            urls.Add(licenseUrl);
+        }
+
+        _logger.LogInformation("[SELLER KYC] Uploaded {Count} private KYC document(s) for UserId '{UserId}'.", urls.Count, userId);
+
+        return new UploadSellerDocumentsResponseDto(
+            RegistrationId: profile?.Id,
+            IdCardFrontUrl: frontResult.Url,
+            IdCardBackUrl: backResult.Url,
+            BusinessLicenseUrl: licenseUrl,
+            DocumentUrls: urls);
     }
 }

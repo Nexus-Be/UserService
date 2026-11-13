@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common;
 using User.Application.Common.Extensions;
+using User.Application.Common.Helpers;
 using User.Application.Common.Models;
 using User.Application.Interfaces;
 using User.Domain.Constants;
@@ -20,11 +21,16 @@ public sealed class ReportService : IReportService
 {
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<ReportService> _logger;
+    private readonly IFileStorageService? _fileStorageService;
 
-    public ReportService(IUserDbContext dbContext, ILogger<ReportService> logger)
+    public ReportService(
+        IUserDbContext dbContext,
+        ILogger<ReportService> logger,
+        IFileStorageService? fileStorageService = null)
     {
         _dbContext = dbContext;
         _logger = logger;
+        _fileStorageService = fileStorageService;
     }
 
     public async Task<ReportDetailResponse> CreateReportAsync(
@@ -421,5 +427,61 @@ public sealed class ReportService : IReportService
         }).ToList();
 
         return PagedData<ReportListItemDto>.From(items, safePage, safeLimit, totalCount);
+    }
+
+    public async Task<UploadMediaFilesResponse> UploadReportFilesAsync(
+        Guid userId,
+        IReadOnlyList<UploadMediaFileInput> files,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        if (files == null || files.Count == 0)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "At least one evidence file is required.");
+        }
+
+        if (files.Count > 5)
+        {
+            throw new BusinessRuleValidationException("FILE_LIMIT_EXCEEDED", "Maximum limit of 5 attached evidence files exceeded.");
+        }
+
+        if (_fileStorageService == null)
+        {
+            throw new DomainException("STORAGE_UPLOAD_FAILED", "File storage service is not configured.", 500);
+        }
+
+        var validatedFlags = new List<bool>(files.Count);
+        foreach (var file in files)
+        {
+            var isVideo = FileValidationHelper.ValidateReportMedia(
+                file.Content,
+                file.FileName,
+                file.SizeBytes,
+                maxImageMb: 5,
+                maxVideoMb: 20);
+            validatedFlags.Add(isVideo);
+        }
+
+        var urls = new List<string>(files.Count);
+        for (var i = 0; i < files.Count; i++)
+        {
+            var file = files[i];
+            var stored = await _fileStorageService.UploadAsync(
+                file.Content,
+                file.FileName,
+                file.ContentType,
+                folder: $"reports/{userId}",
+                isPrivate: false,
+                isVideo: validatedFlags[i],
+                cancellationToken: cancellationToken);
+            urls.Add(stored.Url);
+        }
+
+        _logger.LogInformation("[REPORT UPLOAD] Uploaded {Count} evidence file(s) for UserId '{UserId}'.", urls.Count, userId);
+        return new UploadMediaFilesResponse(urls);
     }
 }

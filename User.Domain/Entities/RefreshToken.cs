@@ -6,6 +6,7 @@ namespace User.Domain.Entities;
 public class RefreshToken : BaseEntity<Guid>
 {
     public required Guid UserId { get; set; }
+    public Guid SessionId { get; set; }
     public required string TokenHash { get; set; }
     public string? DeviceInfo { get; set; }
     public string? IpAddress { get; set; }

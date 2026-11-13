@@ -1,6 +1,7 @@
 namespace User.Application.Services.Seller;
 
 using System;
+using System.IO;
 using System.Text.Json.Serialization;
 
 public sealed class CreateSellerRegistrationDto
@@ -126,3 +127,9 @@ public sealed class ReactivateSellerDto
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
+
+public sealed record SellerDocumentFileInput(
+    Stream Content,
+    string FileName,
+    string ContentType,
+    long SizeBytes);

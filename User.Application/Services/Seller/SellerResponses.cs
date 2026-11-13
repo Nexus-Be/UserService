@@ -1,6 +1,7 @@
 namespace User.Application.Services.Seller;
 
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 public sealed record SellerRegistrationResponseDto(
@@ -168,4 +169,12 @@ public sealed record ReactivateSellerResponseDto(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("reactivatedAt")] DateTimeOffset ReactivatedAt,
     [property: JsonPropertyName("reason")] string Reason
+);
+
+public sealed record UploadSellerDocumentsResponseDto(
+    [property: JsonPropertyName("registrationId")] Guid? RegistrationId,
+    [property: JsonPropertyName("idCardFrontUrl")] string IdCardFrontUrl,
+    [property: JsonPropertyName("idCardBackUrl")] string IdCardBackUrl,
+    [property: JsonPropertyName("businessLicenseUrl")] string? BusinessLicenseUrl,
+    [property: JsonPropertyName("documentUrls")] IReadOnlyList<string> DocumentUrls
 );

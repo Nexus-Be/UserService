@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common;
 using User.Application.Common.Extensions;
+using User.Application.Common.Helpers;
 using User.Application.Common.Models;
 using User.Application.Interfaces;
 using User.Domain.Constants;
@@ -20,11 +21,16 @@ public sealed class ReviewService : IReviewService
 {
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<ReviewService> _logger;
+    private readonly IFileStorageService? _fileStorageService;
 
-    public ReviewService(IUserDbContext dbContext, ILogger<ReviewService> logger)
+    public ReviewService(
+        IUserDbContext dbContext,
+        ILogger<ReviewService> logger,
+        IFileStorageService? fileStorageService = null)
     {
         _dbContext = dbContext;
         _logger = logger;
+        _fileStorageService = fileStorageService;
     }
 
     public async Task<CreateReviewResponse> CreateReviewAsync(
@@ -410,5 +416,58 @@ public sealed class ReviewService : IReviewService
         }
 
         return $"{full[0]}***{full[^1]}";
+    }
+
+    public async Task<UploadMediaFilesResponse> UploadReviewFilesAsync(
+        Guid userId,
+        IReadOnlyList<UploadMediaFileInput> files,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        if (files == null || files.Count == 0)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "At least one review image is required.");
+        }
+
+        if (files.Count > 5)
+        {
+            throw new BusinessRuleValidationException("FILE_LIMIT_EXCEEDED", "Maximum limit of 5 attached images exceeded.");
+        }
+
+        if (_fileStorageService == null)
+        {
+            throw new DomainException("STORAGE_UPLOAD_FAILED", "File storage service is not configured.", 500);
+        }
+
+        foreach (var file in files)
+        {
+            FileValidationHelper.ValidateImage(
+                file.Content,
+                file.FileName,
+                file.SizeBytes,
+                maxSizeMb: 5,
+                invalidTypeMessage: "Unsupported file format, only JPG, PNG, and WEBP are accepted.");
+        }
+
+        var urls = new List<string>(files.Count);
+        foreach (var file in files)
+        {
+            var stored = await _fileStorageService.UploadAsync(
+                file.Content,
+                file.FileName,
+                file.ContentType,
+                folder: $"reviews/{userId}",
+                isPrivate: false,
+                isVideo: false,
+                cancellationToken: cancellationToken);
+            urls.Add(stored.Url);
+        }
+
+        _logger.LogInformation("[REVIEW UPLOAD] Uploaded {Count} review image(s) for UserId '{UserId}'.", urls.Count, userId);
+        return new UploadMediaFilesResponse(urls);
     }
 }

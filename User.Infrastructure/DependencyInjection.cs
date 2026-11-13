@@ -4,11 +4,14 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using User.Application.Interfaces;
 using User.Infrastructure.Persistence;
 using User.Infrastructure.Services.Notification;
 using User.Infrastructure.Services.Redis;
+using User.Infrastructure.Services.Storage;
 
 public static class DependencyInjection
 {
@@ -80,6 +83,30 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
         }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+
+        // File Storage (Cloudinary when configured, LocalFileStorageService fallback otherwise)
+        var cloudName = Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME")
+            ?? configuration["Cloudinary:CloudName"];
+        var cloudApiKey = Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY")
+            ?? configuration["Cloudinary:ApiKey"];
+        var cloudApiSecret = Environment.GetEnvironmentVariable("CLOUDINARY_API_SECRET")
+            ?? configuration["Cloudinary:ApiSecret"];
+
+        if (!string.IsNullOrWhiteSpace(cloudName)
+            && !string.IsNullOrWhiteSpace(cloudApiKey)
+            && !string.IsNullOrWhiteSpace(cloudApiSecret))
+        {
+            services.AddSingleton<IFileStorageService>(sp =>
+                new CloudinaryFileStorageService(
+                    cloudName,
+                    cloudApiKey,
+                    cloudApiSecret,
+                    sp.GetRequiredService<ILogger<CloudinaryFileStorageService>>()));
+        }
+        else
+        {
+            services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+        }
 
         return services;
     }

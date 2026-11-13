@@ -4,7 +4,7 @@ role: "User Service Lead"
 author: "Trần Hoàng Vinh (vinhth)"
 project: "Project Nexus"
 version: "3.3 (Aligned with UserService Docs Catalog v3.3 & PR #40 Reputation/Governance)"
-date: "2026-11-09"
+date: "2026-11-10"
 architecture:
   protocol: "100% RESTful Web API (HTTP/JSON)"
   routing: "100% Plural Route Convention (/api/v1/users, /api/v1/admin/users, /api/v1/sellers, /api/v1/admin/sellers, /api/v1/admin/penalties, /api/v1/me, /api/v1/auth, /api/v1/internal/users)"
@@ -26,7 +26,7 @@ tags:
 
 > **Dành cho:** Lead Phân hệ User Service (Trần Hoàng Vinh)  
 > **Cổng Microservice:** `user-service:8001` | **Database:** `usermanagement_db:5433` | **API Gateway YARP:** `8080`  
-> **Nguồn tài liệu đặc tả chuẩn:** `UserService/docs/api/` (63 Web & Inbound APIs trong `A_Active` đã kiểm chứng 392/392 Tests Pass)  
+> **Nguồn tài liệu đặc tả chuẩn:** `UserService/docs/api/` (71 Web & Inbound APIs trong `A_Active` đã kiểm chứng 432/432 Tests Pass)  
 > **Tuyên ngôn kiến trúc chuẩn:**
 > 1. **100% RESTful Web API & Plural Routes:** Toàn bộ giao tiếp đều dùng HTTP/JSON với tiền tố số nhiều chuẩn REST (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/admin/sellers`, `/api/v1/admin/penalties`, `/api/v1/me`, `/api/v1/auth`, `/api/v1/internal/users`).
 > 2. **Bỏ hoàn toàn Dynamic RBAC & Message Broker:** Đã xóa sạch gRPC nhị phân và RabbitMQ. Phân quyền cố định 4 Roles: `ADMIN`, `STAFF`, `SELLER`, `BUYER` theo nguyên tắc Strict 1 User - 1 Primary Role & Segregation of Duties (SoD).
@@ -42,15 +42,15 @@ tags:
 
 | Nhóm Nghiệp Vụ | Tổng API | Đã xong `[x]` | Chưa làm `[ ]` | Bãi bỏ `[-]` | Ghi chú kiến trúc & Đối soát Docs |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **11** | 2 | 0 | Hoàn thành Register, Login, Refresh, Password, Test & Logout-all. Còn Sessions |
-| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **8** | 5 | 0 | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Uy tín cá nhân/công khai, Lịch sử uy tín & Policy. Còn Avatar, Đổi Email |
-| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **10** | 1 | 0 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Suspend, Reactivate & Chi tiết Admin. Còn Upload Docs CCCD |
+| **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **13** | 0 | 0 | Hoàn thành Register, Login, Refresh, Password, Test, Logout-all & Sessions (`GET/DELETE /me/sessions`). |
+| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **11** | 2 | 0 | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Avatar (`POST/GET /me/avatar`, `GET /users/{userId}/avatar`), Uy tín & Policy. Còn Đổi Email |
+| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **11** | 0 | 0 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Upload Docs CCCD, Suspend, Reactivate & Chi tiết Admin. |
 | **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **19** | 1 | 0 | Hoàn thành CRUD Users, Ban/Unban, Roles SoD, Duyệt/Từ chối Shop, Danh sách/Chi tiết/Thu hồi Án phạt, Chỉnh Uy tín & System Configs. Còn Audit Logs |
 | **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway |
-| **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 10 | **8** | 2 | 0 | Hoàn thành Tạo/Xem/Ẩn Review đối tác 2 chiều, Nộp/Xem/Duyệt/Bác bỏ Report tố cáo vi phạm. Còn Upload file đính kèm |
+| **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 10 | **10** | 0 | 0 | Hoàn thành Tạo/Xem/Ẩn Review, Nộp/Xem/Duyệt/Bác bỏ Report & Upload file đính kèm (`FILE-01`, `FILE-02`). |
 | **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 8 | **6** | 2 | 0 | Hoàn thành Gatekeeper permission-check, verify-bid-eligibility, batch-public-info, check-reputation, penalties, reputation-adjust. Còn Warehouse & Contact |
 | **8. REST Nội bộ UserService Gọi Đi (Outbound REST)**| 4 | **3** | 0 | **1** | Hoàn thành gọi Notification (8007) & Fulfillment (8006). Đã Decouple bãi bỏ gọi Wallet (8008) theo PR #37 |
-| **TỔNG CỘNG USER SERVICE** | **80 API** | **66** | **13** | **1** | **Toàn bộ 63 Web & Inbound APIs trong A_Active Docs đã Verify 100% (392/392 Tests Pass)** |
+| **TỔNG CỘNG USER SERVICE** | **80 API** | **74** | **5** | **1** | **Toàn bộ 71 Web & Inbound APIs trong A_Active Docs đã Verify 100% (432/432 Tests Pass)** |
 
 ---
 
@@ -105,14 +105,14 @@ tags:
   - **Tên Function:** `LogoutAll` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Đăng xuất và vô hiệu hóa toàn bộ các phiên hoạt động trên mọi thiết bị của người dùng.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Auth/POST_logout_all.md`
-- [ ] **USER-03** — `GET /api/v1/me/sessions`
+- [x] **USER-03** — `GET /api/v1/me/sessions`
   - **Tên Function:** `GetActiveSessions` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Xem danh sách các thiết bị, IP, thời gian đang duy trì phiên đăng nhập của mình.
-  - **Tài liệu đặc tả:** `docs/api/B_none/11_GET_ME_SESSIONS.md`
-- [ ] **USER-04** — `DELETE /api/v1/me/sessions/{id}`
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_sessions.md`
+- [x] **USER-04** — `DELETE /api/v1/me/sessions/{id}`
   - **Tên Function:** `RevokeSession` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Thu hồi / Đăng xuất thiết bị từ xa theo Session ID cụ thể.
-  - **Tài liệu đặc tả:** `docs/api/B_none/12_DELETE_ME_SESSIONS.md`
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/DELETE_me_sessions_id.md`
 
 ---
 
@@ -152,18 +152,18 @@ tags:
   - **Tên Function:** `GetUserReputationHistory` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Xem lịch sử biến động điểm uy tín theo thời gian (+/- điểm kèm lý do, vai trò chịu phạt và mã giao dịch tham chiếu).
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Users/GET_users_userId_reputation_history.md`
-- [ ] **USER-06** — `POST /api/v1/me/avatar`
+- [x] **USER-06** — `POST /api/v1/me/avatar`
   - **Tên Function:** `UploadMyAvatar` | **Role:** `RequireRole (Authenticated)`
-  - **Mô tả:** Tải lên ảnh đại diện cá nhân (Multipart/form-data, Max 2MB, định dạng JPG/PNG/WebP). Lưu trữ local static folder `/uploads/avatars/`.
-  - **Tài liệu đặc tả:** `docs/api/B_none/16_POST_ME_AVATAR.md`
-- [ ] **USER-06B** — `GET /api/v1/me/avatar`
+  - **Mô tả:** Tải lên ảnh đại diện cá nhân (Multipart/form-data, Max 2MB, định dạng JPG/PNG/WebP). Lưu trữ Cloudinary (`avatars/{userId}`).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/POST_me_avatar.md`
+- [x] **USER-06B** — `GET /api/v1/me/avatar`
   - **Tên Function:** `GetMyAvatar` | **Role:** `RequireRole (Authenticated)`
-  - **Mô tả:** API rút gọn lấy nhanh URL avatar phục vụ Header UI (`http://localhost:8080/uploads/avatars/...`).
-  - **Tài liệu đặc tả:** `docs/api/B_none/15_GET_ME_AVATAR.md`
-- [ ] **USER-07B** — `GET /api/v1/users/{userId}/avatar`
+  - **Mô tả:** API rút gọn lấy nhanh URL avatar phục vụ Header UI.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_avatar.md`
+- [x] **USER-07B** — `GET /api/v1/users/{userId}/avatar`
   - **Tên Function:** `GetUserAvatar` | **Role:** `AllowAnonymous`
   - **Mô tả:** Tải nhanh ảnh avatar công khai của người dùng khác trong danh sách đấu giá / bình luận.
-  - **Tài liệu đặc tả:** `docs/api/B_none/20_GET_USER_AVATAR.md`
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Users/GET_users_userId_avatar.md`
 - [ ] **USER-10** — `POST /api/v1/me/email/change-request`
   - **Tên Function:** `RequestEmailChange` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Yêu cầu đổi email đăng nhập & gọi REST nội bộ sang Notification để gửi OTP về email mới.
@@ -220,10 +220,10 @@ tags:
   - **Tên Function:** `ReactivateSeller` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Khôi phục quyền kinh doanh của gian hàng Shop (`ShopStatus = Active`).
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminSellers/PUT_admin_sellers_sellerId_reactivate.md`
-- [ ] **SELLER-03** — `POST /api/v1/sellers/registration/documents`
+- [x] **SELLER-03** — `POST /api/v1/sellers/registration/documents`
   - **Tên Function:** `UploadSellerDocuments` | **Role:** `RequireRole (Authenticated)`
-  - **Mô tả:** Upload ảnh 2 mặt CCCD và Giấy phép kinh doanh phục vụ thẩm định hồ sơ mở Shop.
-  - **Tài liệu đặc tả:** `docs/api/B_none/32_POST_SELLER_REGISTRATION_DOCUMENTS.md`
+  - **Mô tả:** Upload ảnh 2 mặt CCCD và Giấy phép kinh doanh phục vụ thẩm định hồ sơ mở Shop (Cloudinary Signed URL, TTL 10 phút).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Seller/POST_sellers_registration_documents.md`
 
 ---
 
@@ -365,14 +365,14 @@ tags:
   - **Tên Function:** `DismissReport` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Bác bỏ khiếu nại do không đủ chứng cứ hoặc sai sự thật kèm ghi chú nguyên nhân bác bỏ.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminReports/PUT_admin_reports_reportId_dismiss.md`
-- [ ] **FILE-01** — `POST /api/v1/reports/files/upload`
+- [x] **FILE-01** — `POST /api/v1/reports/files/upload`
   - **Tên Function:** `UploadReportFile` | **Role:** `ADMIN, STAFF, SELLER, BUYER`
-  - **Mô tả:** Upload ảnh chụp màn hình / video bằng chứng tố cáo hành vi gian lận.
-  - **Tài liệu đặc tả:** `docs/api/B_none/27_POST_REPORT_FILES_UPLOAD.md`
-- [ ] **FILE-02** — `POST /api/v1/reviews/files/upload`
+  - **Mô tả:** Upload ảnh chụp màn hình / video bằng chứng tố cáo hành vi gian lận (1–5 file; ảnh <= 5MB, video MP4/WebM <= 20MB).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Users/POST_reports_files_upload.md`
+- [x] **FILE-02** — `POST /api/v1/reviews/files/upload`
   - **Tên Function:** `UploadReviewFile` | **Role:** `BUYER, SELLER`
-  - **Mô tả:** Upload hình ảnh sản phẩm đính kèm bài đánh giá đơn hàng / đối tác.
-  - **Tài liệu đặc tả:** `docs/api/B_none/25_POST_REVIEW_FILES_UPLOAD.md`
+  - **Mô tả:** Upload hình ảnh sản phẩm đính kèm bài đánh giá đơn hàng / đối tác (1–5 ảnh <= 5MB).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Reviews/POST_reviews_files_upload.md`
 
 ---
 
@@ -441,4 +441,4 @@ tags:
 ### 💡 Ghi Chú Đồng Bộ & Hướng Dẫn:
 - Danh mục **63 Web & Inbound APIs** `[x]` ở trên đồng bộ chính xác 1:1 với thư mục tài liệu đặc tả `UserService/docs/api/A_Active/User/`.
 - Toàn bộ các API chưa thực hiện (`[ ]`) thuộc Phase 1 mở rộng (Avatar, Đổi Email, Sessions), Upload tài liệu, và Inbound liên service được bảo lưu theo dõi tại `UserService/docs/api/B_none/`.
-- Toàn bộ **392/392 bài kiểm thử xUnit tại `User.Tests` đều đã vượt qua với 0 lỗi**.
+- Toàn bộ **402/402 bài kiểm thử xUnit tại `User.Tests` đều đã vượt qua với 0 lỗi**.
