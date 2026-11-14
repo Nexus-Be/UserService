@@ -74,3 +74,21 @@ public sealed record InternalReputationAdjustRequest
 
     public string? Note { get; init; }
 }
+
+public sealed record RecordAuctionViolationRequest
+{
+    [Required(ErrorMessage = "Violation type is required.")]
+    public string ViolationType { get; init; } = string.Empty;
+
+    [Required(ErrorMessage = "Auction ID is required.")]
+    public Guid? AuctionId { get; init; }
+
+    [Required(ErrorMessage = "Order ID is required.")]
+    public Guid? OrderId { get; init; }
+
+    [Required(ErrorMessage = "Occurred at timestamp is required.")]
+    public DateTimeOffset? OccurredAt { get; init; }
+
+    [Range(0, double.MaxValue, ErrorMessage = "Deposit forfeited amount must be non-negative.")]
+    public decimal DepositForfeitedAmount { get; init; }
+}

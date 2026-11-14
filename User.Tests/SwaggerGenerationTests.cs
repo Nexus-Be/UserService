@@ -123,5 +123,13 @@ public sealed class SwaggerGenerationTests
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/batch-public-info"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/penalties"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/reputation-adjust"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/{userId}/auction-deposit-profile"));
+        Assert.True(swaggerDoc.Paths["/api/v1/internal/users/{userId}/auction-deposit-profile"].Operations.ContainsKey(OperationType.Get));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/internal/users/{userId}/auction-violations"));
+        Assert.True(swaggerDoc.Paths["/api/v1/internal/users/{userId}/auction-violations"].Operations.ContainsKey(OperationType.Post));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/users/{userId}/auction-violations"));
+        Assert.True(swaggerDoc.Paths["/api/v1/admin/users/{userId}/auction-violations"].Operations.ContainsKey(OperationType.Get));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/users/{userId}/auction-violations/adjust"));
+        Assert.True(swaggerDoc.Paths["/api/v1/admin/users/{userId}/auction-violations/adjust"].Operations.ContainsKey(OperationType.Post));
     }
 }

@@ -22,6 +22,8 @@ public interface IUserDbContext
     DbSet<UserPenalty> UserPenalties { get; }
     DbSet<SystemConfig> SystemConfigs { get; }
     DbSet<AuditLog> AuditLogs { get; }
+    DbSet<UserAuctionProfile> UserAuctionProfiles { get; }
+    DbSet<AuctionViolation> AuctionViolations { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

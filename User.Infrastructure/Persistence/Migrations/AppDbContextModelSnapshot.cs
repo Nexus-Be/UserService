@@ -23,6 +23,87 @@ namespace User.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("User.Domain.Entities.AuctionViolation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AuctionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("DepositForfeitedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("NewStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PreviousStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("ReputationAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ReputationBefore")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SanctionType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("SanctionUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ViolationType")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("IX_AuctionViolations_UserId_CreatedAt");
+
+                    b.HasIndex("UserId", "AuctionId", "ViolationType")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AuctionViolations_System_Idempotency")
+                        .HasFilter("\"Source\" = 0 AND \"AuctionId\" IS NOT NULL AND \"ViolationType\" IS NOT NULL");
+
+                    b.ToTable("AuctionViolations");
+                });
+
             modelBuilder.Entity("User.Domain.Entities.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1161,6 +1242,54 @@ namespace User.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("User.Domain.Entities.UserAuctionProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RestrictionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("RestrictionType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("RestrictionUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ViolationStreak")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserAuctionProfiles");
+                });
+
             modelBuilder.Entity("User.Domain.Entities.UserPenalty", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1452,6 +1581,17 @@ namespace User.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("User.Domain.Entities.AuctionViolation", b =>
+                {
+                    b.HasOne("User.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("User.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("User.Domain.Entities.User", "User")
@@ -1554,6 +1694,17 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("BannedByUser");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.UserAuctionProfile", b =>
+                {
+                    b.HasOne("User.Domain.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("User.Domain.Entities.UserAuctionProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserPenalty", b =>

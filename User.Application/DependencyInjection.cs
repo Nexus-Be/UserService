@@ -3,6 +3,7 @@ namespace User.Application;
 using Microsoft.Extensions.DependencyInjection;
 using User.Application.Services.Admin;
 using User.Application.Services.AdminConfig;
+using User.Application.Services.AuctionViolations;
 using User.Application.Services.Auth;
 using User.Application.Services.Internal;
 using User.Application.Services.Profile;
@@ -25,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IAdminConfigService, AdminConfigService>();
         services.AddScoped<IInternalUserService, InternalUserService>();
+        services.AddScoped<IAuctionViolationAdminService, AuctionViolationAdminService>();
         return services;
     }
 }
