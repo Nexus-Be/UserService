@@ -3,6 +3,8 @@ namespace User.Api.Controllers.Internal;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -17,6 +19,22 @@ using User.Application.Services.Internal;
 [Route("api/v1/internal/users")]
 public sealed class InternalUsersController : ControllerBase
 {
+    [HttpPost("{userId:guid}/auction-payments")]
+    public async Task<ActionResult<RecordAuctionPaymentResponse>> RecordAuctionPayment(
+        [FromRoute] Guid userId, [FromBody] RecordAuctionPaymentRequest request,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        var expected = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
+            ?? configuration["INTERNAL_SERVICE_SECRET"] ?? configuration["InternalSecurity:ServiceKey"];
+        if (string.IsNullOrWhiteSpace(expected)) return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        var provided = Request.Headers["X-Internal-Service-Key"].ToString();
+        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided)))
+            return Unauthorized();
+        var result = await _internalUserService!.RecordAuctionPaymentAsync(userId, request, cancellationToken);
+        return result.Created ? StatusCode(StatusCodes.Status201Created, result) : Ok(result);
+    }
+
     private readonly IAdminPenaltyService? _penaltyService;
     private readonly IInternalUserService? _internalUserService;
     private readonly ILogger<InternalUsersController> _logger;

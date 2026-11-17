@@ -13,4 +13,5 @@ public interface IInternalUserService
     Task<InternalReputationAdjustResponse> ApplyInternalReputationAdjustAsync(InternalReputationAdjustRequest request, CancellationToken cancellationToken = default);
     Task<AuctionDepositProfileResponse> GetAuctionDepositProfileAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<RecordAuctionViolationResponse> RecordAuctionViolationAsync(Guid userId, RecordAuctionViolationRequest request, CancellationToken cancellationToken = default);
+    Task<RecordAuctionPaymentResponse> RecordAuctionPaymentAsync(Guid userId, RecordAuctionPaymentRequest request, CancellationToken cancellationToken = default);
 }

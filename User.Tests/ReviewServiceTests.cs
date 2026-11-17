@@ -26,10 +26,14 @@ public sealed class ReviewServiceTests
     public async Task CreateReviewAsync_EnforcesSevenDayAntiFarmingForPositiveReviews_WhileApplyingNegativeDeductionsImmediately()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance);
+        var commerce = new FakeCommerceOrderClient();
+        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance, commerceClient: commerce);
 
         var buyerId = Guid.NewGuid();
         var sellerId = Guid.NewGuid();
+        commerce.Add("Order", Guid.Parse(TestOrders.Ref("ORD-001")), buyerId, sellerId, "Completed", DateTimeOffset.UtcNow.AddDays(-1));
+        commerce.Add("Order", Guid.Parse(TestOrders.Ref("ORD-002")), buyerId, sellerId, "Completed", DateTimeOffset.UtcNow.AddDays(-1));
+        commerce.Add("Order", Guid.Parse(TestOrders.Ref("ORD-003")), buyerId, sellerId, "Completed", DateTimeOffset.UtcNow.AddDays(-1));
 
         dbContext.Users.AddRange(
             new User
@@ -81,7 +85,7 @@ public sealed class ReviewServiceTests
             RevieweeId = sellerId,
             ReviewerRole = ReviewerRole.Buyer,
             ReferenceType = ReferenceType.Order,
-            ReferenceId = "ORD-001",
+            ReferenceId = TestOrders.Ref("ORD-001"),
             Rating = 5,
             Comment = "Fast shipping and authentic item."
         });
@@ -97,7 +101,7 @@ public sealed class ReviewServiceTests
             RevieweeId = sellerId,
             ReviewerRole = ReviewerRole.Buyer,
             ReferenceType = ReferenceType.Order,
-            ReferenceId = "ORD-002",
+            ReferenceId = TestOrders.Ref("ORD-002"),
             Rating = 5,
             Comment = "Second order within same week."
         });
@@ -112,7 +116,7 @@ public sealed class ReviewServiceTests
             RevieweeId = sellerId,
             ReviewerRole = ReviewerRole.Buyer,
             ReferenceType = ReferenceType.Order,
-            ReferenceId = "ORD-003",
+            ReferenceId = TestOrders.Ref("ORD-003"),
             Rating = 1,
             Comment = "Counterfeit item sent on third order."
         });
@@ -127,10 +131,12 @@ public sealed class ReviewServiceTests
     public async Task HideReviewAsync_ReversesExactScoreImpactOnTargetTrack_AndCreatesDisputeCompensationLog()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance);
+        var commerce = new FakeCommerceOrderClient();
+        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance, commerceClient: commerce);
 
         var buyerId = Guid.NewGuid();
         var sellerId = Guid.NewGuid();
+        commerce.Add("Order", Guid.Parse(TestOrders.Ref("ORD-DEFAME-1")), buyerId, sellerId, "Completed", DateTimeOffset.UtcNow.AddDays(-1));
         var staffId = Guid.NewGuid();
 
         dbContext.Users.AddRange(
@@ -165,7 +171,7 @@ public sealed class ReviewServiceTests
             RevieweeId = sellerId,
             ReviewerRole = ReviewerRole.Buyer,
             ReferenceType = ReferenceType.Order,
-            ReferenceId = "ORD-DEFAME-1",
+            ReferenceId = TestOrders.Ref("ORD-DEFAME-1"),
             Rating = 1,
             Comment = "Malicious competitor review."
         });
@@ -197,7 +203,8 @@ public sealed class ReviewServiceTests
     public async Task CreateReviewAsync_WhenSelfReviewOrDuplicate_ThrowsExpectedDomainException()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance);
+        var commerce = new FakeCommerceOrderClient();
+        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance, commerceClient: commerce);
 
         var userId = Guid.NewGuid();
         var ex = await Assert.ThrowsAsync<DomainException>(() =>
@@ -206,7 +213,7 @@ public sealed class ReviewServiceTests
                 RevieweeId = userId,
                 ReviewerRole = ReviewerRole.Buyer,
                 ReferenceType = ReferenceType.Order,
-                ReferenceId = "ORD-SELF",
+                ReferenceId = TestOrders.Ref("ORD-SELF"),
                 Rating = 5
             }));
 

@@ -106,7 +106,9 @@ public sealed class ReputationAndGovernanceControllersTests
         dbContext.ReputationScores.Add(new ReputationScore { Id = Guid.NewGuid(), UserId = sellerId, CurrentScore = 50, SellerScore = 50 });
         await dbContext.SaveChangesAsync();
 
-        var reviewService = new ReviewService(dbContext, NullLogger<ReviewService>.Instance);
+        var commerce = new FakeCommerceOrderClient();
+        commerce.Add("Order", Guid.Parse(TestOrders.Ref("ORD-CTRL-1")), buyerId, sellerId, "Completed", DateTimeOffset.UtcNow.AddDays(-1));
+        var reviewService = new ReviewService(dbContext, NullLogger<ReviewService>.Instance, commerceClient: commerce);
         var reviewsController = new ReviewsController(reviewService, NullLogger<ReviewsController>.Instance);
         AttachUserHeader(reviewsController, buyerId, "buyer");
 
@@ -115,7 +117,7 @@ public sealed class ReputationAndGovernanceControllersTests
             RevieweeId = sellerId,
             ReviewerRole = ReviewerRole.Buyer,
             ReferenceType = ReferenceType.Order,
-            ReferenceId = "ORD-CTRL-1",
+            ReferenceId = TestOrders.Ref("ORD-CTRL-1"),
             Rating = 1,
             Comment = "Unfair 1 star review."
         }, CancellationToken.None);
