@@ -1297,6 +1297,52 @@ public sealed class SellerService : ISellerService
             throw new DomainException("SELLER_NOT_FOUND", "Seller shop was not found.", 404);
         }
 
+        return MapToPublicSellerProfile(sellerProfile);
+    }
+
+    /// <summary>
+    /// [Public] Tìm kiếm danh sách gian hàng đã duyệt theo tên shop (phân trang).
+    /// </summary>
+    public async Task<PagedData<PublicSellerProfileResponseDto>> SearchPublicSellersAsync(
+        string? search,
+        int page = 1,
+        int pageSize = 12,
+        CancellationToken cancellationToken = default)
+    {
+        var (safePage, safeLimit) = PaginationConstants.Normalize(page, pageSize);
+
+        var query = _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Include(sp => sp.User)
+                .ThenInclude(u => u!.ReviewsReceived)
+            .Where(sp =>
+                sp.Status == SellerProfileStatus.Approved &&
+                sp.User != null &&
+                !sp.User.IsDeleted &&
+                sp.User.Status == Domain.Enums.UserStatus.Active);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(sp => sp.ShopName.ToLower().Contains(term));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(sp => sp.UpdatedAt)
+            .Skip((safePage - 1) * safeLimit)
+            .Take(safeLimit)
+            .ToListAsync(cancellationToken);
+
+        return PagedData<PublicSellerProfileResponseDto>.From(
+            items.Select(MapToPublicSellerProfile).ToList(),
+            safePage,
+            safeLimit,
+            totalCount);
+    }
+
+    private static PublicSellerProfileResponseDto MapToPublicSellerProfile(SellerProfile sellerProfile)
+    {
         var reviews = sellerProfile.User?.ReviewsReceived?.Where(r => !r.IsDisabled).ToList();
         double ratingAvg = 5.0;
         if (reviews != null && reviews.Count > 0)

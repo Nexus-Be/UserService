@@ -22,15 +22,21 @@ public sealed class ReportService : IReportService
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<ReportService> _logger;
     private readonly IFileStorageService? _fileStorageService;
+    private readonly IWalletServiceClient? _walletServiceClient;
+    private readonly ICommerceServiceClient? _commerceServiceClient;
 
     public ReportService(
         IUserDbContext dbContext,
         ILogger<ReportService> logger,
-        IFileStorageService? fileStorageService = null)
+        IFileStorageService? fileStorageService = null,
+        IWalletServiceClient? walletServiceClient = null,
+        ICommerceServiceClient? commerceServiceClient = null)
     {
         _dbContext = dbContext;
         _logger = logger;
         _fileStorageService = fileStorageService;
+        _walletServiceClient = walletServiceClient;
+        _commerceServiceClient = commerceServiceClient;
     }
 
     public async Task<ReportDetailResponse> CreateReportAsync(
@@ -95,6 +101,27 @@ public sealed class ReportService : IReportService
 
         _dbContext.UserReports.Add(report);
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // Security: only freeze target wallet for verified DELIVERED/COMPLETED Order disputes, never trust client flag alone
+        if (request.ReferenceType == ReferenceType.Order
+            && Guid.TryParse(normalizedRefId, out var orderOrSubOrderId)
+            && _commerceServiceClient != null
+            && _walletServiceClient != null)
+        {
+            var isVerifiedOrderDispute = await _commerceServiceClient.VerifyDeliveredOrderForDisputeAsync(
+                orderOrSubOrderId,
+                reporterId,
+                request.ReportedUserId,
+                cancellationToken);
+
+            if (isVerifiedOrderDispute)
+            {
+                await _walletServiceClient.FreezeWalletAsync(
+                    request.ReportedUserId,
+                    $"DISPUTE_ORDER_{orderOrSubOrderId}",
+                    cancellationToken);
+            }
+        }
 
         _logger.LogInformation(
             "[ReportService] Report '{ReportId}' created by '{ReporterId}' against '{ReportedUserId}'",
@@ -377,6 +404,16 @@ public sealed class ReportService : IReportService
             changedColumns: new[] { nameof(UserReport.Status), nameof(UserReport.ResolvedBy), nameof(UserReport.ResolvedAt), nameof(UserReport.ResolutionNote) });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        if (request.UnfreezeTargetWallet
+            && report.ReferenceType == ReferenceType.Order
+            && _walletServiceClient != null)
+        {
+            await _walletServiceClient.UnfreezeWalletAsync(
+                report.ReportedUserId,
+                $"REPORT_DISMISSED_{report.Id}",
+                cancellationToken);
+        }
 
         return new ResolveReportResponse
         {

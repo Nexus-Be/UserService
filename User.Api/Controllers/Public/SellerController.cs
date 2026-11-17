@@ -190,6 +190,21 @@ public sealed class SellerController : ControllerBase
     }
 
     /// <summary>
+    /// [Public] Tìm kiếm danh sách gian hàng theo tên shop (phân trang).
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> SearchPublicSellers(
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 12,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _sellerService.SearchPublicSellersAsync(search, page, pageSize, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [Public] Tra cứu thông tin công khai của một gian hàng cho khách hàng xem shop (Storefront).
     /// </summary>
     /// <param name="id">Định danh GUID của gian hàng hoặc ID của tài khoản người bán.</param>
