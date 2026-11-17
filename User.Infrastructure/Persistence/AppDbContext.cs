@@ -32,6 +32,14 @@ public class AppDbContext : DbContext, IUserDbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<UserAuctionProfile> UserAuctionProfiles => Set<UserAuctionProfile>();
     public DbSet<AuctionViolation> AuctionViolations => Set<AuctionViolation>();
+    public DbSet<UserAuctionPayment> UserAuctionPayments => Set<UserAuctionPayment>();
+
+    public async Task LockAuctionPaymentAsync(Guid userId, Guid orderId, CancellationToken cancellationToken)
+    {
+        if (!Database.IsRelational()) return;
+        await Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({userId.ToString("D")}, 0))", cancellationToken);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

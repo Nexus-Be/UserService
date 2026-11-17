@@ -24,6 +24,8 @@ public sealed record CreateReportRequest
     public string Description { get; init; } = string.Empty;
 
     public List<string>? EvidenceUrls { get; init; }
+
+    public bool FreezeTargetWallet { get; init; }
 }
 
 public sealed record ResolveReportRequest
@@ -61,4 +63,6 @@ public sealed record DismissReportRequest
     public string EffectiveNote => !string.IsNullOrWhiteSpace(ResolutionNote)
         ? ResolutionNote
         : (Reason ?? string.Empty);
+
+    public bool UnfreezeTargetWallet { get; init; } = true;
 }

@@ -14,6 +14,16 @@ public interface IReviewService
         CreateReviewRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Whether the caller may review an order, and who they would be reviewing. Reasons: ALREADY_REVIEWED, ORDER_NOT_COMPLETED,
+    /// PERIOD_EXPIRED, NOT_PARTICIPANT, ORDER_NOT_FOUND. Says nothing about product reviews, which belong to CatalogService.
+    /// </summary>
+    Task<ReviewEligibilityResponse> GetEligibilityAsync(
+        Guid reviewerId,
+        ReferenceType referenceType,
+        string referenceId,
+        CancellationToken cancellationToken = default);
+
     Task<PagedData<UserReviewItemDto>> GetUserReviewsAsync(
         Guid userId,
         int page = 1,

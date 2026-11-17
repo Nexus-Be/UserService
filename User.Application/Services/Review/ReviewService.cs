@@ -22,12 +22,21 @@ public sealed class ReviewService : IReviewService
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<ReviewService> _logger;
     private readonly IFileStorageService? _fileStorageService;
+    private readonly ICommerceOrderClient? _commerceClient;
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>A review is accepted for this long after the order finished (the same window as product reviews).</summary>
+    public const int ReviewWindowDays = 30;
 
     public ReviewService(
         IUserDbContext dbContext,
         ILogger<ReviewService> logger,
-        IFileStorageService? fileStorageService = null)
+        IFileStorageService? fileStorageService = null,
+        ICommerceOrderClient? commerceClient = null,
+        TimeProvider? timeProvider = null)
     {
+        _commerceClient = commerceClient;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _dbContext = dbContext;
         _logger = logger;
         _fileStorageService = fileStorageService;
@@ -55,6 +64,18 @@ public sealed class ReviewService : IReviewService
 
         var normalizedRefId = request.ReferenceId.Trim();
 
+        // Only an order that really finished can be reviewed, so the reference must name one that Commerce knows.
+        if (request.ReferenceType is not (ReferenceType.Order or ReferenceType.Auction))
+        {
+            throw new DomainException("REVIEW_REFERENCE_TYPE_NOT_SUPPORTED",
+                "A review must refer to an order or an auction order.", 400);
+        }
+
+        if (!Guid.TryParse(normalizedRefId, out var referenceGuid) || referenceGuid == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Reference ID must be the ID of a sub-order or an auction order.", 400);
+        }
+
         var duplicateExists = await _dbContext.UserReviews
             .AsNoTracking()
             .AnyAsync(r =>
@@ -66,6 +87,16 @@ public sealed class ReviewService : IReviewService
         if (duplicateExists)
         {
             throw new DomainException("REVIEW_ALREADY_EXISTS", "A review has already been submitted for this transaction reference.", 409);
+        }
+
+        var reference = await RequireCompletedOrderAsync(
+            request.ReferenceType, referenceGuid, cancellationToken);
+        var reviewerRole = RoleInOrder(reference, reviewerId)
+            ?? throw new DomainException("REVIEW_NOT_PARTICIPANT", "Only the buyer or the seller of this order can review it.", 403);
+        var expectedReviewee = reviewerRole == ReviewerRole.Buyer ? reference.SellerId : reference.BuyerId;
+        if (request.RevieweeId != expectedReviewee)
+        {
+            throw new DomainException("REVIEW_TARGET_MISMATCH", "The reviewed user is not the other party of this order.", 400);
         }
 
         var reviewee = await _dbContext.Users
@@ -82,7 +113,7 @@ public sealed class ReviewService : IReviewService
         // - If Reviewer is Buyer -> Reviewee is Seller -> impacts SellerScore (TargetRole.Seller)
         // - If Reviewer is Seller -> Reviewee is Buyer -> impacts CurrentScore (TargetRole.Buyer)
         TargetRole targetTrack;
-        if (request.ReviewerRole == ReviewerRole.Buyer)
+        if (reviewerRole == ReviewerRole.Buyer)
         {
             if (reviewee.SellerProfile == null || reviewee.SellerProfile.Status != SellerProfileStatus.Approved)
             {
@@ -112,7 +143,7 @@ public sealed class ReviewService : IReviewService
 
         var rawDelta = ReputationRules.GetReviewScoreDelta(request.Rating);
         var effectiveDelta = rawDelta;
-        var now = DateTimeOffset.UtcNow;
+        var now = _timeProvider.GetUtcNow();
 
         // 7-Day Anti-Farming Cooldown:
         // Positive points (+1) from the same partner on the same track can only be earned once every 7 days.
@@ -157,7 +188,7 @@ public sealed class ReviewService : IReviewService
             Id = Guid.NewGuid(),
             ReviewerId = reviewerId,
             RevieweeId = reviewee.Id,
-            ReviewerRole = request.ReviewerRole,
+            ReviewerRole = reviewerRole,
             ReferenceType = request.ReferenceType,
             ReferenceId = normalizedRefId,
             Rating = request.Rating,
@@ -203,7 +234,7 @@ public sealed class ReviewService : IReviewService
             ReviewId = review.Id,
             ReviewerId = reviewerId,
             RevieweeId = reviewee.Id,
-            ReviewerRole = request.ReviewerRole.ToEnumString(),
+            ReviewerRole = reviewerRole.ToEnumString(),
             TargetRole = targetTrack.ToEnumString(),
             ReferenceType = request.ReferenceType.ToEnumString(),
             ReferenceId = normalizedRefId,
@@ -215,6 +246,100 @@ public sealed class ReviewService : IReviewService
             RevieweeNewTrustLevel = newTrustLevel,
             CreatedAt = now
         };
+    }
+
+    public async Task<ReviewEligibilityResponse> GetEligibilityAsync(
+        Guid reviewerId,
+        ReferenceType referenceType,
+        string referenceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (referenceType is not (ReferenceType.Order or ReferenceType.Auction))
+        {
+            throw new DomainException("REVIEW_REFERENCE_TYPE_NOT_SUPPORTED",
+                "A review must refer to an order or an auction order.", 400);
+        }
+
+        if (!Guid.TryParse(referenceId?.Trim(), out var referenceGuid) || referenceGuid == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Reference ID must be the ID of a sub-order or an auction order.", 400);
+        }
+
+        var normalized = referenceGuid.ToString();
+        var already = await _dbContext.UserReviews
+            .AsNoTracking()
+            .AnyAsync(r => r.ReviewerId == reviewerId && r.ReferenceType == referenceType && r.ReferenceId == normalized,
+                cancellationToken);
+
+        OrderReviewReference? reference;
+        try
+        {
+            reference = await RequireCommerce().GetReviewReferenceAsync(referenceType.ToString(), referenceGuid, cancellationToken);
+        }
+        catch (CommerceUnavailableException exception)
+        {
+            throw ReviewVerificationUnavailable(exception);
+        }
+
+        // A stranger learns nothing about the order, not even that it exists.
+        var role = reference is null ? null : RoleInOrder(reference, reviewerId);
+        if (reference is null || role is null)
+        {
+            return new ReviewEligibilityResponse(false, already, reference is null ? "ORDER_NOT_FOUND" : "NOT_PARTICIPANT", null, null, null);
+        }
+
+        var revieweeId = role == ReviewerRole.Buyer ? reference.SellerId : reference.BuyerId;
+        string? reason = already ? "ALREADY_REVIEWED"
+            : !IsCompleted(reference) ? "ORDER_NOT_COMPLETED"
+            : IsExpired(reference) ? "PERIOD_EXPIRED"
+            : null;
+        var expiresAt = reference.CompletedAt?.AddDays(ReviewWindowDays);
+
+        return new ReviewEligibilityResponse(reason is null, already, reason, revieweeId, role.Value.ToEnumString(), expiresAt);
+    }
+
+    private ICommerceOrderClient RequireCommerce() =>
+        _commerceClient ?? throw ReviewVerificationUnavailable(null);
+
+    private static DomainException ReviewVerificationUnavailable(Exception? inner) =>
+        new("REVIEW_VERIFICATION_UNAVAILABLE",
+            "The order cannot be verified right now. Try again later.", 503);
+
+    private static bool IsCompleted(OrderReviewReference reference) =>
+        string.Equals(reference.Status, "Completed", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsExpired(OrderReviewReference reference) =>
+        reference.CompletedAt is null || _timeProvider.GetUtcNow() - reference.CompletedAt.Value > TimeSpan.FromDays(ReviewWindowDays);
+
+    private static ReviewerRole? RoleInOrder(OrderReviewReference reference, Guid userId) =>
+        userId == reference.BuyerId ? ReviewerRole.Buyer
+        : userId == reference.SellerId ? ReviewerRole.Seller
+        : null;
+
+    /// <summary>Finds the order in Commerce and checks that it finished within the review window.</summary>
+    private async Task<OrderReviewReference> RequireCompletedOrderAsync(
+        ReferenceType referenceType, Guid referenceId, CancellationToken cancellationToken)
+    {
+        OrderReviewReference? reference;
+        try
+        {
+            reference = await RequireCommerce().GetReviewReferenceAsync(referenceType.ToString(), referenceId, cancellationToken);
+        }
+        catch (CommerceUnavailableException exception)
+        {
+            _logger.LogWarning(exception, "[ReviewService] Order {ReferenceId} could not be verified.", referenceId);
+            throw ReviewVerificationUnavailable(exception);
+        }
+
+        if (reference is null)
+            throw new DomainException("REVIEW_ORDER_NOT_FOUND", "The order was not found.", 404);
+        if (!IsCompleted(reference))
+            throw new DomainException("REVIEW_ORDER_NOT_COMPLETED", "An order can be reviewed only after it is completed.", 409);
+        if (IsExpired(reference))
+            throw new DomainException("REVIEW_PERIOD_EXPIRED",
+                $"The review period for this order has expired. Reviews must be submitted within {ReviewWindowDays} days of completion.", 409);
+
+        return reference;
     }
 
     public async Task<PagedData<UserReviewItemDto>> GetUserReviewsAsync(

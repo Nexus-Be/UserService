@@ -1242,6 +1242,27 @@ namespace User.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("User.Domain.Entities.UserAuctionPayment", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+                    b.Property<Guid>("AuctionId").HasColumnType("uuid");
+                    b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid>("CreatedBy").HasColumnType("uuid");
+                    b.Property<DateTimeOffset?>("DeletedAt").HasColumnType("timestamp with time zone");
+                    b.Property<bool>("IsDeleted").HasColumnType("boolean");
+                    b.Property<Guid>("OrderId").HasColumnType("uuid");
+                    b.Property<DateTimeOffset>("PaidAt").HasColumnType("timestamp with time zone");
+                    b.Property<int>("PreviousStreak").HasColumnType("integer");
+                    b.Property<bool>("RestrictionLifted").HasColumnType("boolean");
+                    b.Property<string>("Source").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)");
+                    b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("timestamp with time zone");
+                    b.Property<Guid>("UpdatedBy").HasColumnType("uuid");
+                    b.Property<Guid>("UserId").HasColumnType("uuid");
+                    b.HasKey("Id");
+                    b.HasIndex("OrderId").IsUnique();
+                    b.ToTable("UserAuctionPayments");
+                });
+
             modelBuilder.Entity("User.Domain.Entities.UserAuctionProfile", b =>
                 {
                     b.Property<Guid>("Id")

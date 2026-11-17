@@ -100,3 +100,5 @@ public sealed record RecordAuctionViolationResponse
     public int ReputationAfter { get; init; }
     public AuctionSanctionDto Sanction { get; init; } = new();
 }
+
+public sealed record RecordAuctionPaymentResponse(bool Recorded, bool Created, int PreviousStreak, int NewStreak, bool RestrictionLifted);

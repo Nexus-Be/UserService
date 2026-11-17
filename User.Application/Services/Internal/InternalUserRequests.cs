@@ -92,3 +92,5 @@ public sealed record RecordAuctionViolationRequest
     [Range(0, double.MaxValue, ErrorMessage = "Deposit forfeited amount must be non-negative.")]
     public decimal DepositForfeitedAmount { get; init; }
 }
+
+public sealed record RecordAuctionPaymentRequest(Guid AuctionId, Guid OrderId, string Source, DateTimeOffset PaidAt);

@@ -110,6 +110,15 @@ public interface ISellerService
     Task<PublicSellerProfileResponseDto> GetPublicSellerProfileAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// [Public] Tìm kiếm danh sách gian hàng đang hoạt động theo tên shop (phân trang).
+    /// </summary>
+    Task<User.Application.Common.Models.PagedData<PublicSellerProfileResponseDto>> SearchPublicSellersAsync(
+        string? search,
+        int page = 1,
+        int pageSize = 12,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// [Admin / Staff] Tra cứu thông tin người bán toàn diện bao gồm KYC, kho hàng và điểm uy tín cho quản trị viên/nhân viên.
     /// </summary>
     /// <param name="sellerId">ID hồ sơ người bán.</param>

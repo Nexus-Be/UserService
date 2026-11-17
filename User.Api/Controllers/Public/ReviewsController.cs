@@ -11,6 +11,7 @@ using User.Api.Extensions;
 using User.Api.Filters;
 using User.Application.Common.Models;
 using User.Application.Services.Review;
+using User.Domain.Enums;
 
 /// <summary>
 /// Quản lý đánh giá đối tác sau giao dịch (Peer Reviews).
@@ -26,6 +27,27 @@ public sealed class ReviewsController : ControllerBase
     {
         _reviewService = reviewService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// [Authenticated] Whether the caller may review an order (a sub-order for ReferenceType Order, an auction order for Auction)
+    /// and whether they already did. Product reviews are a separate question answered by CatalogService.
+    /// </summary>
+    [HttpGet("eligibility")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ReviewEligibilityResponse))]
+    public async Task<IActionResult> GetEligibility(
+        [FromQuery] ReferenceType referenceType,
+        [FromQuery] string referenceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var reviewerId, out var authError))
+        {
+            return authError;
+        }
+
+        var result = await _reviewService.GetEligibilityAsync(reviewerId, referenceType, referenceId, cancellationToken);
+        return Ok(result);
     }
 
     /// <summary>

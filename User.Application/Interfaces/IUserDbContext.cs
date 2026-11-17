@@ -24,6 +24,9 @@ public interface IUserDbContext
     DbSet<AuditLog> AuditLogs { get; }
     DbSet<UserAuctionProfile> UserAuctionProfiles { get; }
     DbSet<AuctionViolation> AuctionViolations { get; }
+    DbSet<UserAuctionPayment> UserAuctionPayments { get; }
+    Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade Database { get; }
+    Task LockAuctionPaymentAsync(Guid userId, Guid orderId, CancellationToken cancellationToken);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

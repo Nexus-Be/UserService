@@ -64,7 +64,7 @@ public static class DependencyInjection
             ?? "http://localhost:8007/";
 
         // Internal service key handler is temporarily disabled. Inter-service calls use plain REST routes.
-        // services.AddTransient<Services.Common.InternalServiceAuthHandler>();
+        services.AddTransient<Services.Common.InternalServiceAuthHandler>();
         services.AddHttpClient<IEmailNotificationClient, EmailNotificationClient>(client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
@@ -83,6 +83,40 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
         }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+
+        // CommerceService: UserService asks it who took part in an order before it accepts a review.
+        var commerceBaseUrl = Environment.GetEnvironmentVariable("COMMERCE_SERVICE_URL")
+            ?? configuration["COMMERCE_SERVICE_URL"]
+            ?? configuration["Services:Commerce:BaseUrl"]
+            ?? configuration["CommerceService:BaseUrl"]
+            ?? "http://localhost:8003/";
+        var internalServiceKey = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
+            ?? configuration["INTERNAL_SERVICE_SECRET"]
+            ?? configuration["InternalSecurity:ServiceKey"];
+
+        services.AddHttpClient<ICommerceOrderClient, Services.External.CommerceOrderClient>(client =>
+        {
+            client.BaseAddress = new Uri(commerceBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+            if (!string.IsNullOrWhiteSpace(internalServiceKey))
+                client.DefaultRequestHeaders.Add("X-Internal-Service-Key", internalServiceKey);
+        });
+
+        services.AddHttpClient<ICommerceServiceClient, Services.External.CommerceServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(commerceBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+
+        var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
+            ?? configuration["ExternalServices:WalletServiceUrl"]
+            ?? "http://wallet-service:8008";
+
+        services.AddHttpClient<IWalletServiceClient, Services.External.WalletServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(walletBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
 
         // File Storage (Cloudinary when configured, LocalFileStorageService fallback otherwise)
         var cloudName = Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME")

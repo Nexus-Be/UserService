@@ -17,6 +17,53 @@ using User.Domain.Exceptions;
 
 public sealed class InternalUserService : IInternalUserService
 {
+    public async Task<RecordAuctionPaymentResponse> RecordAuctionPaymentAsync(Guid userId,
+        RecordAuctionPaymentRequest request, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || request.AuctionId == Guid.Empty || request.OrderId == Guid.Empty ||
+            request.PaidAt == default || (request.Source != "WINNER" && request.Source != "SECOND_CHANCE"))
+            throw new DomainException("VAL_INVALID_AUCTION_PAYMENT", "Auction payment details are invalid.", 400);
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await _dbContext.LockAuctionPaymentAsync(userId, request.OrderId, cancellationToken);
+        var existing = await _dbContext.UserAuctionPayments.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.OrderId == request.OrderId, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.UserId != userId || existing.AuctionId != request.AuctionId ||
+                existing.Source != request.Source || existing.PaidAt != request.PaidAt)
+                throw new DomainException("AUCTION_PAYMENT_CONFLICT", "Order payment has different recorded details.", 409);
+            return new RecordAuctionPaymentResponse(true, false, existing.PreviousStreak, 0, existing.RestrictionLifted);
+        }
+
+        var user = await _dbContext.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId && u.Status != UserStatus.Deleted, cancellationToken)
+            ?? throw new DomainException("USER_NOT_FOUND", "User account was not found.", 404);
+        var now = DateTimeOffset.UtcNow;
+        var profile = await _dbContext.GetOrCreateAuctionProfileAsync(user.Id, now, cancellationToken);
+        var previous = profile.ViolationStreak;
+        profile.ViolationStreak = 0;
+        var lifted = profile.RestrictionType == AuctionRestrictionType.TempRestricted &&
+            profile.RestrictionReason?.StartsWith("Temporary auction restriction due to repeated non-payment", StringComparison.Ordinal) == true;
+        if (lifted)
+        {
+            profile.RestrictionType = AuctionRestrictionType.None;
+            profile.RestrictionUntil = null;
+            profile.RestrictionReason = null;
+        }
+        profile.UpdatedAt = now;
+        _dbContext.UserAuctionPayments.Add(new UserAuctionPayment
+        {
+            Id = Guid.NewGuid(), UserId = userId, AuctionId = request.AuctionId,
+            OrderId = request.OrderId, Source = request.Source, PaidAt = request.PaidAt,
+            PreviousStreak = previous, RestrictionLifted = lifted,
+            CreatedAt = now, UpdatedAt = now
+        });
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new RecordAuctionPaymentResponse(true, true, previous, 0, lifted);
+    }
+
     private const string BidMinScoreConfigKey = "AUCTION_MIN_REPUTATION_BID";
     private const string CreateAuctionMinScoreConfigKey = "AUCTION_MIN_REPUTATION_CREATE";
 
