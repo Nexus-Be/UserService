@@ -74,7 +74,7 @@
 
 | HTTP Status | Error Code | Message (Sentence case) | Điều kiện kích hoạt |
 | :---: | :--- | :--- | :--- |
-| `400 Bad Request` | `VAL_INVALID_INPUT` | `Violation type is required.` / `Deposit forfeited amount must be non-negative.` / `Deposit forfeited amount must be 0 for second-chance non-payment.` | Thiếu trường bắt buộc, số tiền âm, hoặc `SecondChanceNonPayment` có tiền phạt `> 0` |
+| `400 Bad Request` | `VAL_INVALID_INPUT` | `Violation type is required.` / `Deposit forfeited amount must be non-negative.` | Thiếu trường bắt buộc hoặc số tiền bị tịch thu âm (`< 0`) |
 | `404 Not Found` | `USER_NOT_FOUND` | `User account was not found.` | Không tìm thấy người dùng |
 | `422 Unprocessable Entity` | `INVALID_VIOLATION_TYPE` | `Invalid auction violation type.` | `violationType` không thuộc `AuctionViolationType` |
 | `500 Internal Error` | `INTERNAL_SERVER_ERROR` | `An unexpected error occurred while processing the request.` | Lỗi hệ thống chưa được xử lý |

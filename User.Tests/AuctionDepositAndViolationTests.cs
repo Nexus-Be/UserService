@@ -815,22 +815,57 @@ public sealed class AuctionDepositAndViolationTests
         Assert.Null(RunFilter(adjustFilter, actorId, "admin"));
     }
 
-    [Fact]
-    public async Task RecordAuctionViolation_SecondChanceNonPayment_WithPositiveDeposit_Throws400ValidationError()
+    private static async Task<Guid> SeedActiveUserAsync(AppDbContext db, string emailPrefix)
     {
-        using var db = CreateInMemoryDbContext();
-        using var cache = CreateMemoryCache();
         var userId = Guid.NewGuid();
         db.Users.Add(new User
         {
             Id = userId,
-            Email = $"sc-{userId:N}@example.com",
+            Email = $"{emailPrefix}-{userId:N}@example.com",
             PasswordHash = "hash",
-            FirstName = "SecondChance",
+            FirstName = "Auction",
             LastName = "Buyer",
             Status = UserStatus.Active
         });
         await db.SaveChangesAsync();
+        return userId;
+    }
+
+    [Fact]
+    public async Task RecordAuctionViolation_SecondChanceNonPayment_WithPositiveDeposit_PersistsForfeitedAmount()
+    {
+        using var db = CreateInMemoryDbContext();
+        using var cache = CreateMemoryCache();
+        var userId = await SeedActiveUserAsync(db, "sc");
+        var auctionId = Guid.NewGuid();
+
+        var service = new InternalUserService(db, cache, NullLogger<InternalUserService>.Instance);
+        var result = await service.RecordAuctionViolationAsync(userId, new RecordAuctionViolationRequest
+        {
+            ViolationType = "SecondChanceNonPayment",
+            AuctionId = auctionId,
+            OrderId = Guid.NewGuid(),
+            OccurredAt = DateTimeOffset.UtcNow,
+            DepositForfeitedAmount = 1000000m
+        });
+
+        Assert.True(result.Created);
+        Assert.Equal(1, result.NewStreak);
+        Assert.Equal(50, result.ReputationBefore);
+        Assert.Equal(45, result.ReputationAfter);
+        Assert.Equal(AuctionSanctionType.Warning, result.Sanction.Type);
+
+        var saved = await db.AuctionViolations.SingleAsync(v => v.Id == result.ViolationId);
+        Assert.Equal(AuctionViolationType.SecondChanceNonPayment, saved.ViolationType);
+        Assert.Equal(1000000m, saved.DepositForfeitedAmount);
+    }
+
+    [Fact]
+    public async Task RecordAuctionViolation_NegativeDeposit_Throws400ValidationError()
+    {
+        using var db = CreateInMemoryDbContext();
+        using var cache = CreateMemoryCache();
+        var userId = await SeedActiveUserAsync(db, "neg");
 
         var service = new InternalUserService(db, cache, NullLogger<InternalUserService>.Instance);
         var ex = await Assert.ThrowsAsync<DomainException>(() =>
@@ -840,7 +875,7 @@ public sealed class AuctionDepositAndViolationTests
                 AuctionId = Guid.NewGuid(),
                 OrderId = Guid.NewGuid(),
                 OccurredAt = DateTimeOffset.UtcNow,
-                DepositForfeitedAmount = 10000m
+                DepositForfeitedAmount = -1m
             }));
 
         Assert.Equal(400, ex.StatusCode);

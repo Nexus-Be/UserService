@@ -757,11 +757,6 @@ public sealed class InternalUserService : IInternalUserService
             throw new DomainException("VAL_INVALID_INPUT", "Deposit forfeited amount must be non-negative.", 400);
         }
 
-        if (violationType == AuctionViolationType.SecondChanceNonPayment && request.DepositForfeitedAmount > 0)
-        {
-            throw new DomainException("VAL_INVALID_INPUT", "Deposit forfeited amount must be 0 for second-chance non-payment.", 400);
-        }
-
         var auctionId = request.AuctionId.Value;
         var orderId = request.OrderId.Value;
         var occurredAt = request.OccurredAt.Value;
