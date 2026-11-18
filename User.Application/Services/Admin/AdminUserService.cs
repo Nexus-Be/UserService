@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common;
 using User.Application.Common.Extensions;
+using User.Application.Common.Helpers;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -1453,6 +1454,73 @@ public sealed class AdminUserService : IAdminUserService
             UnbannedAt: now,
             UnbannedBy: adminId?.ToString() ?? "system",
             Message: "User account unbanned successfully."
+        );
+    }
+
+    public async Task<AdminUserAvatarRemovedResponseDto> RemoveUserAvatarAsync(
+        Guid targetUserId,
+        RemoveAdminUserAvatarDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == targetUserId && !u.IsDeleted, cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var reason = string.IsNullOrWhiteSpace(dto?.Reason)
+            ? "Removed by administrator for policy violation."
+            : dto.Reason.Trim();
+        var oldAvatarUrl = user.AvatarUrl;
+
+        user.AvatarUrl = null;
+        user.UpdatedAt = now;
+
+        var penaltyApplied = false;
+        if (dto?.ApplyPenalty == true)
+        {
+            await AvatarViolationHelper.ApplyPenaltyAsync(
+                _dbContext,
+                user,
+                reason,
+                actorId: adminId,
+                now: now,
+                policyCode: AvatarViolationHelper.PolicyCode,
+                cancellationToken: cancellationToken);
+            penaltyApplied = true;
+        }
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserUpdate,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: new Dictionary<string, object?> { ["AvatarUrl"] = oldAvatarUrl },
+            newValues: new Dictionary<string, object?> { ["AvatarUrl"] = null, ["Reason"] = reason, ["PenaltyApplied"] = penaltyApplied },
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "AvatarUrl" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "[ADMIN AVATAR REMOVE] Removed avatar for UserId '{UserId}' by Admin '{AdminId}'. PenaltyApplied={PenaltyApplied}.",
+            targetUserId, adminId, penaltyApplied);
+
+        return new AdminUserAvatarRemovedResponseDto(
+            UserId: targetUserId.ToString(),
+            RemovedBy: adminId?.ToString() ?? string.Empty,
+            RemovedAt: now,
+            Reason: reason,
+            PenaltyApplied: penaltyApplied,
+            Message: "User avatar removed successfully."
         );
     }
 

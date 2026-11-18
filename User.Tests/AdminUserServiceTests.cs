@@ -1987,4 +1987,39 @@ public sealed class AdminUserServiceTests
         Assert.Equal(85, detailResult.ReputationLogs[0].ScoreAfter);
         Assert.Equal("Manual reputation boost by Admin", detailResult.ReputationLogs[0].Note);
     }
+
+    [Fact]
+    public async Task RemoveUserAvatarAsync_ClearsAvatarAndWritesAuditLog()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "bad.avatar@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Bad",
+            LastName = "Avatar",
+            AvatarUrl = "https://cdn.nexus.local/avatars/weapon.png",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.RemoveUserAvatarAsync(
+            userId,
+            new RemoveAdminUserAvatarDto { Reason = "Violating avatar", ApplyPenalty = true },
+            adminId,
+            CancellationToken.None);
+
+        var updated = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(updated);
+        Assert.Null(updated!.AvatarUrl);
+        Assert.True(result.PenaltyApplied);
+        Assert.Equal("Violating avatar", result.Reason);
+        Assert.Single(dbContext.AuditLogs);
+        Assert.Equal(1, dbContext.UserPenalties.Count());
+    }
 }

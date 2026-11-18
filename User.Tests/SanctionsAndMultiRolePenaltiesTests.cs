@@ -466,4 +466,148 @@ public sealed class SanctionsAndMultiRolePenaltiesTests
 
         Assert.Equal("CANNOT_REACTIVATE_BANNED_USER_SHOP", ex.ErrorCode);
     }
+
+    [Fact]
+    public async Task CheckUserActionPermissionAsync_ManageVoucher_AllowsApprovedSellerAndAdmin_DeniesRestrictedOrBanned()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var penaltyService = new AdminPenaltyService(dbContext, NullLogger<AdminPenaltyService>.Instance);
+
+        var sellerRole = new Role { Id = Guid.NewGuid(), RoleName = "Seller", RoleCode = RoleType.Seller };
+        var adminRole = new Role { Id = Guid.NewGuid(), RoleName = "Admin", RoleCode = RoleType.Admin };
+        var buyerRole = new Role { Id = Guid.NewGuid(), RoleName = "Buyer", RoleCode = RoleType.Buyer };
+        dbContext.Roles.AddRange(sellerRole, adminRole, buyerRole);
+
+        var approvedSellerId = Guid.NewGuid();
+        var restrictedSellerId = Guid.NewGuid();
+        var adminUserId = Guid.NewGuid();
+        var bannedSellerId = Guid.NewGuid();
+        var buyerUserId = Guid.NewGuid();
+
+        dbContext.Users.AddRange(
+            new User
+            {
+                Id = approvedSellerId,
+                Email = "approved-seller@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Approved",
+                LastName = "Seller",
+                Status = UserStatus.Active,
+                RoleId = sellerRole.Id
+            },
+            new User
+            {
+                Id = restrictedSellerId,
+                Email = "restricted-seller@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Restricted",
+                LastName = "Seller",
+                Status = UserStatus.Active,
+                RoleId = sellerRole.Id
+            },
+            new User
+            {
+                Id = adminUserId,
+                Email = "admin-voucher@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Admin",
+                LastName = "User",
+                Status = UserStatus.Active,
+                RoleId = adminRole.Id
+            },
+            new User
+            {
+                Id = bannedSellerId,
+                Email = "banned-seller@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Banned",
+                LastName = "Seller",
+                Status = UserStatus.Banned,
+                RoleId = sellerRole.Id
+            },
+            new User
+            {
+                Id = buyerUserId,
+                Email = "buyer-voucher@nexus.local",
+                PasswordHash = "hash",
+                FirstName = "Buyer",
+                LastName = "User",
+                Status = UserStatus.Active,
+                RoleId = buyerRole.Id
+            });
+
+        dbContext.SellerProfiles.AddRange(
+            new SellerProfile
+            {
+                Id = Guid.NewGuid(),
+                UserId = approvedSellerId,
+                ShopName = "Approved Shop",
+                PickupAddress = "Road 1",
+                ProvinceId = 1,
+                DistrictId = 1,
+                WardCode = "W1",
+                Hotline = "0900000001",
+                Status = SellerProfileStatus.Approved
+            },
+            new SellerProfile
+            {
+                Id = Guid.NewGuid(),
+                UserId = restrictedSellerId,
+                ShopName = "Restricted Shop",
+                PickupAddress = "Road 2",
+                ProvinceId = 1,
+                DistrictId = 1,
+                WardCode = "W1",
+                Hotline = "0900000002",
+                Status = SellerProfileStatus.Approved
+            },
+            new SellerProfile
+            {
+                Id = Guid.NewGuid(),
+                UserId = buyerUserId,
+                ShopName = "Buyer Stale Shop",
+                PickupAddress = "Road 3",
+                ProvinceId = 1,
+                DistrictId = 1,
+                WardCode = "W1",
+                Hotline = "0900000003",
+                Status = SellerProfileStatus.Approved
+            });
+
+        dbContext.UserPenalties.Add(new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = restrictedSellerId,
+            TargetRole = TargetRole.Seller,
+            ViolationType = PenaltyViolationType.Other,
+            Reason = "Promotion abuse",
+            PenaltyApplied = PenaltyType.Restriction,
+            Status = PenaltyStatus.Active
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var approvedResult = await penaltyService.CheckUserActionPermissionAsync(approvedSellerId, "manage_voucher");
+        Assert.True(approvedResult.IsAllowed);
+        Assert.Null(approvedResult.ErrorCode);
+        Assert.Null(approvedResult.Message);
+
+        var adminResult = await penaltyService.CheckUserActionPermissionAsync(adminUserId, "manage_voucher");
+        Assert.True(adminResult.IsAllowed);
+        Assert.Null(adminResult.ErrorCode);
+
+        var restrictedResult = await penaltyService.CheckUserActionPermissionAsync(restrictedSellerId, "manage_voucher");
+        Assert.False(restrictedResult.IsAllowed);
+        Assert.Equal("SELLER_ACTION_RESTRICTED", restrictedResult.ErrorCode);
+        Assert.Equal("Your seller account is restricted from managing promotion vouchers.", restrictedResult.Message);
+
+        var bannedResult = await penaltyService.CheckUserActionPermissionAsync(bannedSellerId, "manage_voucher");
+        Assert.False(bannedResult.IsAllowed);
+        Assert.Equal("SELLER_ACTION_RESTRICTED", bannedResult.ErrorCode);
+        Assert.Equal("Your seller account is restricted from managing promotion vouchers.", bannedResult.Message);
+
+        var buyerResult = await penaltyService.CheckUserActionPermissionAsync(buyerUserId, "manage_voucher");
+        Assert.False(buyerResult.IsAllowed);
+        Assert.Equal("SELLER_ACTION_RESTRICTED", buyerResult.ErrorCode);
+    }
 }

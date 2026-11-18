@@ -118,6 +118,12 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(5);
         }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
 
+        // Image Moderation (Sightengine / AzureContentSafety when configured; pass-through otherwise)
+        services.AddHttpClient<IImageModerationService, Services.Moderation.ConfiguredImageModerationService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
         // File Storage (Cloudinary when configured, LocalFileStorageService fallback otherwise)
         var cloudName = Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME")
             ?? configuration["Cloudinary:CloudName"];

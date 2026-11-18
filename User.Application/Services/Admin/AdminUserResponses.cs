@@ -168,3 +168,12 @@ public sealed record AdminUserUnbannedResponseDto(
     [property: JsonPropertyName("unbannedBy")] string UnbannedBy,
     [property: JsonPropertyName("message")] string Message
 );
+
+public sealed record AdminUserAvatarRemovedResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("removedBy")] string RemovedBy,
+    [property: JsonPropertyName("removedAt")] DateTimeOffset RemovedAt,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("penaltyApplied")] bool PenaltyApplied,
+    [property: JsonPropertyName("message")] string Message
+);

@@ -396,64 +396,11 @@ public sealed class AuctionInterserviceEndpointsTests
     }
 
     [Fact]
-    public async Task UsersController_PublicDualRoute_Endpoints_ReturnDataEnvelope()
+    public void UsersController_DoesNotExpose_InternalAuctionEndpoints()
     {
-        using var dbContext = CreateInMemoryDbContext();
-        using var cache = CreateMemoryCache();
-        var service = new InternalUserService(dbContext, cache, NullLogger<InternalUserService>.Instance);
-
-        var userId = Guid.NewGuid();
-        dbContext.Users.Add(new User
-        {
-            Id = userId,
-            Email = "dualroute.test@nexus.local",
-            PasswordHash = "hash",
-            FirstName = "Hoang",
-            LastName = "Nam",
-            Status = UserStatus.Active
-        });
-        dbContext.SellerProfiles.Add(new SellerProfile
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            ShopName = "Hoang Nam Shop",
-            PickupAddress = "321 Street",
-            ProvinceId = 1,
-            DistrictId = 1,
-            WardCode = "W4",
-            Hotline = "0903333333",
-            Status = SellerProfileStatus.Approved
-        });
-        await dbContext.SaveChangesAsync();
-
-        var controller = new UsersController(
-            profileService: null!,
-            logger: NullLogger<UsersController>.Instance,
-            internalUserService: service);
-
-        // 1. CheckReputation on /api/v1/users/check-reputation
-        var repActionResult = await controller.CheckReputation(new CheckReputationRequest { UserId = userId, Action = "SELL" });
-        var repOk = Assert.IsType<OkObjectResult>(repActionResult);
-        var repProp = repOk.Value?.GetType().GetProperty("data")?.GetValue(repOk.Value);
-        Assert.NotNull(repProp);
-        var repData = Assert.IsType<CheckReputationResponse>(repProp);
-        Assert.True(repData.Allowed);
-        Assert.True(repData.IsApprovedSeller);
-
-        // 2. VerifyBidEligibility on /api/v1/users/verify-bid-eligibility
-        var bidActionResult = await controller.VerifyBidEligibility(new VerifyBidEligibilityRequest { UserId = userId });
-        var bidOk = Assert.IsType<OkObjectResult>(bidActionResult);
-        var bidProp = bidOk.Value?.GetType().GetProperty("data")?.GetValue(bidOk.Value);
-        Assert.NotNull(bidProp);
-        var bidData = Assert.IsType<VerifyBidEligibilityResponse>(bidProp);
-        Assert.True(bidData.Allowed);
-
-        // 3. BatchPublicInfo on /api/v1/users/batch-public-info
-        var batchActionResult = await controller.GetBatchPublicInfo(new BatchPublicInfoRequest { UserIds = new[] { userId } });
-        var batchOk = Assert.IsType<OkObjectResult>(batchActionResult);
-        var batchProp = batchOk.Value?.GetType().GetProperty("data")?.GetValue(batchOk.Value);
-        Assert.NotNull(batchProp);
-        var batchData = Assert.IsAssignableFrom<IEnumerable<UserPublicInfoItem>>(batchProp);
-        Assert.Single(batchData);
+        var controllerType = typeof(UsersController);
+        Assert.Null(controllerType.GetMethod("CheckReputation"));
+        Assert.Null(controllerType.GetMethod("VerifyBidEligibility"));
+        Assert.Null(controllerType.GetMethod("GetBatchPublicInfo"));
     }
 }

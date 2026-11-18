@@ -1,6 +1,7 @@
 namespace User.Api.Controllers;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using User.Api.Extensions;
 using User.Api.Filters;
 using User.Application.Common.Models;
+using User.Application.Services.Address;
 using User.Application.Services.Profile;
 using User.Application.Services.Report;
 using User.Application.Services.Reputation;
@@ -25,18 +27,21 @@ public sealed class MeController : ControllerBase
     private readonly IProfileService _profileService;
     private readonly IReputationService? _reputationService;
     private readonly IReportService? _reportService;
+    private readonly IAddressService? _addressService;
     private readonly ILogger<MeController> _logger;
 
     public MeController(
         IProfileService profileService,
         ILogger<MeController> logger,
         IReputationService? reputationService = null,
-        IReportService? reportService = null)
+        IReportService? reportService = null,
+        IAddressService? addressService = null)
     {
         _profileService = profileService;
         _logger = logger;
         _reputationService = reputationService;
         _reportService = reportService;
+        _addressService = addressService;
     }
 
     /// <summary>
@@ -252,6 +257,103 @@ public sealed class MeController : ControllerBase
         }
 
         var result = await _profileService.GetUserAvatarAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[Authenticated] Xóa ảnh đại diện cá nhân hiện tại.</summary>
+    [HttpDelete("avatar")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteMyAvatar(CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError))
+        {
+            return authError;
+        }
+
+        await _profileService.DeleteMyAvatarAsync(userId, cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>[Authenticated] Retrieves the current user's saved shipping addresses.</summary>
+    [HttpGet("addresses")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IReadOnlyList<UserAddressDto>))]
+    public async Task<IActionResult> GetMyAddresses(CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        var result = await _addressService!.GetAddressesAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[Authenticated] Retrieves the current user's default shipping address.</summary>
+    [HttpGet("addresses/default")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserAddressDto))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyDefaultAddress(CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        var result = await _addressService!.GetDefaultAddressAsync(userId, cancellationToken);
+        return result is null ? NotFound() : Ok(result);
+    }
+
+    /// <summary>[Authenticated] Creates a new shipping address with GHN location identifiers.</summary>
+    [HttpPost("addresses")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(UserAddressDto))]
+    public async Task<IActionResult> CreateMyAddress([FromBody] CreateAddressRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        var result = await _addressService!.CreateAddressAsync(userId, request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, result);
+    }
+
+    /// <summary>[Authenticated] Updates an existing shipping address owned by the current user.</summary>
+    [HttpPut("addresses/{addressId:guid}")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserAddressDto))]
+    public async Task<IActionResult> UpdateMyAddress([FromRoute] Guid addressId, [FromBody] UpdateAddressRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        var result = await _addressService!.UpdateAddressAsync(userId, addressId, request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[Authenticated] Sets the specified address as the current user's default shipping address.</summary>
+    [HttpPatch("addresses/{addressId:guid}/default")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(UserAddressDto))]
+    public async Task<IActionResult> SetMyDefaultAddress([FromRoute] Guid addressId, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        var result = await _addressService!.SetDefaultAddressAsync(userId, addressId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>[Authenticated] Soft-deletes a shipping address owned by the current user.</summary>
+    [HttpDelete("addresses/{addressId:guid}")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DeleteMyAddress([FromRoute] Guid addressId, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        await _addressService!.DeleteAddressAsync(userId, addressId, cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>[Authenticated] Retrieves details of a specific report submitted by the current user.</summary>
+    [HttpGet("reports/{reportId:guid}")]
+    [RequireRole]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ReportListItemDto))]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyReportById([FromRoute] Guid reportId, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var userId, out var authError)) return authError;
+        var result = await _reportService!.GetMyReportByIdAsync(userId, reportId, cancellationToken);
         return Ok(result);
     }
 }

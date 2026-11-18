@@ -152,51 +152,6 @@ public sealed class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// [Inter-Service / Public] Kiểm tra tư cách và điểm uy tín người bán trước khi tạo phiên đấu giá.
-    /// </summary>
-    [HttpPost("check-reputation")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> CheckReputation(
-        [FromBody] CheckReputationRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("[REST CheckReputation] Checking seller eligibility for UserId: '{UserId}'", request.UserId);
-        var result = await _internalUserService!.CheckReputationAsync(request, cancellationToken);
-        return Ok(new { data = result });
-    }
-
-    /// <summary>
-    /// [Inter-Service / Public] Xác thực điều kiện tài khoản người mua trước khi đặt giá thầu.
-    /// </summary>
-    [HttpPost("verify-bid-eligibility")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> VerifyBidEligibility(
-        [FromBody] VerifyBidEligibilityRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("[REST VerifyBidEligibility] Verifying bid eligibility for UserId: '{UserId}', AuctionId: '{AuctionId}'", request.UserId, request.AuctionId);
-        var result = await _internalUserService!.VerifyBidEligibilityAsync(request, cancellationToken);
-        return Ok(new { data = result });
-    }
-
-    /// <summary>
-    /// [Inter-Service / Public] Truy vấn danh sách thông tin hiển thị công khai ẩn danh hàng loạt.
-    /// </summary>
-    [HttpPost("batch-public-info")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetBatchPublicInfo(
-        [FromBody] BatchPublicInfoRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("[REST BatchPublicInfo] Fetching public info for {Count} users", request.UserIds.Count);
-        var result = await _internalUserService!.GetBatchPublicInfoAsync(request, cancellationToken);
-        return Ok(new { data = result.Users });
-    }
-
-    /// <summary>
     /// [Public] Lấy nhanh URL ảnh đại diện công khai của một người dùng theo ID.
     /// </summary>
     [HttpGet("{userId:guid}/avatar")]

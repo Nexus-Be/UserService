@@ -44,4 +44,13 @@ public interface IReportService
         Guid userId,
         IReadOnlyList<UploadMediaFileInput> files,
         CancellationToken cancellationToken = default);
+
+    Task<ReportListItemDto> GetMyReportByIdAsync(
+        Guid reporterId,
+        Guid reportId,
+        CancellationToken cancellationToken = default);
+
+    Task<ReportListItemDto> GetReportByIdAsync(
+        Guid reportId,
+        CancellationToken cancellationToken = default);
 }

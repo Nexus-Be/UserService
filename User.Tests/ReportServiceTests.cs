@@ -4,6 +4,8 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Collections.Generic;
+using User.Application.Interfaces;
 using User.Application.Services.Report;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -187,5 +189,112 @@ public sealed class ReportServiceTests
         Assert.Null(resolved.PenaltyId);
         Assert.Null(resolved.PenaltyApplied);
         Assert.Empty(dbContext.UserPenalties);
+    }
+
+    private sealed class FakeWalletClient : IWalletServiceClient
+    {
+        public List<(Guid UserId, string Reason)> Frozen { get; } = new();
+        public List<(Guid UserId, string Reason)> Unfrozen { get; } = new();
+
+        public Task<bool> FreezeWalletAsync(Guid userId, string reason, System.Threading.CancellationToken cancellationToken = default)
+        {
+            Frozen.Add((userId, reason));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> UnfreezeWalletAsync(Guid userId, string reason, System.Threading.CancellationToken cancellationToken = default)
+        {
+            Unfrozen.Add((userId, reason));
+            return Task.FromResult(true);
+        }
+    }
+
+    [Fact]
+    public async Task ResolveReportAsync_OrderReportWithFreezeWallet_CallsFreezeOrUnfreeze()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var walletClient = new FakeWalletClient();
+        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, walletServiceClient: walletClient);
+
+        var reporterId = Guid.NewGuid();
+        var sellerId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+
+        dbContext.Users.AddRange(
+            new User { Id = reporterId, Email = "b@nexus.local", PasswordHash = "h", FirstName = "B", LastName = "1", Status = UserStatus.Active },
+            new User { Id = sellerId, Email = "s@nexus.local", PasswordHash = "h", FirstName = "S", LastName = "1", Status = UserStatus.Active });
+        await dbContext.SaveChangesAsync();
+
+        var report = await service.CreateReportAsync(reporterId, new CreateReportRequest
+        {
+            ReportedUserId = sellerId,
+            TargetRole = TargetRole.Seller,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = Guid.NewGuid().ToString(),
+            ViolationType = ReportViolationType.Fraud,
+            Description = "Seller did not ship authentic order."
+        });
+
+        await service.ResolveReportAsync(report.ReportId, new ResolveReportRequest
+        {
+            FreezeWallet = true,
+            ResolutionNote = "Confirmed fraud, keeping wallet frozen."
+        }, staffId);
+
+        Assert.Single(walletClient.Frozen);
+        Assert.Equal(sellerId, walletClient.Frozen[0].UserId);
+        Assert.Empty(walletClient.Unfrozen);
+    }
+
+    [Fact]
+    public async Task DismissReportAsync_WithPenalizeReporterAndFreeze_DeductsBuyerScoreAndFreezesReporter()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var walletClient = new FakeWalletClient();
+        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, walletServiceClient: walletClient);
+
+        var reporterId = Guid.NewGuid();
+        var sellerId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+
+        dbContext.Users.AddRange(
+            new User { Id = reporterId, Email = "b2@nexus.local", PasswordHash = "h", FirstName = "B", LastName = "2", Status = UserStatus.Active },
+            new User { Id = sellerId, Email = "s2@nexus.local", PasswordHash = "h", FirstName = "S", LastName = "2", Status = UserStatus.Active });
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = reporterId,
+            CurrentScore = 80,
+            TrustLevel = TrustLevel.Good,
+            SellerScore = 60,
+            SellerTrustLevel = TrustLevel.Standard
+        });
+        await dbContext.SaveChangesAsync();
+
+        var report = await service.CreateReportAsync(reporterId, new CreateReportRequest
+        {
+            ReportedUserId = sellerId,
+            TargetRole = TargetRole.Seller,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = Guid.NewGuid().ToString(),
+            ViolationType = ReportViolationType.Fraud,
+            Description = "False report to freeze seller wallet."
+        });
+
+        await service.DismissReportAsync(report.ReportId, new DismissReportRequest
+        {
+            ResolutionNote = "Evidence proves seller delivered authentic item.",
+            UnfreezeTargetWallet = true,
+            PenalizeReporter = true,
+            ReporterPenaltyPoints = 15,
+            FreezeReporterWallet = true
+        }, staffId);
+
+        var reporterScore = await dbContext.ReputationScores.FirstAsync(r => r.UserId == reporterId);
+        Assert.Equal(65, reporterScore.CurrentScore);
+        Assert.Single(walletClient.Unfrozen);
+        Assert.Equal(sellerId, walletClient.Unfrozen[0].UserId);
+        Assert.Single(walletClient.Frozen);
+        Assert.Equal(reporterId, walletClient.Frozen[0].UserId);
     }
 }

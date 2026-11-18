@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using User.Api.Extensions;
 using User.Api.Filters;
@@ -20,11 +21,13 @@ public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IHostEnvironment? _hostEnvironment;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, ILogger<AuthController> logger, IHostEnvironment? hostEnvironment = null)
     {
         _authService = authService;
         _logger = logger;
+        _hostEnvironment = hostEnvironment;
     }
 
     /// <summary>
@@ -58,6 +61,11 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(RegisterTestApiResponse))]
     public async Task<IActionResult> RegisterTest([FromBody] RegisterTestApiRequest request, CancellationToken cancellationToken)
     {
+        if (_hostEnvironment is null || !_hostEnvironment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
         _logger.LogInformation("[REST RegisterTest] Incoming test registration for: '{Email}'", request?.Email);
         var response = await _authService.RegisterTestUserAsync(request!, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, response);

@@ -346,6 +346,24 @@ public sealed class ReportService : IReportService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        if (report.ReferenceType == ReferenceType.Order && _walletServiceClient != null)
+        {
+            if (request.FreezeWallet)
+            {
+                await _walletServiceClient.FreezeWalletAsync(
+                    report.ReportedUserId,
+                    $"REPORT_RESOLVED_{report.Id}",
+                    cancellationToken);
+            }
+            else
+            {
+                await _walletServiceClient.UnfreezeWalletAsync(
+                    report.ReportedUserId,
+                    $"REPORT_RESOLVED_{report.Id}",
+                    cancellationToken);
+            }
+        }
+
         return new ResolveReportResponse
         {
             ReportId = report.Id,
@@ -403,6 +421,62 @@ public sealed class ReportService : IReportService
             userId: actorId.ToString(),
             changedColumns: new[] { nameof(UserReport.Status), nameof(UserReport.ResolvedBy), nameof(UserReport.ResolvedAt), nameof(UserReport.ResolutionNote) });
 
+        if (request.PenalizeReporter && request.ReporterPenaltyPoints > 0)
+        {
+            var reporter = await _dbContext.Users
+                .Include(u => u.ReputationScore)
+                .FirstOrDefaultAsync(u => u.Id == report.ReporterId, cancellationToken);
+
+            if (reporter != null)
+            {
+                var repScore = reporter.ReputationScore;
+                if (repScore == null)
+                {
+                    repScore = ReputationScore.CreateDefault(reporter.Id);
+                    _dbContext.ReputationScores.Add(repScore);
+                }
+
+                var (_, newScore, appliedDelta) = repScore.ApplyScoreChange(
+                    TargetRole.Buyer,
+                    -Math.Abs(request.ReporterPenaltyPoints),
+                    isPenalty: true);
+
+                _dbContext.ReputationLogs.Add(new ReputationLog
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = reporter.Id,
+                    TargetRole = TargetRole.Buyer,
+                    ChangeAmount = appliedDelta,
+                    ScoreAfter = newScore,
+                    Reason = ReputationChangeReason.ReportPenalty,
+                    ReferenceType = report.ReferenceType ?? ReferenceType.Dispute,
+                    ReferenceId = report.ReferenceId ?? report.Id.ToString(),
+                    PartnerUserId = report.ReportedUserId,
+                    Note = note.Trim(),
+                    CreatedBy = actorId,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+
+                _dbContext.UserPenalties.Add(new UserPenalty
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = reporter.Id,
+                    TargetRole = TargetRole.Buyer,
+                    ViolationType = PenaltyViolationType.Other,
+                    Reason = note.Trim(),
+                    PenaltyApplied = PenaltyType.DeductPoints,
+                    PointsDeducted = Math.Abs(appliedDelta),
+                    Status = PenaltyStatus.Active,
+                    IssuedAt = now,
+                    ExpiresAt = now.AddDays(30),
+                    CreatedBy = actorId,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         if (request.UnfreezeTargetWallet
@@ -412,6 +486,14 @@ public sealed class ReportService : IReportService
             await _walletServiceClient.UnfreezeWalletAsync(
                 report.ReportedUserId,
                 $"REPORT_DISMISSED_{report.Id}",
+                cancellationToken);
+        }
+
+        if (request.FreezeReporterWallet && _walletServiceClient != null)
+        {
+            await _walletServiceClient.FreezeWalletAsync(
+                report.ReporterId,
+                $"FALSE_REPORT_{report.Id}",
                 cancellationToken);
         }
 
@@ -521,4 +603,47 @@ public sealed class ReportService : IReportService
         _logger.LogInformation("[REPORT UPLOAD] Uploaded {Count} evidence file(s) for UserId '{UserId}'.", urls.Count, userId);
         return new UploadMediaFilesResponse(urls);
     }
+
+    public async Task<ReportListItemDto> GetMyReportByIdAsync(Guid reporterId, Guid reportId, CancellationToken cancellationToken = default)
+    {
+        var report = await FindReportOrThrowAsync(reportId, cancellationToken);
+        if (report.ReporterId != reporterId)
+        {
+            throw new DomainException("FORBIDDEN", "You do not have permission to view this report.", 403);
+        }
+        return MapToListItem(report);
+    }
+
+    public async Task<ReportListItemDto> GetReportByIdAsync(Guid reportId, CancellationToken cancellationToken = default)
+    {
+        var report = await FindReportOrThrowAsync(reportId, cancellationToken);
+        return MapToListItem(report);
+    }
+
+    private async Task<UserReport> FindReportOrThrowAsync(Guid reportId, CancellationToken cancellationToken)
+    {
+        var report = await _dbContext.UserReports
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == reportId && !r.IsDeleted, cancellationToken);
+
+        return report ?? throw new DomainException("REPORT_NOT_FOUND", "Report not found with the specified ID.", 404);
+    }
+
+    private static ReportListItemDto MapToListItem(UserReport r) => new()
+    {
+        ReportId = r.Id,
+        ReporterId = r.ReporterId,
+        ReportedUserId = r.ReportedUserId,
+        TargetRole = r.TargetRole.ToString(),
+        ReferenceType = r.ReferenceType?.ToString(),
+        ReferenceId = r.ReferenceId,
+        ViolationType = r.ViolationType.ToString(),
+        Description = r.Description,
+        EvidenceUrls = (IReadOnlyList<string>?)r.EvidenceUrls ?? Array.Empty<string>(),
+        Status = r.Status.ToString(),
+        ResolvedBy = r.ResolvedBy,
+        ResolvedAt = r.ResolvedAt,
+        ResolutionNote = r.ResolutionNote,
+        CreatedAt = r.CreatedAt
+    };
 }

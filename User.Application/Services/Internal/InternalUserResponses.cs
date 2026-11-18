@@ -102,3 +102,50 @@ public sealed record RecordAuctionViolationResponse
 }
 
 public sealed record RecordAuctionPaymentResponse(bool Recorded, bool Created, int PreviousStreak, int NewStreak, bool RestrictionLifted);
+
+public sealed record InternalShopResponse(
+    Guid ShopId,
+    Guid UserId,
+    string ShopName,
+    string Status,
+    string? PickupAddress,
+    int ProvinceId,
+    int DistrictId,
+    string? WardCode,
+    string? Hotline);
+
+public sealed record InternalContactResponse(Guid UserId, string Email, string FullName);
+
+public sealed record InternalUserAddressResponse(
+    Guid AddressId,
+    Guid UserId,
+    string RecipientName,
+    string Phone,
+    string? Label,
+    int ProvinceId,
+    string ProvinceName,
+    int DistrictId,
+    string DistrictName,
+    string WardCode,
+    string WardName,
+    string AddressLine,
+    bool IsDefault);
+
+public sealed record InternalUserDetailResponse(
+    Guid UserId,
+    string Email,
+    string FullName,
+    string? PhoneNumber,
+    string Status,
+    string? Role);
+
+public sealed record InternalSellerBatchItemDto(
+    Guid SellerId,
+    Guid UserId,
+    string ShopName,
+    string? AvatarUrl,
+    string Status,
+    int ProvinceId,
+    int DistrictId);
+
+public sealed record BatchSellerInfoResponse(IReadOnlyList<InternalSellerBatchItemDto> Sellers);

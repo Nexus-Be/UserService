@@ -94,3 +94,11 @@ public sealed record RecordAuctionViolationRequest
 }
 
 public sealed record RecordAuctionPaymentRequest(Guid AuctionId, Guid OrderId, string Source, DateTimeOffset PaidAt);
+
+public sealed record InternalContactRequest(Guid UserId);
+
+public sealed record BatchSellerInfoRequest
+{
+    public IReadOnlyList<Guid> UserIds { get; init; } = Array.Empty<Guid>();
+    public IReadOnlyList<Guid> SellerIds { get; init; } = Array.Empty<Guid>();
+}

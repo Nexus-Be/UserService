@@ -1007,4 +1007,111 @@ public sealed class InternalUserService : IInternalUserService
         _cache.Set(cacheKey, resolvedValue, ConfigCacheDuration);
         return resolvedValue;
     }
+
+    public async Task<InternalShopResponse?> GetShopAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var profile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Where(p => p.UserId == userId && !p.IsDeleted)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return profile is null
+            ? null
+            : new InternalShopResponse(
+                profile.Id,
+                profile.UserId,
+                profile.ShopName,
+                profile.Status.ToString(),
+                profile.PickupAddress,
+                profile.ProvinceId,
+                profile.DistrictId,
+                profile.WardCode,
+                profile.Hotline);
+    }
+
+    public async Task<InternalContactResponse?> GetContactAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user is null || string.IsNullOrWhiteSpace(user.Email))
+        {
+            return null;
+        }
+
+        return new InternalContactResponse(user.Id, user.Email, $"{user.FirstName} {user.LastName}".Trim());
+    }
+
+    public async Task<InternalUserAddressResponse?> GetUserDefaultAddressAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var address = await _dbContext.UserAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.IsDefault && !a.IsDeleted, cancellationToken);
+
+        return address is null ? null : MapInternalAddress(address);
+    }
+
+    public async Task<InternalUserAddressResponse?> GetUserAddressByIdAsync(Guid userId, Guid addressId, CancellationToken cancellationToken = default)
+    {
+        var address = await _dbContext.UserAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == addressId && a.UserId == userId && !a.IsDeleted, cancellationToken);
+
+        return address is null ? null : MapInternalAddress(address);
+    }
+
+    private static InternalUserAddressResponse MapInternalAddress(UserAddress a) => new(
+        a.Id, a.UserId, a.RecipientName, a.Phone, a.Label,
+        a.ProvinceId, a.ProvinceName, a.DistrictId, a.DistrictName,
+        a.WardCode, a.WardName, a.AddressLine, a.IsDefault);
+
+    public async Task<InternalUserDetailResponse?> GetUserByIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user is null) return null;
+
+        return new InternalUserDetailResponse(
+            user.Id,
+            user.Email,
+            $"{user.FirstName} {user.LastName}".Trim(),
+            user.PhoneNumber,
+            user.Status.ToString(),
+            user.Role?.RoleCode.ToString());
+    }
+
+    public async Task<BatchSellerInfoResponse> GetBatchSellerInfoAsync(BatchSellerInfoRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIds = request.UserIds.Where(id => id != Guid.Empty).Distinct().ToList();
+        var sellerIds = request.SellerIds.Where(id => id != Guid.Empty).Distinct().ToList();
+        if (userIds.Count + sellerIds.Count > 100)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Batch seller lookup supports at most 100 identifiers per request.");
+        }
+
+        if (userIds.Count == 0 && sellerIds.Count == 0)
+        {
+            return new BatchSellerInfoResponse(Array.Empty<InternalSellerBatchItemDto>());
+        }
+
+        var sellers = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Where(s => !s.IsDeleted && (userIds.Contains(s.UserId) || sellerIds.Contains(s.Id)))
+            .Select(s => new InternalSellerBatchItemDto(
+                s.Id,
+                s.UserId,
+                s.ShopName,
+                s.AvatarUrl,
+                s.Status.ToString(),
+                s.ProvinceId,
+                s.DistrictId))
+            .ToListAsync(cancellationToken);
+
+        return new BatchSellerInfoResponse(sellers);
+    }
 }

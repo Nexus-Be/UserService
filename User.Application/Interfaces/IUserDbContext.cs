@@ -25,6 +25,7 @@ public interface IUserDbContext
     DbSet<UserAuctionProfile> UserAuctionProfiles { get; }
     DbSet<AuctionViolation> AuctionViolations { get; }
     DbSet<UserAuctionPayment> UserAuctionPayments { get; }
+    DbSet<UserAddress> UserAddresses { get; }
     Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade Database { get; }
     Task LockAuctionPaymentAsync(Guid userId, Guid orderId, CancellationToken cancellationToken);
 

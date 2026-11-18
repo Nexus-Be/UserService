@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using User.Application.Interfaces;
 using User.Application.Services.Profile;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -454,5 +455,120 @@ public sealed class ProfileServiceTests
 
         Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
         Assert.Equal(404, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadMyAvatarAsync_blocks_inappropriate_image_and_skips_storage_upload()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var storage = new StubFileStorageService();
+        var moderation = new StubImageModerationService(new ImageModerationResult(false, "Explicit", 0.95, "Explicit image detected."));
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance, storage, moderation);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "avatar-mod-fail@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Mod",
+            LastName = "Fail",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D };
+        using var stream = new System.IO.MemoryStream(pngBytes);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            profileService.UploadMyAvatarAsync(userId, stream, "bad.png", "image/png", pngBytes.Length));
+
+        Assert.Equal("INAPPROPRIATE_AVATAR", ex.ErrorCode);
+        Assert.False(storage.UploadCalled);
+    }
+
+    [Fact]
+    public async Task UploadMyAvatarAsync_uploads_when_moderation_allows()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var storage = new StubFileStorageService();
+        var moderation = new StubImageModerationService(new ImageModerationResult(true));
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance, storage, moderation);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "avatar-mod-ok@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Mod",
+            LastName = "Ok",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D };
+        using var stream = new System.IO.MemoryStream(pngBytes);
+
+        var result = await profileService.UploadMyAvatarAsync(userId, stream, "ok.png", "image/png", pngBytes.Length);
+
+        Assert.True(storage.UploadCalled);
+        Assert.Equal("https://cdn.nexus.local/avatars/ok.png", result.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task DeleteMyAvatarAsync_clears_avatar_url()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var profileService = new ProfileService(dbContext, NullLogger<ProfileService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new Domain.Entities.User
+        {
+            Id = userId,
+            Email = "avatar-del@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Del",
+            LastName = "Avatar",
+            AvatarUrl = "https://cdn.nexus.local/avatars/old.png",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        await profileService.DeleteMyAvatarAsync(userId);
+
+        var updated = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(updated);
+        Assert.Null(updated!.AvatarUrl);
+    }
+
+    private sealed class StubImageModerationService(ImageModerationResult result) : IImageModerationService
+    {
+        public Task<ImageModerationResult> ModerateAsync(System.IO.Stream imageStream, string fileName, string contentType, System.Threading.CancellationToken cancellationToken = default)
+            => Task.FromResult(result);
+    }
+
+    private sealed class StubFileStorageService : IFileStorageService
+    {
+        public bool UploadCalled { get; private set; }
+
+        public Task<StoredFileResult> UploadAsync(
+            System.IO.Stream content,
+            string fileName,
+            string contentType,
+            string folder,
+            bool isPrivate = false,
+            bool isVideo = false,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            UploadCalled = true;
+            return Task.FromResult(new StoredFileResult("https://cdn.nexus.local/avatars/ok.png", "avatars/ok", 12, "image/png"));
+        }
+
+        public Task DeleteAsync(string fileKeyOrUrl, System.Threading.CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public string GenerateSignedUrl(string publicIdOrUrl, bool isVideo = false, int expirationMinutes = 15)
+            => publicIdOrUrl;
     }
 }

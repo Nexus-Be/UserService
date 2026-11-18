@@ -135,4 +135,14 @@ public interface IAdminUserService
         Guid? adminId = null,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Gỡ ảnh đại diện vi phạm của người dùng.
+    /// </summary>
+    Task<AdminUserAvatarRemovedResponseDto> RemoveUserAvatarAsync(
+        Guid targetUserId,
+        RemoveAdminUserAvatarDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default
+    );
 }

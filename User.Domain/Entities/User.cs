@@ -32,6 +32,7 @@ public class User : AuditableEntity<Guid>
     public Role? Role { get; set; }
     public User? BannedByUser { get; set; }
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+    public ICollection<UserAddress> Addresses { get; set; } = new List<UserAddress>();
 
     public SellerProfile? SellerProfile { get; set; }
     public ReputationScore? ReputationScore { get; set; }

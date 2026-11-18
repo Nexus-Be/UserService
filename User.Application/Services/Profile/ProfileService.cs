@@ -20,15 +20,18 @@ public class ProfileService : IProfileService
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<ProfileService> _logger;
     private readonly IFileStorageService? _fileStorageService;
+    private readonly IImageModerationService? _moderationService;
 
     public ProfileService(
         IUserDbContext dbContext,
         ILogger<ProfileService> logger,
-        IFileStorageService? fileStorageService = null)
+        IFileStorageService? fileStorageService = null,
+        IImageModerationService? moderationService = null)
     {
         _dbContext = dbContext;
         _logger = logger;
         _fileStorageService = fileStorageService;
+        _moderationService = moderationService;
     }
 
     // =========================================================================================
@@ -420,6 +423,20 @@ public class ProfileService : IProfileService
             throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
         }
 
+        await AvatarViolationHelper.ModerateAndEnforceAsync(
+            _dbContext,
+            _moderationService,
+            userId,
+            content,
+            fileName,
+            contentType,
+            AvatarViolationHelper.PolicyCode,
+            "INAPPROPRIATE_AVATAR",
+            "Avatar",
+            cancellationToken);
+
+        if (content.CanSeek) content.Position = 0;
+
         var stored = await _fileStorageService.UploadAsync(
             content,
             fileName,
@@ -459,5 +476,30 @@ public class ProfileService : IProfileService
         }
 
         return new UserAvatarResponse(user.Id, user.AvatarUrl);
+    }
+
+    public async Task DeleteMyAvatarAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        if (user.AvatarUrl != null)
+        {
+            user.AvatarUrl = null;
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("[PROFILE] Deleted avatar for UserId '{UserId}'.", userId);
     }
 }

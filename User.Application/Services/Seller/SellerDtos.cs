@@ -66,3 +66,14 @@ public sealed record SellerOwnProfileUpdatedResponseDto(
     [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
     [property: JsonPropertyName("message")] string Message
 );
+
+public sealed record AdminSellerListItemDto(
+    [property: JsonPropertyName("sellerId")] Guid SellerId,
+    [property: JsonPropertyName("userId")] Guid UserId,
+    [property: JsonPropertyName("shopName")] string ShopName,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("hotline")] string Hotline,
+    [property: JsonPropertyName("provinceId")] int ProvinceId,
+    [property: JsonPropertyName("districtId")] int DistrictId,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+);

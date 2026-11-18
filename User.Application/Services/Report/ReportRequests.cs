@@ -39,6 +39,7 @@ public sealed record ResolveReportRequest
 
     public bool BanAccount { get; init; }
     public bool SuspendSellerShop { get; init; }
+    public bool FreezeWallet { get; init; } = false;
 
     [Range(1, 3650, ErrorMessage = "Duration days must be between 1 and 3650.")]
     public int? DurationDays { get; init; }
@@ -65,4 +66,10 @@ public sealed record DismissReportRequest
         : (Reason ?? string.Empty);
 
     public bool UnfreezeTargetWallet { get; init; } = true;
+    public bool PenalizeReporter { get; init; } = false;
+
+    [Range(0, 50, ErrorMessage = "Reporter penalty points must be between 0 and 50.")]
+    public int ReporterPenaltyPoints { get; init; } = 10;
+
+    public bool FreezeReporterWallet { get; init; } = false;
 }
