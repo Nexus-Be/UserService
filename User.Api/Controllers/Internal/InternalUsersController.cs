@@ -25,14 +25,93 @@ public sealed class InternalUsersController : ControllerBase
         [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var result = await _internalUserService!.RecordAuctionPaymentAsync(userId, request, cancellationToken);
+        return result.Created ? StatusCode(StatusCodes.Status201Created, result) : Ok(result);
+    }
+
+    /// <summary>Retrieves seller shop and GHN warehouse details for internal callers.</summary>
+    [HttpGet("{userId:guid}/shop")]
+    public async Task<IActionResult> GetShop(
+        [FromRoute] Guid userId,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var shop = await _internalUserService!.GetShopAsync(userId, cancellationToken);
+        return shop is null ? NotFound() : Ok(shop);
+    }
+
+    /// <summary>Retrieves user email and full name for internal notification callers.</summary>
+    [HttpPost("contact-info")]
+    public async Task<IActionResult> GetContact(
+        [FromBody] InternalContactRequest request,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var contact = await _internalUserService!.GetContactAsync(request.UserId, cancellationToken);
+        return contact is null ? NotFound() : Ok(contact);
+    }
+
+    /// <summary>Retrieves the user's default shipping address for checkout and auction order creation.</summary>
+    [HttpGet("{userId:guid}/addresses/default")]
+    public async Task<IActionResult> GetUserDefaultAddress(
+        [FromRoute] Guid userId,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var address = await _internalUserService!.GetUserDefaultAddressAsync(userId, cancellationToken);
+        return address is null ? NotFound() : Ok(address);
+    }
+
+    /// <summary>Resolves and verifies ownership of a user's shipping address for quote recalculation or address changes.</summary>
+    [HttpGet("{userId:guid}/addresses/{addressId:guid}")]
+    public async Task<IActionResult> GetUserAddressById(
+        [FromRoute] Guid userId,
+        [FromRoute] Guid addressId,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var address = await _internalUserService!.GetUserAddressByIdAsync(userId, addressId, cancellationToken);
+        return address is null ? NotFound() : Ok(address);
+    }
+
+    /// <summary>Retrieves minimal user details for internal callers.</summary>
+    [HttpGet("{userId:guid}")]
+    public async Task<IActionResult> GetUserById(
+        [FromRoute] Guid userId,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var user = await _internalUserService!.GetUserByIdAsync(userId, cancellationToken);
+        return user is null ? NotFound() : Ok(user);
+    }
+
+    /// <summary>Batch-fetches seller shop metadata for up to 100 seller or user identifiers.</summary>
+    [HttpPost("/api/v1/internal/sellers/batch-info")]
+    public async Task<IActionResult> GetBatchSellerInfo(
+        [FromBody] BatchSellerInfoRequest request,
+        [FromServices] Microsoft.Extensions.Configuration.IConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        if (ServiceKeyDenial(configuration) is { } denied) return denied;
+        var result = await _internalUserService!.GetBatchSellerInfoAsync(request, cancellationToken);
+        return Ok(result.Sellers);
+    }
+
+    private ActionResult? ServiceKeyDenial(Microsoft.Extensions.Configuration.IConfiguration configuration)
+    {
         var expected = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
             ?? configuration["INTERNAL_SERVICE_SECRET"] ?? configuration["InternalSecurity:ServiceKey"];
         if (string.IsNullOrWhiteSpace(expected)) return StatusCode(StatusCodes.Status503ServiceUnavailable);
         var provided = Request.Headers["X-Internal-Service-Key"].ToString();
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided)))
-            return Unauthorized();
-        var result = await _internalUserService!.RecordAuctionPaymentAsync(userId, request, cancellationToken);
-        return result.Created ? StatusCode(StatusCodes.Status201Created, result) : Ok(result);
+        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided))
+            ? null
+            : Unauthorized();
     }
 
     private readonly IAdminPenaltyService? _penaltyService;

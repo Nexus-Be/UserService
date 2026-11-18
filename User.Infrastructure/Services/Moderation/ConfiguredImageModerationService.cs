@@ -38,21 +38,17 @@ public sealed class ConfiguredImageModerationService : IImageModerationService
         string contentType,
         CancellationToken cancellationToken = default)
     {
-        var provider = (Environment.GetEnvironmentVariable("IMAGE_MODERATION_PROVIDER")
-            ?? _configuration["ImageModeration:Provider"]
-            ?? string.Empty).Trim();
+        var provider = GetSetting("IMAGE_MODERATION_PROVIDER", "ImageModeration:Provider");
 
         if (string.IsNullOrWhiteSpace(provider) || string.Equals(provider, "None", StringComparison.OrdinalIgnoreCase))
         {
+            _logger.LogInformation("[IMAGE MODERATION] Moderation skipped (provider='{Provider}').", provider ?? string.Empty);
             return new ImageModerationResult(true);
         }
 
-        var apiKey = Environment.GetEnvironmentVariable("IMAGE_MODERATION_API_KEY")
-            ?? _configuration["ImageModeration:ApiKey"];
-        var apiSecret = Environment.GetEnvironmentVariable("IMAGE_MODERATION_API_SECRET")
-            ?? _configuration["ImageModeration:ApiSecret"];
-        var endpoint = Environment.GetEnvironmentVariable("IMAGE_MODERATION_ENDPOINT")
-            ?? _configuration["ImageModeration:Endpoint"];
+        var apiKey = GetSetting("IMAGE_MODERATION_API_KEY", "ImageModeration:ApiKey");
+        var apiSecret = GetSetting("IMAGE_MODERATION_API_SECRET", "ImageModeration:ApiSecret");
+        var endpoint = GetSetting("IMAGE_MODERATION_ENDPOINT", "ImageModeration:Endpoint");
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -67,16 +63,27 @@ public sealed class ConfiguredImageModerationService : IImageModerationService
             await imageStream.CopyToAsync(buffer, cancellationToken);
             if (imageStream.CanSeek) imageStream.Position = 0;
 
-            if (string.Equals(provider, "Sightengine", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiSecret))
+            if (string.Equals(provider, "Sightengine", StringComparison.OrdinalIgnoreCase))
             {
+                if (string.IsNullOrWhiteSpace(apiSecret))
+                {
+                    _logger.LogWarning("[IMAGE MODERATION] Sightengine configured without IMAGE_MODERATION_API_SECRET; skipping check.");
+                    return new ImageModerationResult(true);
+                }
                 return await ModerateWithSightengineAsync(buffer.ToArray(), fileName, contentType, apiKey, apiSecret, endpoint, cancellationToken);
             }
 
-            if (string.Equals(provider, "AzureContentSafety", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(endpoint))
+            if (string.Equals(provider, "AzureContentSafety", StringComparison.OrdinalIgnoreCase))
             {
+                if (string.IsNullOrWhiteSpace(endpoint))
+                {
+                    _logger.LogWarning("[IMAGE MODERATION] AzureContentSafety configured without IMAGE_MODERATION_ENDPOINT; skipping check.");
+                    return new ImageModerationResult(true);
+                }
                 return await ModerateWithAzureAsync(buffer.ToArray(), apiKey, endpoint, cancellationToken);
             }
 
+            _logger.LogWarning("[IMAGE MODERATION] Unknown provider '{Provider}'; skipping check.", provider);
             return new ImageModerationResult(true);
         }
         catch (Exception ex)
@@ -105,7 +112,10 @@ public sealed class ConfiguredImageModerationService : IImageModerationService
         form.Add(new StringContent(apiSecret), "api_secret");
 
         var response = await _httpClient.PostAsync(url, form, cancellationToken);
-        if (!response.IsSuccessStatusCode) return new ImageModerationResult(true);
+        if (!response.IsSuccessStatusCode)
+        {
+            return await AllowOnHttpFailureAsync("Sightengine", response, fileName, cancellationToken);
+        }
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         var root = doc.RootElement;
@@ -128,15 +138,15 @@ public sealed class ConfiguredImageModerationService : IImageModerationService
             fileName, nudity, violence, offensive, weapon, drugs);
 
         if (nudity >= 0.70)
-            return new ImageModerationResult(false, "Explicit", nudity, "Phát hiện hình ảnh đồi trụy hoặc nhạy cảm.");
+            return new ImageModerationResult(false, "Explicit", nudity, "Explicit or sexually suggestive image detected.");
         if (violence >= 0.70)
-            return new ImageModerationResult(false, "Violence", violence, "Phát hiện hình ảnh bạo lực hoặc gây phản cảm.");
+            return new ImageModerationResult(false, "Violence", violence, "Violent or graphic image detected.");
         if (weapon >= 0.60)
-            return new ImageModerationResult(false, "Weapon", weapon, "Phát hiện hình ảnh chứa vũ khí.");
+            return new ImageModerationResult(false, "Weapon", weapon, "Weapon detected in image.");
         if (drugs >= 0.75)
-            return new ImageModerationResult(false, "Drugs", drugs, "Phát hiện hình ảnh liên quan đến chất cấm.");
+            return new ImageModerationResult(false, "Drugs", drugs, "Drug-related content detected in image.");
         if (offensive >= 0.70)
-            return new ImageModerationResult(false, "Hate", offensive, "Phát hiện hình ảnh hoặc biểu tượng phản cảm / kích động thù hận.");
+            return new ImageModerationResult(false, "Hate", offensive, "Offensive or hate-speech imagery detected.");
 
         return new ImageModerationResult(true);
     }
@@ -154,7 +164,10 @@ public sealed class ConfiguredImageModerationService : IImageModerationService
         req.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
 
         var response = await _httpClient.SendAsync(req, cancellationToken);
-        if (!response.IsSuccessStatusCode) return new ImageModerationResult(true);
+        if (!response.IsSuccessStatusCode)
+        {
+            return await AllowOnHttpFailureAsync("AzureContentSafety", response, null, cancellationToken);
+        }
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         if (doc.RootElement.TryGetProperty("categoriesAnalysis", out var cats) && cats.ValueKind == JsonValueKind.Array)
@@ -165,11 +178,35 @@ public sealed class ConfiguredImageModerationService : IImageModerationService
                 var category = item.TryGetProperty("category", out var cEl) ? cEl.GetString() ?? "Violation" : "Violation";
                 if (severity >= 4)
                 {
-                    return new ImageModerationResult(false, category, severity / 6.0, $"Phát hiện hình ảnh vi phạm tiêu chuẩn cộng đồng ({category}).");
+                    return new ImageModerationResult(false, category, severity / 6.0, $"Image violates community standards ({category}).");
                 }
             }
         }
 
+        return new ImageModerationResult(true);
+    }
+
+    private string GetSetting(string envVarName, string configKey)
+    {
+        var envVal = Environment.GetEnvironmentVariable(envVarName);
+        if (!string.IsNullOrWhiteSpace(envVal))
+        {
+            return envVal.Trim();
+        }
+
+        return (_configuration[configKey] ?? string.Empty).Trim();
+    }
+
+    private async Task<ImageModerationResult> AllowOnHttpFailureAsync(
+        string provider,
+        HttpResponseMessage response,
+        string? fileName,
+        CancellationToken cancellationToken)
+    {
+        var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        _logger.LogWarning(
+            "[IMAGE MODERATION] {Provider} returned HTTP {StatusCode} (file={FileName}): {Body}",
+            provider, (int)response.StatusCode, fileName ?? "n/a", errBody);
         return new ImageModerationResult(true);
     }
 }

@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using User.Api.Controllers;
 using User.Application.Interfaces;
@@ -63,7 +65,7 @@ public sealed class AuthControllerRestTests
         var otpService = new TestRedisOtpService();
         var emailClient = new TestEmailNotificationClient();
         var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
-        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance, new TestHostEnvironment(Environments.Development));
 
         var request = new RegisterTestApiRequest(
             Email: "quicktest@nexus.local",
@@ -82,6 +84,25 @@ public sealed class AuthControllerRestTests
         Assert.True(resp.OtpSent);
         Assert.Equal(300, resp.OtpExpiresIn);
         Assert.False(string.IsNullOrWhiteSpace(resp.UserId));
+    }
+
+    [Fact]
+    public async Task RegisterTest_Returns_NotFound_When_Not_Development()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance, new TestHostEnvironment(Environments.Production));
+
+        var request = new RegisterTestApiRequest(
+            Email: "prodtest@nexus.local",
+            Password: "Password123!"
+        );
+
+        var result = await controller.RegisterTest(request, CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result);
     }
 
     [Fact]
@@ -532,5 +553,14 @@ public sealed class AuthControllerRestTests
         {
             return Task.FromResult(true);
         }
-}
+    }
+
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public TestHostEnvironment(string environmentName) => EnvironmentName = environmentName;
+        public string EnvironmentName { get; set; }
+        public string ApplicationName { get; set; } = "User.Api";
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
 }

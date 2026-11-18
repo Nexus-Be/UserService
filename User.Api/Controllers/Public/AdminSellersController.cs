@@ -8,7 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using User.Api.Extensions;
 using User.Api.Filters;
+using User.Application.Common.Models;
 using User.Application.Services.Seller;
+using User.Domain.Enums;
 
 /// <summary>
 /// Quản trị hồ sơ người bán và kiểm soát trạng thái gian hàng dành cho Admin và Support Staff.
@@ -27,6 +29,20 @@ public sealed class AdminSellersController : ControllerBase
     {
         _sellerService = sellerService ?? throw new ArgumentNullException(nameof(sellerService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>[Admin / Staff] Lists seller profiles with pagination and optional status/keyword filters.</summary>
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PagedData<AdminSellerListItemDto>))]
+    public async Task<IActionResult> ListAdminSellers(
+        [FromQuery] PageQuery pagination,
+        [FromQuery] SellerProfileStatus? status = null,
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (safePage, safePageSize) = pagination.Normalize();
+        var result = await _sellerService.GetAdminSellersAsync(safePage, safePageSize, status, keyword, cancellationToken);
+        return Ok(result);
     }
 
     /// <summary>

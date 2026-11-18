@@ -49,6 +49,16 @@ public sealed class AdminReportsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>[Admin / Staff] Retrieves full details of a specific violation report.</summary>
+    [HttpGet("{reportId:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ReportListItemDto))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAdminReportById([FromRoute] Guid reportId, CancellationToken cancellationToken = default)
+    {
+        var result = await _reportService.GetReportByIdAsync(reportId, cancellationToken);
+        return Ok(result);
+    }
+
     /// <summary>
     /// [Admin / Staff] Giải quyết báo cáo vi phạm và áp dụng chế tài kỷ luật.
     /// </summary>

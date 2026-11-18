@@ -17,6 +17,9 @@ using User.Domain.Exceptions;
 
 public sealed class AdminPenaltyService : IAdminPenaltyService
 {
+    private const string ManageVoucherErrorCode = "SELLER_ACTION_RESTRICTED";
+    private const string ManageVoucherRestrictedMessage = "Your seller account is restricted from managing promotion vouchers.";
+
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<AdminPenaltyService> _logger;
     private readonly IRedisOtpService? _redisOtpService;
@@ -310,19 +313,23 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         var actionName = string.IsNullOrWhiteSpace(action) ? "general" : action.Trim();
 
         var user = await _dbContext.Users
+            .Include(u => u.Role)
             .Include(u => u.SellerProfile)
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
         if (user == null || user.IsDeleted)
         {
+            var isManageVoucher = normalizedAction == "manage_voucher";
             return new UserActionPermissionCheckResponseDto(
                 UserId: userId.ToString(),
                 Action: actionName,
                 IsAllowed: false,
                 Reason: "User was not found or is deleted.",
                 ExpiresAt: null,
-                ActiveRestrictions: new List<string> { "USER_NOT_FOUND" }
+                ActiveRestrictions: new List<string> { "USER_NOT_FOUND" },
+                ErrorCode: isManageVoucher ? ManageVoucherErrorCode : null,
+                Message: isManageVoucher ? ManageVoucherRestrictedMessage : null
             );
         }
 
@@ -336,6 +343,11 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
 
         var restrictions = activePenalties.Select(p => $"{p.TargetRole}:{p.PenaltyApplied}").Distinct().ToList();
         var nearestExpiry = activePenalties.Where(p => p.ExpiresAt.HasValue).OrderBy(p => p.ExpiresAt).FirstOrDefault()?.ExpiresAt;
+
+        if (normalizedAction == "manage_voucher")
+        {
+            return EvaluateManageVoucherPermission(user, actionName, activePenalties, restrictions, nearestExpiry);
+        }
 
         if (user.Status == UserStatus.Banned)
         {
@@ -434,5 +446,74 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
             ExpiresAt: nearestExpiry,
             ActiveRestrictions: restrictions
         );
+    }
+
+    private static bool HasActiveSanction(IReadOnlyCollection<UserPenalty> activePenalties, TargetRole targetRole) =>
+        activePenalties.Any(p =>
+            p.TargetRole == targetRole &&
+            (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
+    private static UserActionPermissionCheckResponseDto EvaluateManageVoucherPermission(
+        User user,
+        string actionName,
+        List<UserPenalty> activePenalties,
+        List<string> restrictions,
+        DateTimeOffset? nearestExpiry)
+    {
+        UserActionPermissionCheckResponseDto Deny(string reason, List<string>? overrideRestrictions = null) =>
+            new(
+                UserId: user.Id.ToString(),
+                Action: actionName,
+                IsAllowed: false,
+                Reason: reason,
+                ExpiresAt: nearestExpiry,
+                ActiveRestrictions: overrideRestrictions ?? restrictions,
+                ErrorCode: ManageVoucherErrorCode,
+                Message: ManageVoucherRestrictedMessage
+            );
+
+        UserActionPermissionCheckResponseDto Allow() =>
+            new(
+                UserId: user.Id.ToString(),
+                Action: actionName,
+                IsAllowed: true,
+                Reason: null,
+                ExpiresAt: nearestExpiry,
+                ActiveRestrictions: restrictions
+            );
+
+        if (user.Status != UserStatus.Active)
+        {
+            return Deny($"User status '{user.Status}' does not permit managing vouchers.");
+        }
+
+        if (HasActiveSanction(activePenalties, TargetRole.Account))
+        {
+            return Deny("Account has an active restriction prohibiting voucher management.");
+        }
+
+        var roleCode = user.Role?.RoleCode;
+        if (roleCode is RoleType.Admin or RoleType.SupportStaff)
+        {
+            return Allow();
+        }
+
+        if (roleCode != RoleType.Seller)
+        {
+            return Deny("User does not have the Seller role required to manage vouchers.");
+        }
+
+        if (user.SellerProfile == null || user.SellerProfile.IsDeleted || user.SellerProfile.Status != SellerProfileStatus.Approved)
+        {
+            var effectiveRestrictions = restrictions.Count > 0 ? restrictions : new List<string> { "NO_APPROVED_SELLER_PROFILE" };
+            return Deny("User does not have an approved seller profile.", effectiveRestrictions);
+        }
+
+        if (HasActiveSanction(activePenalties, TargetRole.Seller))
+        {
+            return Deny("Seller has an active restriction prohibiting voucher management.");
+        }
+
+        return Allow();
     }
 }

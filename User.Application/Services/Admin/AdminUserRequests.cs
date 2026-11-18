@@ -56,3 +56,12 @@ public sealed class UnbanAdminUserDto
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
+
+public sealed class RemoveAdminUserAvatarDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+
+    [JsonPropertyName("applyPenalty")]
+    public bool ApplyPenalty { get; set; }
+}

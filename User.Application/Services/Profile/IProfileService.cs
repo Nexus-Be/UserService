@@ -66,4 +66,9 @@ public interface IProfileService
     /// Lấy nhanh URL ảnh đại diện của một người dùng theo ID.
     /// </summary>
     Task<UserAvatarResponse> GetUserAvatarAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Xóa ảnh đại diện cá nhân của chính người dùng đang đăng nhập.
+    /// </summary>
+    Task DeleteMyAvatarAsync(Guid userId, CancellationToken cancellationToken = default);
 }

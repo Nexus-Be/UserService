@@ -1,6 +1,7 @@
 namespace User.Application;
 
 using Microsoft.Extensions.DependencyInjection;
+using User.Application.Services.Address;
 using User.Application.Services.Admin;
 using User.Application.Services.AdminConfig;
 using User.Application.Services.AuctionViolations;
@@ -18,6 +19,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IProfileService, ProfileService>();
+        services.AddScoped<IAddressService, AddressService>();
         services.AddScoped<ISellerService, SellerService>();
         services.AddScoped<IAdminUserService, AdminUserService>();
         services.AddScoped<IAdminPenaltyService, AdminPenaltyService>();

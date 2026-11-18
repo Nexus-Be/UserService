@@ -156,4 +156,12 @@ public interface ISellerService
         SellerDocumentFileInput? businessLicense = null,
         Guid? registrationId = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>[Admin / Staff] Lists seller profiles with pagination and optional status/keyword filters.</summary>
+    Task<PagedData<AdminSellerListItemDto>> GetAdminSellersAsync(
+        int page,
+        int pageSize,
+        User.Domain.Enums.SellerProfileStatus? status = null,
+        string? keyword = null,
+        CancellationToken cancellationToken = default);
 }

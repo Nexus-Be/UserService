@@ -290,4 +290,24 @@ public sealed class AdminUsersController : ControllerBase
         var result = await _reputationService!.AdjustReputationAsync(userId, request, adminId, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>[Admin] Gỡ ảnh đại diện vi phạm của người dùng.</summary>
+    [HttpDelete("{userId:guid}/avatar")]
+    [RequireRole("admin")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AdminUserAvatarRemovedResponseDto))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveUserAvatar(
+        [FromRoute] Guid userId,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RemoveAdminUserAvatarDto? request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var adminId, out var authError))
+        {
+            return authError;
+        }
+
+        _logger.LogInformation("[REST Admin RemoveUserAvatar] Removing avatar for UserId: '{UserId}' by Admin: '{AdminId}'", userId, adminId);
+        var result = await _adminUserService.RemoveUserAvatarAsync(userId, request, adminId, cancellationToken);
+        return Ok(result);
+    }
 }

@@ -548,6 +548,7 @@ public sealed class SellerService : ISellerService
                 SellerProfileStatus.Pending => "AWAITING_STAFF_APPROVAL",
                 SellerProfileStatus.Approved => "ONBOARDING_COMPLETED",
                 SellerProfileStatus.Rejected => "RESUBMIT_REGISTRATION_ALLOWED",
+                SellerProfileStatus.Suspended => "CONTACT_SUPPORT_OR_CHECK_PENALTIES",
                 _ => null
             };
 
@@ -1748,5 +1749,49 @@ public sealed class SellerService : ISellerService
             IdCardBackUrl: backResult.Url,
             BusinessLicenseUrl: licenseUrl,
             DocumentUrls: urls);
+    }
+
+    public async Task<PagedData<AdminSellerListItemDto>> GetAdminSellersAsync(
+        int page,
+        int pageSize,
+        SellerProfileStatus? status = null,
+        string? keyword = null,
+        CancellationToken cancellationToken = default)
+    {
+        var safePage = page < 1 ? 1 : page;
+        var safePageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
+
+        var query = _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Where(s => !s.IsDeleted);
+
+        if (status.HasValue)
+        {
+            query = query.Where(s => s.Status == status.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var term = keyword.Trim().ToLowerInvariant();
+            query = query.Where(s => s.ShopName.ToLower().Contains(term));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(s => new AdminSellerListItemDto(
+                s.Id,
+                s.UserId,
+                s.ShopName,
+                s.Status.ToString(),
+                s.Hotline,
+                s.ProvinceId,
+                s.DistrictId,
+                s.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+        return PagedData<AdminSellerListItemDto>.From(items, safePage, safePageSize, totalCount);
     }
 }

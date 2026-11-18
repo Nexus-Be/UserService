@@ -33,6 +33,7 @@ public class AppDbContext : DbContext, IUserDbContext
     public DbSet<UserAuctionProfile> UserAuctionProfiles => Set<UserAuctionProfile>();
     public DbSet<AuctionViolation> AuctionViolations => Set<AuctionViolation>();
     public DbSet<UserAuctionPayment> UserAuctionPayments => Set<UserAuctionPayment>();
+    public DbSet<UserAddress> UserAddresses => Set<UserAddress>();
 
     public async Task LockAuctionPaymentAsync(Guid userId, Guid orderId, CancellationToken cancellationToken)
     {

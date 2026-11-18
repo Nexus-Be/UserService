@@ -62,5 +62,7 @@ public sealed record UserActionPermissionCheckResponseDto(
     [property: JsonPropertyName("isAllowed")] bool IsAllowed,
     [property: JsonPropertyName("reason")] string? Reason,
     [property: JsonPropertyName("expiresAt")] DateTimeOffset? ExpiresAt,
-    [property: JsonPropertyName("activeRestrictions")] List<string> ActiveRestrictions
+    [property: JsonPropertyName("activeRestrictions")] List<string> ActiveRestrictions,
+    [property: JsonPropertyName("errorCode")] string? ErrorCode = null,
+    [property: JsonPropertyName("message")] string? Message = null
 );

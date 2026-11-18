@@ -35,7 +35,7 @@ public static class AvatarViolationHelper
         string contentType,
         string policyCode,
         string errorCode,
-        string itemLabelVi,
+        string itemLabel,
         CancellationToken cancellationToken = default)
     {
         if (moderationService == null)
@@ -63,12 +63,12 @@ public static class AvatarViolationHelper
                 await dbContext.SaveChangesAsync(cancellationToken);
 
                 var message = outcome.AutoBanned
-                    ? $"{itemLabelVi} vi phạm tiêu chuẩn cộng đồng. Tài khoản đã bị khóa do tái phạm nhiều lần."
-                    : $"{itemLabelVi} vi phạm tiêu chuẩn cộng đồng. Tài khoản đã bị trừ {outcome.DeductedPoints} điểm uy tín (lần vi phạm {outcome.ViolationCount}/{AutoBanThresholdCount}).";
+                    ? $"{itemLabel} violates community standards. Your account has been banned due to repeated violations."
+                    : $"{itemLabel} violates community standards. {outcome.DeductedPoints} reputation points were deducted (violation {outcome.ViolationCount}/{AutoBanThresholdCount}).";
                 throw new BusinessRuleValidationException(errorCode, message);
             }
 
-            throw new BusinessRuleValidationException(errorCode, $"{itemLabelVi} vi phạm tiêu chuẩn cộng đồng.");
+            throw new BusinessRuleValidationException(errorCode, $"{itemLabel} violates community standards.");
         }
 
         if (content.CanSeek) content.Position = 0;

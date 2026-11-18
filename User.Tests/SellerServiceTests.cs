@@ -1949,4 +1949,31 @@ public sealed class SellerServiceTests
         Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
         Assert.Equal("Registration identifier is required.", ex.Message);
     }
+
+    [Fact]
+    public async Task GetSellerRegistrationStatusAsync_WhenSuspended_ReturnsNonNullNextStep()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ShopName = "Suspended Shop",
+            BusinessEmail = "suspended@nexus.local",
+            PickupAddress = "10 Street",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0900000000",
+            Status = SellerProfileStatus.Suspended
+        });
+        await dbContext.SaveChangesAsync();
+
+        var service = CreateSellerService(dbContext);
+        var result = await service.GetSellerRegistrationStatusAsync(userId, CancellationToken.None);
+
+        Assert.Equal("Suspended", result.Status);
+        Assert.Equal("CONTACT_SUPPORT_OR_CHECK_PENALTIES", result.NextStep);
+    }
 }
