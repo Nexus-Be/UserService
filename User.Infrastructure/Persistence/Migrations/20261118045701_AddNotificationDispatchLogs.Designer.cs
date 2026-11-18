@@ -13,7 +13,7 @@ using User.Infrastructure.Persistence;
 namespace User.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261118045327_AddNotificationDispatchLogs")]
+    [Migration("20261118045701_AddNotificationDispatchLogs")]
     partial class AddNotificationDispatchLogs
     {
         /// <inheritdoc />
