@@ -159,6 +159,13 @@ Ngoài 14 bảng trên, migration còn tạo **3 bảng hạ tầng của MassTr
     - `CreatedAt`: `DateTimeOffset`, `IsSynced`: `bool`.
     - ⚠️ **Không có `HasQueryFilter`** dù `AuditLog` không kế thừa `ISoftDelete` trực tiếp — xem §2.
     - **Cơ chế ghi**: Gọi trực tiếp extension method `_dbContext.AddAuditLog(...)` tại `AdminUserService` (`CreateUserAsync`, `AssignRolesAsync`, `UpdateUserAsync`, `DeleteUserAsync`) và `SellerService` (`ApproveSellerRegistrationAsync`, `RejectSellerRegistrationAsync`, `UpdateSellerStatusAsync`). Bảng lưu trữ vĩnh viễn trong PostgreSQL.
+15. **`NotificationDispatchLog` (Nhật ký gửi lại thông báo REST sang NotificationService)**:
+    - Kế thừa `BaseEntity<Guid>` (`Id`, `CreatedAt`, `UpdatedAt`, `IsDeleted`, `DeletedAt`), áp dụng xóa mềm `HasQueryFilter(x => !x.IsDeleted)` (`NotificationDispatchLogConfiguration.cs`).
+    - `SourceEventId`: `string` (Max 150, required, indexed) — khóa idempotency cố định khi retry.
+    - `TraceId`: `string?` (Max 128), `Endpoint`: `string` (Max 250, required), `PayloadJson`: `string` (required).
+    - `Status`: `NotificationDispatchStatus` (`PendingRetry = 0`, `Sent = 1`, `Exhausted = 2`, lưu dạng `integer`).
+    - `RetryCount`, `MaxRetries` (mặc định `5`), `LastHttpStatusCode`, `LastError` (Max 2000), `NotificationId` (Max 150), `LastAttemptAt`, `NextRetryAt`, `SentAt`.
+    - Index: `(Status, NextRetryAt)` phục vụ `NotificationRetryWorker`.
 ---
 ## 2. QUY CHUẨN EF CORE & PERSISTENCE
 - Provider: `Npgsql.EntityFrameworkCore.PostgreSQL` **8.0.10** (`User.Infrastructure/User.Infrastructure.csproj`).

@@ -1762,56 +1762,56 @@ public sealed class AuthServiceTests
     private sealed class TestEmailNotificationClient : IEmailNotificationClient
     {
         public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
-        public System.Collections.Generic.List<(string Email, string FullName, string ShopName)> SentApprovedEmails { get; } = new();
-        public System.Collections.Generic.List<(string Email, string FullName, string ShopName, string Reason)> SentRejectedEmails { get; } = new();
+        public System.Collections.Generic.List<(string SourceEventId, Guid UserId, string Email, string FullName, PasswordChangeKind Kind, DateTimeOffset ChangedAt)> SentPasswordChanges { get; } = new();
 
         public Task<bool> SendOtpEmailAsync(
             string email,
             string fullName,
             string otpCode,
             int expiresInMinutes = 5,
+            string? purpose = null,
+            string? traceId = null,
             System.Threading.CancellationToken cancellationToken = default)
         {
             SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
             return Task.FromResult(true);
         }
 
-        public Task<bool> SendSellerApprovedEmailAsync(
+        public Task<bool> SendSellerDecisionEmailAsync(
+            string sourceEventId,
+            Guid registrationId,
+            Guid userId,
             string email,
             string fullName,
             string shopName,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
-            SentApprovedEmails.Add((email, fullName, shopName));
-            return Task.FromResult(true);
-        }
+            bool isApproved,
+            string? reason,
+            DateTimeOffset decidedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
 
-        public Task<bool> SendSellerRejectedEmailAsync(
+        public Task<bool> SendAccountStatusChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
             string email,
             string fullName,
-            string shopName,
-            string reason,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
-            SentRejectedEmails.Add((email, fullName, shopName, reason));
-            return Task.FromResult(true);
-        }
+            bool isBanned,
+            string? reason,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
 
-        public Task<bool> SendUserBannedEmailAsync(
+        public Task<bool> SendPasswordChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
             string email,
             string fullName,
-            string reason,
+            PasswordChangeKind kind,
+            DateTimeOffset changedAt,
+            string? traceId = null,
             System.Threading.CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(true);
-        }
-
-        public Task<bool> SendUserUnbannedEmailAsync(
-            string email,
-            string fullName,
-            string? reason = null,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
+            SentPasswordChanges.Add((sourceEventId, userId, email, fullName, kind, changedAt));
             return Task.FromResult(true);
         }
     }

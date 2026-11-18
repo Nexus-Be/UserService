@@ -13,8 +13,8 @@
    - Các bảng hạ tầng Outbox/Inbox (`OutboxMessage`, `OutboxState`, `InboxState`) không còn tham gia vào luồng nghiệp vụ.
 
 2. **Chuyển sang Typed REST Client đồng bộ**:
-   - Khi người dùng đăng ký hoặc yêu cầu gửi lại OTP, `AuthService` gọi trực tiếp `IEmailNotificationClient.SendOtpEmailAsync` (`POST api/v1/notifications/email/otp`).
-   - Khi xét duyệt hồ sơ người bán, `SellerService` gọi `IEmailNotificationClient.SendSellerApprovedEmailAsync` (`POST api/v1/notifications/email/seller-approved`) hoặc `SendSellerRejectedEmailAsync` (`POST api/v1/notifications/email/seller-rejected`).
-   - Khi quản trị viên cấm hoặc mở cấm tài khoản, `AdminUserService` gọi `IEmailNotificationClient.SendUserBannedEmailAsync` (`POST api/v1/notifications/email/user-banned`) hoặc `SendUserUnbannedEmailAsync` (`POST api/v1/notifications/email/user-unbanned`).
-   - Lớp triển khai `EmailNotificationClient` gửi HTTP POST sang `NotificationService` với timeout và retry an toàn, bọc trong try-catch non-blocking để không làm gián đoạn transaction chính.
-   - Tránh hoàn toàn việc rò rỉ OTP hay thông tin nhạy cảm vào log khi message broker offline.
+   - Khi người dùng đăng ký, yêu cầu gửi lại OTP, hoặc quên mật khẩu/đăng ký seller, `AuthService` và `SellerService` gọi trực tiếp `IEmailNotificationClient.SendOtpEmailAsync` (`POST api/v1/notifications/email/otp`).
+   - Khi xét duyệt hồ sơ người bán, `SellerService` gọi `IEmailNotificationClient.SendSellerDecisionEmailAsync` (`POST api/v1/notifications/seller-decisions`) sau khi commit DB.
+   - Khi quản trị viên cấm hoặc mở cấm tài khoản, `AdminUserService` gọi `IEmailNotificationClient.SendAccountStatusChangedEmailAsync` (`POST api/v1/notifications/account-status-changes`) sau khi commit DB.
+   - Khi người dùng đổi mật khẩu hoặc đặt lại mật khẩu thành công, `AuthService` gọi `IEmailNotificationClient.SendPasswordChangedEmailAsync` (`POST api/v1/notifications/password-changes`) sau khi commit DB.
+   - Lớp triển khai `EmailNotificationClient` gửi HTTP POST sang `NotificationService` với `sourceEventId`, `traceId`, timeout 10s, bọc trong try-catch non-blocking. Nếu các sự kiện nghiệp vụ (không phải OTP) gửi thất bại, sự kiện được ghi vào bảng `NotificationDispatchLogs` để `NotificationRetryWorker` tự động thử lại giữ nguyên `sourceEventId` và payload.

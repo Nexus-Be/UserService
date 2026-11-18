@@ -71,6 +71,13 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(10);
         }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
+        services.AddHttpClient(NotificationRetryWorker.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddHostedService<NotificationRetryWorker>();
+
         // REST Fulfillment Service Client (Internal sync with 5s timeout)
         var fulfillmentBaseUrl = Environment.GetEnvironmentVariable("FULFILLMENT_SERVICE_URL")
             ?? configuration["FULFILLMENT_SERVICE_URL"]

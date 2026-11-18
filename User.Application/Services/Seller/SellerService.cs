@@ -2,6 +2,7 @@ namespace User.Application.Services.Seller;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -238,7 +239,9 @@ public sealed class SellerService : ISellerService
                     fullName,
                     otpCode,
                     5,
-                    cancellationToken);
+                    purpose: "seller_registration",
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
 
                 _logger.LogInformation("Dispatched OTP email via REST client for seller business email '{Email}'.", normalizedEmail);
             }
@@ -497,7 +500,9 @@ public sealed class SellerService : ISellerService
                     fullName,
                     newOtpCode,
                     5,
-                    cancellationToken);
+                    purpose: "seller_registration",
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
             }
             catch (Exception ex)
             {
@@ -889,11 +894,19 @@ public sealed class SellerService : ISellerService
             {
                 try
                 {
-                    await _emailNotificationClient.SendSellerApprovedEmailAsync(
+                    var sourceEventId = $"seller-decision:{sellerProfile.Id}:approved:{Guid.NewGuid():N}";
+                    await _emailNotificationClient.SendSellerDecisionEmailAsync(
+                        sourceEventId,
+                        sellerProfile.Id,
+                        sellerProfile.UserId,
                         recipientEmail,
                         contactName,
                         sellerProfile.ShopName,
-                        cancellationToken);
+                        isApproved: true,
+                        reason: null,
+                        decidedAt: sellerProfile.ReviewedAt.Value,
+                        traceId: Activity.Current?.Id,
+                        cancellationToken: cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -1003,12 +1016,19 @@ public sealed class SellerService : ISellerService
 
                 try
                 {
-                    await _emailNotificationClient.SendSellerRejectedEmailAsync(
+                    var sourceEventId = $"seller-decision:{sellerProfile.Id}:rejected:{Guid.NewGuid():N}";
+                    await _emailNotificationClient.SendSellerDecisionEmailAsync(
+                        sourceEventId,
+                        sellerProfile.Id,
+                        sellerProfile.UserId,
                         recipientEmail,
                         contactName,
                         sellerProfile.ShopName,
-                        reason,
-                        cancellationToken);
+                        isApproved: false,
+                        reason: reason,
+                        decidedAt: sellerProfile.ReviewedAt!.Value,
+                        traceId: Activity.Current?.Id,
+                        cancellationToken: cancellationToken);
                 }
                 catch (Exception ex)
                 {
