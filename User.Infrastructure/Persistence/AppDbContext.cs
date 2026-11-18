@@ -34,6 +34,7 @@ public class AppDbContext : DbContext, IUserDbContext
     public DbSet<AuctionViolation> AuctionViolations => Set<AuctionViolation>();
     public DbSet<UserAuctionPayment> UserAuctionPayments => Set<UserAuctionPayment>();
     public DbSet<UserAddress> UserAddresses => Set<UserAddress>();
+    public DbSet<NotificationDispatchLog> NotificationDispatchLogs => Set<NotificationDispatchLog>();
 
     public async Task LockAuctionPaymentAsync(Guid userId, Guid orderId, CancellationToken cancellationToken)
     {

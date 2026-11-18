@@ -511,48 +511,47 @@ public sealed class AuthControllerRestTests
             string fullName,
             string otpCode,
             int expiresInMinutes = 5,
+            string? purpose = null,
+            string? traceId = null,
             System.Threading.CancellationToken cancellationToken = default)
         {
             SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
             return Task.FromResult(true);
         }
-    
-        public Task<bool> SendSellerApprovedEmailAsync(
+
+        public Task<bool> SendSellerDecisionEmailAsync(
+            string sourceEventId,
+            Guid registrationId,
+            Guid userId,
             string email,
             string fullName,
             string shopName,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
+            bool isApproved,
+            string? reason,
+            DateTimeOffset decidedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
 
-        public Task<bool> SendSellerRejectedEmailAsync(
+        public Task<bool> SendAccountStatusChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
             string email,
             string fullName,
-            string shopName,
-            string reason,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
+            bool isBanned,
+            string? reason,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
 
-        public Task<bool> SendUserBannedEmailAsync(
+        public Task<bool> SendPasswordChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
             string email,
             string fullName,
-            string reason,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
-
-        public Task<bool> SendUserUnbannedEmailAsync(
-            string email,
-            string fullName,
-            string? reason = null,
-            System.Threading.CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
+            global::User.Domain.Enums.PasswordChangeKind kind,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
     private sealed class TestHostEnvironment : IHostEnvironment

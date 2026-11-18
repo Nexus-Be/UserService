@@ -1684,33 +1684,63 @@ public sealed class SellerServiceTests
         public List<(string Email, string FullName, string ShopName)> SentApproved { get; } = new();
         public List<(string Email, string FullName, string ShopName, string Reason)> SentRejected { get; } = new();
 
-        public Task<bool> SendOtpEmailAsync(string email, string fullName, string otpCode, int expiresInMinutes = 5, CancellationToken cancellationToken = default)
+        public Task<bool> SendOtpEmailAsync(
+            string email,
+            string fullName,
+            string otpCode,
+            int expiresInMinutes = 5,
+            string? purpose = null,
+            string? traceId = null,
+            CancellationToken cancellationToken = default)
         {
             SentOtps.Add((email, fullName, otpCode));
             return Task.FromResult(true);
         }
 
-        public Task<bool> SendSellerApprovedEmailAsync(string email, string fullName, string shopName, CancellationToken cancellationToken = default)
+        public Task<bool> SendSellerDecisionEmailAsync(
+            string sourceEventId,
+            Guid registrationId,
+            Guid userId,
+            string email,
+            string fullName,
+            string shopName,
+            bool isApproved,
+            string? reason,
+            DateTimeOffset decidedAt,
+            string? traceId = null,
+            CancellationToken cancellationToken = default)
         {
-            SentApproved.Add((email, fullName, shopName));
+            if (isApproved)
+            {
+                SentApproved.Add((email, fullName, shopName));
+            }
+            else
+            {
+                SentRejected.Add((email, fullName, shopName, reason ?? string.Empty));
+            }
             return Task.FromResult(true);
         }
 
-        public Task<bool> SendSellerRejectedEmailAsync(string email, string fullName, string shopName, string reason, CancellationToken cancellationToken = default)
-        {
-            SentRejected.Add((email, fullName, shopName, reason));
-            return Task.FromResult(true);
-        }
+        public Task<bool> SendAccountStatusChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
+            string email,
+            string fullName,
+            bool isBanned,
+            string? reason,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
 
-        public Task<bool> SendUserBannedEmailAsync(string email, string fullName, string reason, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
-
-        public Task<bool> SendUserUnbannedEmailAsync(string email, string fullName, string? reason = null, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
+        public Task<bool> SendPasswordChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
+            string email,
+            string fullName,
+            PasswordChangeKind kind,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
     [Fact]

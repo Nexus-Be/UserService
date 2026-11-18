@@ -1,6 +1,7 @@
 namespace User.Application.Services.Auth;
 
 using System;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -187,11 +188,21 @@ public class AuthService : IAuthService
         // Store in Redis: Valid for 5 minutes, stored up to 15 minutes
         await _otpService.SaveOtpAsync(email, otpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
 
+        // Commit changes to database before dispatching outbound notification
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
         // Send OTP verification email via Notification Service REST API
         if (_emailNotificationClient != null)
         {
             var fullName = $"{user.FirstName} {user.LastName}".Trim();
-            var sent = await _emailNotificationClient.SendOtpEmailAsync(user.Email, fullName, otpCode, 5, cancellationToken);
+            var sent = await _emailNotificationClient.SendOtpEmailAsync(
+                user.Email,
+                fullName,
+                otpCode,
+                5,
+                purpose: "email_verification",
+                traceId: Activity.Current?.Id,
+                cancellationToken: cancellationToken);
             if (sent)
             {
                 _logger.LogInformation("Dispatched OTP email via REST Notification client for recipient '{Email}'.", email);
@@ -205,9 +216,6 @@ public class AuthService : IAuthService
         {
             _logger.LogWarning("[NOTIFICATION CLIENT OFFLINE] Simulated sending OTP email to '{Email}'. OTP: {Otp}", email, otpCode);
         }
-
-        // Commit changes to database
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return user;
     }
@@ -446,10 +454,20 @@ public class AuthService : IAuthService
         await _otpService.SaveOtpAsync(normalizedEmail, newOtpCode, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
         await _otpService.SetCooldownAsync(normalizedEmail, TimeSpan.FromSeconds(60));
 
+        // Commit changes to database before dispatching outbound notification
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
         if (_emailNotificationClient != null)
         {
             var fullName = $"{user.FirstName} {user.LastName}".Trim();
-            var sent = await _emailNotificationClient.SendOtpEmailAsync(user.Email, fullName, newOtpCode, 5, cancellationToken);
+            var sent = await _emailNotificationClient.SendOtpEmailAsync(
+                user.Email,
+                fullName,
+                newOtpCode,
+                5,
+                purpose: "email_verification",
+                traceId: Activity.Current?.Id,
+                cancellationToken: cancellationToken);
             if (sent)
             {
                 _logger.LogInformation("Dispatched resend OTP email via REST Notification client for '{Email}'.", normalizedEmail);
@@ -463,9 +481,6 @@ public class AuthService : IAuthService
         {
             _logger.LogWarning("[NOTIFICATION CLIENT OFFLINE] Simulated resending OTP email to '{Email}'. New OTP: {Otp}", normalizedEmail, newOtpCode);
         }
-
-        // Commit changes to database
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return true;
     }
@@ -892,7 +907,14 @@ public class AuthService : IAuthService
             try
             {
                 var fullName = $"{user.FirstName} {user.LastName}".Trim();
-                var sent = await _emailNotificationClient.SendOtpEmailAsync(user.Email, fullName, otpCode, 10, cancellationToken);
+                var sent = await _emailNotificationClient.SendOtpEmailAsync(
+                    user.Email,
+                    fullName,
+                    otpCode,
+                    10,
+                    purpose: "password_reset",
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
                 if (sent)
                 {
                     _logger.LogInformation("[FORGOT PASSWORD] Password reset OTP email dispatched via REST client for '{Email}'", normalizedEmail);
@@ -1032,6 +1054,8 @@ public class AuthService : IAuthService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[RESET PASSWORD] Password reset successfully for '{Email}' (UserId: {UserId}).", normalizedEmail, user.Id);
+        await DispatchPasswordChangedNotificationAsync(user, PasswordChangeKind.Reset, cancellationToken);
+
         return new ResetPasswordResultDto(true, "Password has been reset successfully.");
     }
 
@@ -1128,7 +1152,50 @@ public class AuthService : IAuthService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[CHANGE PASSWORD] Password changed successfully for user '{UserId}'.", userId);
+        await DispatchPasswordChangedNotificationAsync(user, PasswordChangeKind.Changed, cancellationToken);
+
         return new ChangePasswordResultDto(true, "Password changed successfully.");
+    }
+
+    private async Task DispatchPasswordChangedNotificationAsync(
+        Domain.Entities.User user,
+        PasswordChangeKind kind,
+        CancellationToken cancellationToken)
+    {
+        if (_emailNotificationClient == null || string.IsNullOrWhiteSpace(user.Email))
+        {
+            return;
+        }
+
+        var fullName = $"{user.FirstName} {user.LastName}".Trim();
+        if (string.IsNullOrWhiteSpace(fullName))
+        {
+            fullName = user.Email.Trim();
+        }
+
+        var changedAt = DateTimeOffset.UtcNow;
+        var sourceEventId = $"pwd-{kind.ToString().ToLowerInvariant()}:{user.Id}:{Guid.NewGuid():N}";
+        var traceId = Activity.Current?.Id;
+
+        try
+        {
+            await _emailNotificationClient.SendPasswordChangedEmailAsync(
+                sourceEventId,
+                user.Id,
+                user.Email.Trim(),
+                fullName,
+                kind,
+                changedAt,
+                traceId,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "[PASSWORD NOTIFICATION] Failed to dispatch '{Kind}' notification for user '{UserId}' (SourceEventId: {SourceEventId}).",
+                kind, user.Id, sourceEventId);
+        }
     }
 
     // =========================================================================================

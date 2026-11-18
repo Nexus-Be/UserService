@@ -2,6 +2,7 @@ namespace User.Application.Services.Admin;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -1270,11 +1271,17 @@ public sealed class AdminUserService : IAdminUserService
 
             try
             {
-                await _emailNotificationClient.SendUserBannedEmailAsync(
+                var sourceEventId = $"account-status:{user.Id}:banned:{Guid.NewGuid():N}";
+                await _emailNotificationClient.SendAccountStatusChangedEmailAsync(
+                    sourceEventId,
+                    user.Id,
                     recipientEmail,
                     fullName,
-                    trimmedReason,
-                    cancellationToken);
+                    isBanned: true,
+                    reason: trimmedReason,
+                    changedAt: now,
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
             }
             catch (Exception ex)
             {
@@ -1436,11 +1443,17 @@ public sealed class AdminUserService : IAdminUserService
 
             try
             {
-                await _emailNotificationClient.SendUserUnbannedEmailAsync(
+                var sourceEventId = $"account-status:{user.Id}:unbanned:{Guid.NewGuid():N}";
+                await _emailNotificationClient.SendAccountStatusChangedEmailAsync(
+                    sourceEventId,
+                    user.Id,
                     recipientEmail,
                     fullName,
-                    reason,
-                    cancellationToken);
+                    isBanned: false,
+                    reason: reason,
+                    changedAt: now,
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
             }
             catch (Exception ex)
             {
