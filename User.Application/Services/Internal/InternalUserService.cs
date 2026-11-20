@@ -1,4 +1,4 @@
-namespace User.Application.Services.Internal;
+﻿namespace User.Application.Services.Internal;
 
 using System;
 using System.Collections.Generic;
@@ -537,7 +537,26 @@ public sealed class InternalUserService : IInternalUserService
             UpdatedAt = now
         });
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
+        {
+            // Another request with the same user, role, reference and reason won the race: nothing is applied a second time.
+            var stored = await _dbContext.ReputationScores.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == request.UserId, cancellationToken);
+            var score = stored == null ? 0 : effectiveTrack == TargetRole.Seller ? stored.SellerScore : stored.CurrentScore;
+            return new InternalPenaltyResponse
+            {
+                UserId = request.UserId,
+                TargetRole = effectiveTrack.ToEnumString(),
+                IsDuplicate = true,
+                PreviousScore = score,
+                NewScore = score,
+                AppliedDelta = 0,
+                NewTrustLevel = stored == null ? string.Empty : effectiveTrack == TargetRole.Seller ? stored.SellerTrustLevel.ToEnumString() : stored.TrustLevel.ToEnumString()
+            };
+        }
 
         return new InternalPenaltyResponse
         {
@@ -653,7 +672,25 @@ public sealed class InternalUserService : IInternalUserService
             });
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
+        {
+            var stored = await _dbContext.ReputationScores.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == request.UserId, cancellationToken);
+            var score = stored == null ? 0 : effectiveTrack == TargetRole.Seller ? stored.SellerScore : stored.CurrentScore;
+            return new InternalReputationAdjustResponse
+            {
+                UserId = request.UserId,
+                TargetRole = effectiveTrack.ToEnumString(),
+                IsDuplicate = true,
+                PreviousScore = score,
+                NewScore = score,
+                AppliedDelta = 0,
+                NewTrustLevel = stored == null ? string.Empty : effectiveTrack == TargetRole.Seller ? stored.SellerTrustLevel.ToEnumString() : stored.TrustLevel.ToEnumString()
+            };
+        }
 
         return new InternalReputationAdjustResponse
         {
