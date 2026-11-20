@@ -20,7 +20,8 @@ namespace User.Infrastructure.Persistence.Migrations
                 name: "EvidenceUrls",
                 table: "UserPenalties",
                 type: "text[]",
-                nullable: false);
+                nullable: false,
+                defaultValueSql: "ARRAY[]::text[]");
 
             migrationBuilder.AddColumn<string>(
                 name: "PolicyClauseCode",
