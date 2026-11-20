@@ -3,6 +3,7 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,11 +14,59 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<CommerceServiceClient> _logger;
+    private readonly string? _internalServiceKey;
 
-    public CommerceServiceClient(HttpClient httpClient, ILogger<CommerceServiceClient> logger)
+    public CommerceServiceClient(HttpClient httpClient, ILogger<CommerceServiceClient> logger, string? internalServiceKey = null)
     {
+        _internalServiceKey = internalServiceKey;
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public async Task<DisputeRefundResult> RequestDisputeRefundAsync(
+        Guid subOrderId,
+        Guid reportId,
+        string? note,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/v1/sub-orders/{subOrderId}/dispute-refund")
+            {
+                Content = JsonContent.Create(new { reportId, note })
+            };
+            if (!string.IsNullOrWhiteSpace(_internalServiceKey))
+            {
+                request.Headers.TryAddWithoutValidation("X-Internal-Service-Key", _internalServiceKey);
+            }
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("[COMMERCE CLIENT] Dispute refund for sub-order '{SubOrderId}' answered {Status}: {Body}", subOrderId, (int)response.StatusCode, body);
+                return new DisputeRefundResult(DisputeRefundOutcome.Failed, 0m, $"Commerce answered HTTP {(int)response.StatusCode}.");
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var payload = UnwrapData(doc.RootElement);
+            TryReadString(payload, "status", out var status);
+            var amount = TryGetPropertyIgnoreCase(payload, "amount", out var amountEl) && amountEl.TryGetDecimal(out var parsed) ? parsed : 0m;
+            TryReadString(payload, "message", out var message);
+            var outcome = status switch
+            {
+                "Refunded" => DisputeRefundOutcome.Refunded,
+                "AlreadyRefunded" => DisputeRefundOutcome.AlreadyRefunded,
+                "ManualProcessingRequired" => DisputeRefundOutcome.ManualProcessingRequired,
+                _ => DisputeRefundOutcome.Failed
+            };
+            return new DisputeRefundResult(outcome, amount, message);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.LogWarning(ex, "[COMMERCE CLIENT] Could not request the dispute refund for sub-order '{SubOrderId}'.", subOrderId);
+            return new DisputeRefundResult(DisputeRefundOutcome.Failed, 0m, "Commerce could not be reached.");
+        }
     }
 
     public async Task<OrderReportCheck> CheckOrderForReportAsync(

@@ -1,4 +1,4 @@
-using User.Domain.Base;
+﻿using User.Domain.Base;
 using User.Domain.Enums;
 
 namespace User.Domain.Entities;
@@ -17,6 +17,11 @@ public class UserReport : BaseEntity<Guid>
     public Guid? ResolvedBy { get; set; }
     public DateTimeOffset? ResolvedAt { get; set; }
     public string? ResolutionNote { get; set; }
+
+    /// <summary>Refund of the buyer after a dispute decided in their favour. None unless staff asked for a refund.</summary>
+    public ReportRefundStatus RefundStatus { get; set; } = ReportRefundStatus.None;
+    public decimal? RefundAmount { get; set; }
+    public string? RefundMessage { get; set; }
 
     // Navigation
     public User? Reporter { get; set; }

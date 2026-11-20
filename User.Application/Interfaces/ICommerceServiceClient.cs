@@ -22,8 +22,27 @@ public enum OrderReportCheck
     Unavailable = 4
 }
 
+/// <summary>What Commerce answered to a dispute refund request.</summary>
+public enum DisputeRefundOutcome
+{
+    Refunded = 0,
+    AlreadyRefunded = 1,
+    ManualProcessingRequired = 2,
+    /// <summary>Commerce could not refund (or could not be reached); nothing is known to have moved, so it can be retried.</summary>
+    Failed = 3
+}
+
+public sealed record DisputeRefundResult(DisputeRefundOutcome Outcome, decimal Amount, string? Message);
+
 public interface ICommerceServiceClient
 {
+    /// <summary>Asks Commerce to refund the buyer of a sub-order because a dispute was decided for them. The amount is decided by Commerce.</summary>
+    Task<DisputeRefundResult> RequestDisputeRefundAsync(
+        Guid subOrderId,
+        Guid reportId,
+        string? note,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Checks the order and tells why it is not eligible, so a report is not saved on an unverified reference.</summary>
     Task<OrderReportCheck> CheckOrderForReportAsync(
         Guid orderOrSubOrderId,

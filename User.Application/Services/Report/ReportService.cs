@@ -193,6 +193,7 @@ public sealed class ReportService : IReportService
         int pageSize = 20,
         ReportStatus? status = null,
         ReportViolationType? violationType = null,
+        ReportRefundStatus? refundStatus = null,
         CancellationToken cancellationToken = default)
     {
         var (safePage, safeLimit) = PaginationConstants.Normalize(page, pageSize);
@@ -202,6 +203,12 @@ public sealed class ReportService : IReportService
         if (status.HasValue)
         {
             query = query.Where(r => r.Status == status.Value);
+        }
+
+        // Staff use this to find refunds that need a person (ManualProcessingRequired) or a retry (Failed, Pending).
+        if (refundStatus.HasValue)
+        {
+            query = query.Where(r => r.RefundStatus == refundStatus.Value);
         }
 
         if (violationType.HasValue)
@@ -244,6 +251,12 @@ public sealed class ReportService : IReportService
         if (reportedUser == null)
         {
             throw new DomainException("USER_NOT_FOUND", "Reported user account was not found.", 404);
+        }
+
+        // A refund can only be made for a report that points at an order, so refuse it before anything is decided.
+        if (request.RefundBuyer && (report.ReferenceType != ReferenceType.Order || !Guid.TryParse(report.ReferenceId, out _)))
+        {
+            throw new DomainException("REFUND_NOT_APPLICABLE", "A refund can only be requested for a report that references an order.", 400);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -388,6 +401,13 @@ public sealed class ReportService : IReportService
             }
         }
 
+        // The decision is saved first. The refund is a separate step whose outcome is stored on the report, so a Commerce or wallet
+        // failure never undoes the decision, and a failed refund is visible to staff and can be retried.
+        if (request.RefundBuyer)
+        {
+            await RequestRefundAsync(report, request.ResolutionNote.Trim(), cancellationToken);
+        }
+
         return new ResolveReportResponse
         {
             ReportId = report.Id,
@@ -400,8 +420,78 @@ public sealed class ReportService : IReportService
             PenaltyId = createdPenaltyId,
             ResolvedBy = actorId,
             ResolvedAt = now,
-            ResolutionNote = report.ResolutionNote
+            ResolutionNote = report.ResolutionNote,
+            RefundStatus = report.RefundStatus.ToString(),
+            RefundAmount = report.RefundAmount,
+            RefundMessage = report.RefundMessage
         };
+    }
+
+    public async Task<ResolveReportResponse> RetryReportRefundAsync(Guid reportId, Guid actorId, CancellationToken cancellationToken = default)
+    {
+        var report = await _dbContext.UserReports.FirstOrDefaultAsync(r => r.Id == reportId, cancellationToken)
+            ?? throw new DomainException("REPORT_NOT_FOUND", "User report was not found for the specified identifier.", 404);
+
+        if (report.Status != ReportStatus.Resolved || report.RefundStatus is not (ReportRefundStatus.Pending or ReportRefundStatus.Failed))
+        {
+            throw new DomainException("REFUND_NOT_RETRYABLE", "Only a resolved report whose refund is pending or failed can be retried.", 409);
+        }
+
+        await RequestRefundAsync(report, report.ResolutionNote ?? "Dispute decided in favour of the buyer.", cancellationToken);
+
+        return new ResolveReportResponse
+        {
+            ReportId = report.Id,
+            ReportedUserId = report.ReportedUserId,
+            Status = report.Status.ToEnumString(),
+            TargetRole = report.TargetRole.ToEnumString(),
+            ResolvedBy = report.ResolvedBy ?? actorId,
+            ResolvedAt = report.ResolvedAt ?? DateTimeOffset.UtcNow,
+            ResolutionNote = report.ResolutionNote ?? string.Empty,
+            RefundStatus = report.RefundStatus.ToString(),
+            RefundAmount = report.RefundAmount,
+            RefundMessage = report.RefundMessage
+        };
+    }
+
+    /// <summary>Asks Commerce for the refund and stores what happened. "Refunded" is only ever written after Commerce confirmed it.</summary>
+    private async Task RequestRefundAsync(UserReport report, string note, CancellationToken cancellationToken)
+    {
+        if (_commerceServiceClient == null || !Guid.TryParse(report.ReferenceId, out var subOrderId))
+        {
+            report.RefundStatus = ReportRefundStatus.Failed;
+            report.RefundMessage = "Refund could not be requested: Commerce is not configured or the order reference is not an ID.";
+            report.UpdatedAt = DateTimeOffset.UtcNow;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        // Recorded before the call so a crash between the call and the save leaves a visible "Pending", not a lost refund.
+        report.RefundStatus = ReportRefundStatus.Pending;
+        report.UpdatedAt = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var result = await _commerceServiceClient.RequestDisputeRefundAsync(subOrderId, report.Id, note, cancellationToken);
+        switch (result.Outcome)
+        {
+            case DisputeRefundOutcome.Refunded:
+            case DisputeRefundOutcome.AlreadyRefunded:
+                report.RefundStatus = ReportRefundStatus.Refunded;
+                report.RefundAmount = result.Amount > 0 ? result.Amount : report.RefundAmount;
+                report.RefundMessage = result.Message;
+                break;
+            case DisputeRefundOutcome.ManualProcessingRequired:
+                report.RefundStatus = ReportRefundStatus.ManualProcessingRequired;
+                report.RefundMessage = result.Message;
+                break;
+            default:
+                report.RefundStatus = ReportRefundStatus.Failed;
+                report.RefundMessage = result.Message;
+                break;
+        }
+
+        report.UpdatedAt = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<ResolveReportResponse> DismissReportAsync(
@@ -566,6 +656,9 @@ public sealed class ReportService : IReportService
             ResolvedBy = r.ResolvedBy,
             ResolvedAt = r.ResolvedAt,
             ResolutionNote = r.ResolutionNote,
+            RefundStatus = r.RefundStatus.ToString(),
+            RefundAmount = r.RefundAmount,
+            RefundMessage = r.RefundMessage,
             CreatedAt = r.CreatedAt
         }).ToList();
 

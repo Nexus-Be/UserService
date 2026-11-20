@@ -1,4 +1,4 @@
-namespace User.Application.Services.Report;
+﻿namespace User.Application.Services.Report;
 
 using System;
 using System.Collections.Generic;
@@ -40,6 +40,9 @@ public sealed record ResolveReportRequest
     public bool BanAccount { get; init; }
     public bool SuspendSellerShop { get; init; }
     public bool FreezeWallet { get; init; } = false;
+
+    /// <summary>Refund the buyer for the disputed order. The amount is never sent: Commerce works it out. Only valid for order reports.</summary>
+    public bool RefundBuyer { get; init; }
 
     [Range(1, 3650, ErrorMessage = "Duration days must be between 1 and 3650.")]
     public int? DurationDays { get; init; }

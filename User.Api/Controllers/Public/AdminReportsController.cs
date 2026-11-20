@@ -1,4 +1,4 @@
-namespace User.Api.Controllers;
+﻿namespace User.Api.Controllers;
 
 using System;
 using System.Threading;
@@ -39,13 +39,14 @@ public sealed class AdminReportsController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] ReportStatus? status = null,
         [FromQuery] ReportViolationType? violationType = null,
+        [FromQuery] ReportRefundStatus? refundStatus = null,
         CancellationToken cancellationToken = default)
     {
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
         _logger.LogInformation("[REST Admin GetReports] Querying reports page={Page}, pageSize={PageSize}", page, pageSize);
-        var result = await _reportService.GetAdminReportsAsync(page, pageSize, status, violationType, cancellationToken);
+        var result = await _reportService.GetAdminReportsAsync(page, pageSize, status, violationType, refundStatus, cancellationToken);
         return Ok(result);
     }
 
@@ -77,6 +78,19 @@ public sealed class AdminReportsController : ControllerBase
         _logger.LogInformation("[REST Admin ResolveReport] Resolving report '{ReportId}' by Actor '{ActorId}'", reportId, actorId);
         var result = await _reportService.ResolveReportAsync(reportId, request, actorId, cancellationToken);
         return Ok(result);
+    }
+
+    /// <summary>[Admin / Staff] Retries the refund of a resolved report whose refund is pending or failed.</summary>
+    [HttpPost("{reportId:guid}/refund/retry")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ResolveReportResponse))]
+    public async Task<IActionResult> RetryRefund([FromRoute] Guid reportId, CancellationToken cancellationToken = default)
+    {
+        if (!this.TryGetUserId(out var actorId, out var authError))
+        {
+            return authError;
+        }
+
+        return Ok(await _reportService.RetryReportRefundAsync(reportId, actorId, cancellationToken));
     }
 
     /// <summary>

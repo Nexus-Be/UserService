@@ -1,4 +1,4 @@
-namespace User.Infrastructure;
+﻿namespace User.Infrastructure;
 
 using System;
 using Microsoft.EntityFrameworkCore;
@@ -113,7 +113,11 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(commerceBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(5);
-        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+        }).AddTypedClient<ICommerceServiceClient>((http, sp) => new Services.External.CommerceServiceClient(
+            http,
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.External.CommerceServiceClient>>(),
+            internalServiceKey))
+          .AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
         var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
             ?? configuration["ExternalServices:WalletServiceUrl"]
