@@ -1,4 +1,4 @@
-namespace User.Domain.Enums;
+﻿namespace User.Domain.Enums;
 
 public enum ReputationChangeReason
 {
@@ -10,5 +10,7 @@ public enum ReputationChangeReason
     ManualAdjustment = 5,
     ViolationPenalty = 6,
     SellerCancellation = 7,
-    ReportPenalty = 8
+    ReportPenalty = 8,
+    /// <summary>The buyer refused or could not be reached for a delivery and the parcel came back. Not applied automatically until the carrier reason codes are agreed.</summary>
+    BuyerRefusedDelivery = 9
 }
