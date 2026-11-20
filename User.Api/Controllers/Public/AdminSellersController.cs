@@ -38,11 +38,26 @@ public sealed class AdminSellersController : ControllerBase
         [FromQuery] PageQuery pagination,
         [FromQuery] SellerProfileStatus? status = null,
         [FromQuery] string? keyword = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        [FromQuery] bool? warehouseReady = null)
     {
         var (safePage, safePageSize) = pagination.Normalize();
-        var result = await _sellerService.GetAdminSellersAsync(safePage, safePageSize, status, keyword, cancellationToken);
+        var result = await _sellerService.GetAdminSellersAsync(safePage, safePageSize, status, keyword, cancellationToken, warehouseReady);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// [Admin / Staff] Creates the warehouse of an approved seller whose warehouse could not be created at approval time. Safe to repeat.
+    /// List the sellers that need it with <c>GET /api/v1/admin/sellers?warehouseReady=false</c>.
+    /// </summary>
+    /// <response code="200">warehouseReady is true when the seller now has a warehouse, false when Fulfillment is still failing.</response>
+    /// <response code="404">SELLER_NOT_FOUND.</response>
+    /// <response code="409">SELLER_NOT_APPROVED.</response>
+    [HttpPost("{sellerId:guid}/warehouse/retry")]
+    public async Task<IActionResult> RetryWarehouse([FromRoute] Guid sellerId, CancellationToken cancellationToken)
+    {
+        var ready = await _sellerService.RetryWarehouseAsync(sellerId, cancellationToken);
+        return Ok(new { sellerId, warehouseReady = ready });
     }
 
     /// <summary>

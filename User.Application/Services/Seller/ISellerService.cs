@@ -163,5 +163,15 @@ public interface ISellerService
         int pageSize,
         User.Domain.Enums.SellerProfileStatus? status = null,
         string? keyword = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool? warehouseReady = null);
+
+    /// <summary>
+    /// [Admin / Staff] Creates the warehouse of an approved seller whose warehouse is missing (WarehouseReady = false). Creating it again for a
+    /// seller that already has one is safe: Fulfillment answers with the existing warehouse. Returns true when the seller is now ready.
+    /// </summary>
+    Task<bool> RetryWarehouseAsync(Guid sellerProfileId, CancellationToken cancellationToken = default);
+
+    /// <summary>Retries the warehouse of up to <paramref name="batchSize"/> approved sellers that are still missing one. Returns how many became ready.</summary>
+    Task<int> RetryMissingWarehousesAsync(int batchSize, CancellationToken cancellationToken = default);
 }

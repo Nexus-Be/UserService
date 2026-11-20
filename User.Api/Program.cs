@@ -21,6 +21,8 @@ builder.Services.AddControllers()
         options.InvalidModelStateResponseFactory = ApiValidationProblemFactory.Create;
     });
 
+builder.Services.AddHostedService<User.Api.Workers.SellerWarehouseRetryWorker>();
+
 var app = builder.Build();
 
 // 4. Default Middleware Pipeline (Exception Handler, Swagger UI)

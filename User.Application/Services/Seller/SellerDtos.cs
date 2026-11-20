@@ -75,5 +75,6 @@ public sealed record AdminSellerListItemDto(
     [property: JsonPropertyName("hotline")] string Hotline,
     [property: JsonPropertyName("provinceId")] int ProvinceId,
     [property: JsonPropertyName("districtId")] int DistrictId,
-    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("warehouseReady")] bool WarehouseReady = true
 );

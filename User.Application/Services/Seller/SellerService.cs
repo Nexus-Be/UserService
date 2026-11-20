@@ -801,9 +801,11 @@ public sealed class SellerService : ISellerService
             wardCode: sellerProfile.WardCode,
             cancellationToken: cancellationToken);
 
+        // A seller approved without a warehouse is marked, so the retry worker and the admin list can find it.
+        sellerProfile.WarehouseReady = warehouseCreated;
         if (!warehouseCreated)
         {
-            _logger.LogWarning("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Proceeding with seller approval (graceful degradation).", sellerProfile.Id);
+            _logger.LogWarning("[SELLER APPROVAL] Fulfillment warehouse creation failed or timed out for Seller '{SellerId}'. Proceeding with seller approval (graceful degradation); the warehouse will be retried.", sellerProfile.Id);
         }
 
         // PHA 3: LOCAL COMMIT IN POSTGRESQL
@@ -1776,7 +1778,8 @@ public sealed class SellerService : ISellerService
         int pageSize,
         SellerProfileStatus? status = null,
         string? keyword = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool? warehouseReady = null)
     {
         var safePage = page < 1 ? 1 : page;
         var safePageSize = pageSize is < 1 or > 100 ? 20 : pageSize;
@@ -1784,6 +1787,11 @@ public sealed class SellerService : ISellerService
         var query = _dbContext.SellerProfiles
             .AsNoTracking()
             .Where(s => !s.IsDeleted);
+
+        if (warehouseReady.HasValue)
+        {
+            query = query.Where(s => s.WarehouseReady == warehouseReady.Value);
+        }
 
         if (status.HasValue)
         {
@@ -1809,9 +1817,85 @@ public sealed class SellerService : ISellerService
                 s.Hotline,
                 s.ProvinceId,
                 s.DistrictId,
-                s.CreatedAt))
+                s.CreatedAt,
+                s.WarehouseReady))
             .ToListAsync(cancellationToken);
 
         return PagedData<AdminSellerListItemDto>.From(items, safePage, safePageSize, totalCount);
+    }
+
+    public async Task<bool> RetryWarehouseAsync(Guid sellerProfileId, CancellationToken cancellationToken = default)
+    {
+        var profile = await _dbContext.SellerProfiles
+            .Include(s => s.User)
+            .FirstOrDefaultAsync(s => s.Id == sellerProfileId && !s.IsDeleted, cancellationToken)
+            ?? throw new DomainException("SELLER_NOT_FOUND", "Seller profile not found.", 404);
+
+        if (profile.Status != SellerProfileStatus.Approved)
+        {
+            throw new DomainException("SELLER_NOT_APPROVED", "Only an approved seller can have a warehouse created.", 409);
+        }
+
+        return await ProvisionWarehouseAsync(profile, cancellationToken);
+    }
+
+    public async Task<int> RetryMissingWarehousesAsync(int batchSize, CancellationToken cancellationToken = default)
+    {
+        var pending = await _dbContext.SellerProfiles
+            .Include(s => s.User)
+            .Where(s => !s.IsDeleted && s.Status == SellerProfileStatus.Approved && !s.WarehouseReady)
+            .OrderBy(s => s.UpdatedAt)
+            .Take(Math.Max(1, batchSize))
+            .ToListAsync(cancellationToken);
+
+        var ready = 0;
+        foreach (var profile in pending)
+        {
+            if (await ProvisionWarehouseAsync(profile, cancellationToken))
+            {
+                ready++;
+            }
+        }
+
+        return ready;
+    }
+
+    /// <summary>Calls Fulfillment for the seller's warehouse and records the outcome. A failure leaves the seller marked for the next retry.</summary>
+    private async Task<bool> ProvisionWarehouseAsync(SellerProfile profile, CancellationToken cancellationToken)
+    {
+        var user = profile.User;
+        var contactName = user is null ? string.Empty : $"{user.FirstName} {user.LastName}".Trim();
+        if (string.IsNullOrWhiteSpace(contactName))
+        {
+            contactName = profile.ShopName;
+        }
+
+        var created = await _fulfillmentClient.CreateWarehouseAsync(
+            sellerId: profile.Id,
+            userId: profile.UserId,
+            shopName: profile.ShopName,
+            contactName: contactName,
+            contactPhone: profile.Hotline,
+            pickupAddress: profile.PickupAddress,
+            provinceId: profile.ProvinceId,
+            districtId: profile.DistrictId,
+            wardCode: profile.WardCode,
+            cancellationToken: cancellationToken);
+
+        if (!created)
+        {
+            _logger.LogWarning("[SELLER WAREHOUSE] Warehouse creation still failing for Seller '{SellerId}'; it stays marked for retry.", profile.Id);
+            return false;
+        }
+
+        profile.WarehouseReady = true;
+        profile.UpdatedAt = DateTimeOffset.UtcNow;
+        _dbContext.AddAuditLog(
+            action: AuditAction.SellerApprove,
+            entityName: nameof(SellerProfile),
+            entityId: profile.Id.ToString(),
+            newValues: new { warehouseReady = true, note = "Warehouse created in Fulfillment after a failed attempt at approval." });
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }
