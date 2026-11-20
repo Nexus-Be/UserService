@@ -1,6 +1,7 @@
-namespace User.Infrastructure.Services.External;
+﻿namespace User.Infrastructure.Services.External;
 
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -17,6 +18,93 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public async Task<OrderReportCheck> CheckOrderForReportAsync(
+        Guid orderOrSubOrderId,
+        Guid reporterId,
+        Guid reportedUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderOrSubOrderId == Guid.Empty || reporterId == Guid.Empty || reportedUserId == Guid.Empty)
+        {
+            return OrderReportCheck.NotFound;
+        }
+
+        try
+        {
+            var (subStatus, subDoc) = await FetchAsync($"api/v1/sub-orders/{orderOrSubOrderId}", cancellationToken);
+            using (subDoc)
+            {
+                if (subStatus == HttpStatusCode.OK && subDoc != null)
+                {
+                    var payload = UnwrapData(subDoc.RootElement);
+                    if (!TryReadGuid(payload, "buyerId", out var buyerId)
+                        || !TryReadGuid(payload, "sellerId", out var sellerId)
+                        || !TryReadString(payload, "status", out var status))
+                    {
+                        return OrderReportCheck.Unavailable;
+                    }
+
+                    return Classify(buyerId, sellerId, status, reporterId, reportedUserId);
+                }
+
+                if (subStatus != HttpStatusCode.NotFound)
+                {
+                    return OrderReportCheck.Unavailable;
+                }
+            }
+
+            var (orderStatus, orderDoc) = await FetchAsync($"api/v1/orders/{orderOrSubOrderId}", cancellationToken);
+            using (orderDoc)
+            {
+                if (orderStatus == HttpStatusCode.NotFound)
+                {
+                    return OrderReportCheck.NotFound;
+                }
+
+                if (orderStatus != HttpStatusCode.OK || orderDoc == null)
+                {
+                    return OrderReportCheck.Unavailable;
+                }
+
+                var orderPayload = UnwrapData(orderDoc.RootElement);
+                if (!TryReadGuid(orderPayload, "buyerId", out var orderBuyerId)
+                    || !TryGetPropertyIgnoreCase(orderPayload, "subOrders", out var subOrdersEl)
+                    || subOrdersEl.ValueKind != JsonValueKind.Array)
+                {
+                    return OrderReportCheck.Unavailable;
+                }
+
+                var best = OrderReportCheck.NotParticipant;
+                foreach (var subEl in subOrdersEl.EnumerateArray())
+                {
+                    if (!TryReadGuid(subEl, "sellerId", out var sellerId) || !TryReadString(subEl, "status", out var status))
+                    {
+                        continue;
+                    }
+
+                    var result = Classify(orderBuyerId, sellerId, status, reporterId, reportedUserId);
+                    if (result == OrderReportCheck.Eligible)
+                    {
+                        return result;
+                    }
+
+                    // Keep the most specific reason: a matching seller that is not delivered beats "not a participant".
+                    if (result == OrderReportCheck.NotDelivered)
+                    {
+                        best = result;
+                    }
+                }
+
+                return best;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.LogWarning(ex, "[COMMERCE CLIENT] Could not check order '{OrderId}' for a report.", orderOrSubOrderId);
+            return OrderReportCheck.Unavailable;
+        }
     }
 
     public async Task<bool> VerifyDeliveredOrderForDisputeAsync(
@@ -72,6 +160,32 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
             _logger.LogWarning(ex, "[COMMERCE CLIENT] Failed to verify order '{OrderId}' for dispute.", orderOrSubOrderId);
             return false;
         }
+    }
+
+    private async Task<(HttpStatusCode Status, JsonDocument? Document)> FetchAsync(string relativeUrl, CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync(relativeUrl, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return (response.StatusCode, null);
+        }
+
+        var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(raw)
+            ? (HttpStatusCode.NoContent, null)
+            : (HttpStatusCode.OK, JsonDocument.Parse(raw));
+    }
+
+    private static OrderReportCheck Classify(Guid buyerId, Guid sellerId, string? status, Guid reporterId, Guid reportedUserId)
+    {
+        if (buyerId != reporterId || sellerId != reportedUserId)
+        {
+            return OrderReportCheck.NotParticipant;
+        }
+
+        return IsValidDeliveredDispute(buyerId, sellerId, status, reporterId, reportedUserId)
+            ? OrderReportCheck.Eligible
+            : OrderReportCheck.NotDelivered;
     }
 
     private async Task<JsonDocument?> TryFetchJsonAsync(string relativeUrl, CancellationToken cancellationToken)

@@ -1,4 +1,4 @@
-namespace User.Application.Services.Report;
+﻿namespace User.Application.Services.Report;
 
 using System;
 using System.Collections.Generic;
@@ -83,6 +83,38 @@ public sealed class ReportService : IReportService
         var evidence = request.EvidenceUrls?.Where(u => !string.IsNullOrWhiteSpace(u)).Take(5).ToList() ?? new List<string>();
         var now = DateTimeOffset.UtcNow;
 
+        // An order report must point at a real, delivered order of the reporter against one of its sellers, and the check has to succeed
+        // BEFORE anything is saved: when Commerce cannot answer the report is refused (retryable), never stored as if it were verified.
+        var orderVerifiedForDispute = false;
+        Guid orderOrSubOrderId = Guid.Empty;
+        if (request.ReferenceType == ReferenceType.Order && _commerceServiceClient != null)
+        {
+            if (!Guid.TryParse(normalizedRefId, out orderOrSubOrderId))
+            {
+                throw new DomainException("VAL_INVALID_INPUT", "Order reference must be a valid order or sub-order ID.", 400);
+            }
+
+            if (RequiresEvidence(request.ViolationType) && evidence.Count == 0)
+            {
+                throw new DomainException("EVIDENCE_REQUIRED", "At least one evidence file is required for this type of order report.", 400);
+            }
+
+            switch (await _commerceServiceClient.CheckOrderForReportAsync(orderOrSubOrderId, reporterId, request.ReportedUserId, cancellationToken))
+            {
+                case OrderReportCheck.Eligible:
+                    orderVerifiedForDispute = true;
+                    break;
+                case OrderReportCheck.NotFound:
+                    throw new DomainException("ORDER_NOT_FOUND", "The referenced order was not found.", 404);
+                case OrderReportCheck.NotParticipant:
+                    throw new DomainException("ORDER_REPORT_NOT_ALLOWED", "You can only report a seller of an order that you bought.", 403);
+                case OrderReportCheck.NotDelivered:
+                    throw new DomainException("ORDER_NOT_DELIVERED", "An order can only be reported after it has been delivered.", 400);
+                default:
+                    throw new DomainException("ORDER_VERIFICATION_UNAVAILABLE", "The order could not be verified right now. Please try again later.", 503);
+            }
+        }
+
         var report = new UserReport
         {
             Id = Guid.NewGuid(),
@@ -103,24 +135,12 @@ public sealed class ReportService : IReportService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         // Security: only freeze target wallet for verified DELIVERED/COMPLETED Order disputes, never trust client flag alone
-        if (request.ReferenceType == ReferenceType.Order
-            && Guid.TryParse(normalizedRefId, out var orderOrSubOrderId)
-            && _commerceServiceClient != null
-            && _walletServiceClient != null)
+        if (orderVerifiedForDispute && _walletServiceClient != null)
         {
-            var isVerifiedOrderDispute = await _commerceServiceClient.VerifyDeliveredOrderForDisputeAsync(
-                orderOrSubOrderId,
-                reporterId,
+            await _walletServiceClient.FreezeWalletAsync(
                 request.ReportedUserId,
+                $"DISPUTE_ORDER_{orderOrSubOrderId}",
                 cancellationToken);
-
-            if (isVerifiedOrderDispute)
-            {
-                await _walletServiceClient.FreezeWalletAsync(
-                    request.ReportedUserId,
-                    $"DISPUTE_ORDER_{orderOrSubOrderId}",
-                    cancellationToken);
-            }
         }
 
         _logger.LogInformation(
@@ -142,6 +162,10 @@ public sealed class ReportService : IReportService
             CreatedAt = report.CreatedAt
         };
     }
+
+    /// <summary>Goods disputes (fraud, counterfeit) need proof; the other violation types can be filed without files.</summary>
+    private static bool RequiresEvidence(ReportViolationType type) =>
+        type is ReportViolationType.Fraud or ReportViolationType.Counterfeit;
 
     public async Task<PagedData<ReportListItemDto>> GetMyReportsAsync(
         Guid reporterId,
