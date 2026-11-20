@@ -1,4 +1,4 @@
-namespace User.Application.Services.Report;
+﻿namespace User.Application.Services.Report;
 
 using System;
 using System.Collections.Generic;
@@ -31,4 +31,9 @@ public sealed record ResolveReportResponse
     public Guid ResolvedBy { get; init; }
     public DateTimeOffset ResolvedAt { get; init; }
     public string ResolutionNote { get; init; } = string.Empty;
+
+    /// <summary>None, Pending, Refunded, ManualProcessingRequired or Failed.</summary>
+    public string RefundStatus { get; init; } = "None";
+    public decimal? RefundAmount { get; init; }
+    public string? RefundMessage { get; init; }
 }

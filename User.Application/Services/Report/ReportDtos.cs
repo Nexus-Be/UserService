@@ -1,4 +1,4 @@
-namespace User.Application.Services.Report;
+﻿namespace User.Application.Services.Report;
 
 using System;
 using System.Collections.Generic;
@@ -18,5 +18,8 @@ public sealed record ReportListItemDto
     public Guid? ResolvedBy { get; init; }
     public DateTimeOffset? ResolvedAt { get; init; }
     public string? ResolutionNote { get; init; }
+    public string RefundStatus { get; init; } = "None";
+    public decimal? RefundAmount { get; init; }
+    public string? RefundMessage { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 }

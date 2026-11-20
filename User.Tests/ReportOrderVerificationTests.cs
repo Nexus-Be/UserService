@@ -1,4 +1,4 @@
-namespace User.Tests;
+﻿namespace User.Tests;
 
 using System;
 using System.Collections.Generic;
@@ -29,6 +29,9 @@ public sealed class ReportOrderVerificationTests
             Calls++;
             return Task.FromResult(answer);
         }
+
+        public Task<DisputeRefundResult> RequestDisputeRefundAsync(Guid subOrderId, Guid reportId, string? note, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new DisputeRefundResult(DisputeRefundOutcome.Failed, 0m, null));
 
         public Task<bool> VerifyDeliveredOrderForDisputeAsync(Guid orderOrSubOrderId, Guid reporterId, Guid reportedUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult(answer == OrderReportCheck.Eligible);

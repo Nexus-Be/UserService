@@ -1,4 +1,4 @@
-namespace User.Infrastructure.Persistence.Configurations;
+﻿namespace User.Infrastructure.Persistence.Configurations;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -13,6 +13,9 @@ public class UserReportConfiguration : IEntityTypeConfiguration<UserReport>
         builder.Property(x => x.ReferenceId).HasMaxLength(100);
         builder.Property(x => x.EvidenceUrls).HasColumnType("text[]");
         builder.Property(x => x.ResolutionNote).HasMaxLength(2000);
+        builder.Property(x => x.RefundAmount).HasPrecision(18, 2);
+        builder.Property(x => x.RefundMessage).HasMaxLength(500);
+        builder.HasIndex(x => x.RefundStatus).HasDatabaseName("IX_UserReports_RefundStatus");
 
         builder.HasOne(r => r.Reporter)
             .WithMany(u => u.ReportsSubmitted)

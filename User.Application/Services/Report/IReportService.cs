@@ -1,4 +1,4 @@
-namespace User.Application.Services.Report;
+﻿namespace User.Application.Services.Report;
 
 using System;
 using System.Collections.Generic;
@@ -26,7 +26,11 @@ public interface IReportService
         int pageSize = 20,
         ReportStatus? status = null,
         ReportViolationType? violationType = null,
+        ReportRefundStatus? refundStatus = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Retries the refund of a resolved report whose refund is pending or failed.</summary>
+    Task<ResolveReportResponse> RetryReportRefundAsync(Guid reportId, Guid actorId, CancellationToken cancellationToken = default);
 
     Task<ResolveReportResponse> ResolveReportAsync(
         Guid reportId,
