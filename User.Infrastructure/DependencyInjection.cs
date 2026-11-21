@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using User.Application.Interfaces;
 using User.Infrastructure.Persistence;
+using User.Infrastructure.Services.Auth;
 using User.Infrastructure.Services.Notification;
 using User.Infrastructure.Services.Redis;
 using User.Infrastructure.Services.Storage;
@@ -52,6 +53,10 @@ public static class DependencyInjection
 
         services.AddSingleton<IRedisOtpService, RedisOtpService>();
         services.AddSingleton<IJwtTokenGenerator, Services.Jwt.JwtTokenGenerator>();
+        services.AddHttpClient<IFirebaseAuthService, FirebaseAuthService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
 
         // Identity propagation delegating handler for outgoing inter-service HTTP requests
         services.AddTransient<Services.Common.IdentityPropagationHandler>();

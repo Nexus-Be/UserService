@@ -4,6 +4,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using User.Application.Interfaces;
 using User.Application.Models;
@@ -1813,6 +1814,705 @@ public sealed class AuthServiceTests
         {
             SentPasswordChanges.Add((sourceEventId, userId, email, fullName, kind, changedAt));
             return Task.FromResult(true);
+        }
+    }
+
+    private sealed class TestFirebaseAuthService : IFirebaseAuthService
+    {
+        private readonly Func<string, FirebaseUserClaims> _handler;
+
+        public TestFirebaseAuthService(Func<string, FirebaseUserClaims> handler)
+        {
+            _handler = handler;
+        }
+
+        public Task<FirebaseUserClaims> VerifyIdTokenAsync(string idToken, System.Threading.CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_handler(idToken));
+        }
+    }
+
+    private sealed class MockJwksHttpMessageHandler : System.Net.Http.HttpMessageHandler
+    {
+        private readonly string _jwksJson;
+        public int RequestCount { get; private set; }
+
+        public MockJwksHttpMessageHandler(string jwksJson)
+        {
+            _jwksJson = jwksJson;
+        }
+
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(
+            System.Net.Http.HttpRequestMessage request,
+            System.Threading.CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            var response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new System.Net.Http.StringContent(_jwksJson, System.Text.Encoding.UTF8, "application/json")
+            };
+            response.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue
+            {
+                MaxAge = TimeSpan.FromMinutes(30)
+            };
+            return Task.FromResult(response);
+        }
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_creates_new_buyer_user_with_reputation_and_audit_log_and_returns_tokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-001",
+            Email: "GoogleBuyer@Nexus.Local",
+            EmailVerified: true,
+            DisplayName: "Google Buyer",
+            GivenName: "Google",
+            FamilyName: "Buyer",
+            PictureUrl: "https://lh3.googleusercontent.com/avatar.png"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var result = await authService.LoginWithGoogleAsync(new GoogleLoginDto(
+            IdToken: "valid-firebase-token",
+            DeviceInfo: "Chrome/Windows",
+            IpAddress: "127.0.0.1"));
+
+        Assert.False(string.IsNullOrWhiteSpace(result.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(result.RefreshToken));
+        Assert.Equal("Bearer", result.TokenType);
+        Assert.Equal("googlebuyer@nexus.local", result.Email);
+        Assert.Equal("Google", result.User.FirstName);
+        Assert.Equal("Buyer", result.User.LastName);
+        Assert.Contains("buyer", result.Roles!);
+
+        var savedUser = await dbContext.Users.FirstOrDefaultAsync(u => u.Email == "googlebuyer@nexus.local");
+        Assert.NotNull(savedUser);
+        Assert.Null(savedUser.PasswordHash);
+        Assert.Equal("firebase-uid-001", savedUser.FirebaseUid);
+        Assert.Equal(UserStatus.Active, savedUser.Status);
+        Assert.NotNull(savedUser.EmailVerifiedAt);
+        Assert.Equal("https://lh3.googleusercontent.com/avatar.png", savedUser.AvatarUrl);
+
+        var reputation = await dbContext.ReputationScores.FirstOrDefaultAsync(r => r.UserId == savedUser.Id);
+        Assert.NotNull(reputation);
+        Assert.Equal(50, reputation.CurrentScore);
+        Assert.Equal(TrustLevel.Standard, reputation.TrustLevel);
+
+        var auditLog = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == savedUser.Id.ToString());
+        Assert.NotNull(auditLog);
+        Assert.Equal(AuditAction.UserCreate, auditLog.Action);
+
+        var refreshToken = await dbContext.RefreshTokens.FirstOrDefaultAsync(t => t.UserId == savedUser.Id);
+        Assert.NotNull(refreshToken);
+        Assert.False(refreshToken.IsRevoked);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_falls_back_to_email_local_part_when_names_are_missing()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-002",
+            Email: "noname.buyer@nexus.local",
+            EmailVerified: true,
+            DisplayName: null,
+            GivenName: null,
+            FamilyName: null,
+            PictureUrl: null));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var result = await authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token"));
+
+        Assert.Equal("noname.buyer", result.User.FirstName);
+        Assert.Equal("User", result.User.LastName);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_links_firebase_uid_for_existing_active_user()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        var existingUser = new User.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "existing@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
+            FirstName = "Existing",
+            LastName = "User",
+            Status = UserStatus.Active,
+            EmailVerifiedAt = DateTimeOffset.UtcNow.AddDays(-5)
+        };
+        dbContext.Users.Add(existingUser);
+        await dbContext.SaveChangesAsync();
+
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-linked",
+            Email: "existing@nexus.local",
+            EmailVerified: true,
+            DisplayName: "Existing User",
+            GivenName: "Existing",
+            FamilyName: "User",
+            PictureUrl: "https://example.com/pic.jpg"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var result = await authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token"));
+
+        Assert.Equal(existingUser.Id.ToString(), result.UserId);
+        var updatedUser = await dbContext.Users.FirstAsync(u => u.Id == existingUser.Id);
+        Assert.Equal("firebase-uid-linked", updatedUser.FirebaseUid);
+        Assert.Equal("https://example.com/pic.jpg", updatedUser.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_activates_pending_verification_user_and_links_firebase_uid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        var pendingUser = new User.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "pending@nexus.local",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
+            FirstName = "Pending",
+            LastName = "User",
+            Status = UserStatus.PendingVerification
+        };
+        dbContext.Users.Add(pendingUser);
+        await dbContext.SaveChangesAsync();
+
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-pending",
+            Email: "pending@nexus.local",
+            EmailVerified: true,
+            DisplayName: "Pending User",
+            GivenName: "Pending",
+            FamilyName: "User",
+            PictureUrl: null));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var result = await authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token"));
+
+        Assert.Equal(pendingUser.Id.ToString(), result.UserId);
+        var updatedUser = await dbContext.Users.FirstAsync(u => u.Id == pendingUser.Id);
+        Assert.Equal(UserStatus.Active, updatedUser.Status);
+        Assert.NotNull(updatedUser.EmailVerifiedAt);
+        Assert.Equal("firebase-uid-pending", updatedUser.FirebaseUid);
+        Assert.Null(updatedUser.PasswordHash);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_propagates_invalid_operation_exception_when_firebase_not_configured()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ =>
+            throw new InvalidOperationException("Firebase ProjectId is not configured."));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token")));
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_throws_conflict_when_email_is_linked_to_different_firebase_uid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        dbContext.Users.Add(new User.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "conflict@nexus.local",
+            FirebaseUid = "firebase-uid-original",
+            FirstName = "Conflict",
+            LastName = "User",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-other",
+            Email: "conflict@nexus.local",
+            EmailVerified: true,
+            DisplayName: null,
+            GivenName: null,
+            FamilyName: null,
+            PictureUrl: null));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token")));
+
+        Assert.Equal("FIREBASE_UID_MISMATCH", ex.ErrorCode);
+        Assert.Equal(409, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_throws_forbidden_when_user_is_banned()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        dbContext.Users.Add(new User.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "banned.google@nexus.local",
+            FirebaseUid = "firebase-uid-banned",
+            FirstName = "Banned",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            BanReason = "Policy violation"
+        });
+        await dbContext.SaveChangesAsync();
+
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-banned",
+            Email: "banned.google@nexus.local",
+            EmailVerified: true,
+            DisplayName: null,
+            GivenName: null,
+            FamilyName: null,
+            PictureUrl: null));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token")));
+
+        Assert.Equal("ACCOUNT_BANNED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_throws_not_found_when_user_is_deleted()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        dbContext.Users.Add(new User.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "deleted.google@nexus.local",
+            FirebaseUid = "firebase-uid-deleted",
+            FirstName = "Deleted",
+            LastName = "User",
+            Status = UserStatus.Deleted,
+            IsDeleted = true
+        });
+        await dbContext.SaveChangesAsync();
+
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-deleted",
+            Email: "deleted.google@nexus.local",
+            EmailVerified: true,
+            DisplayName: null,
+            GivenName: null,
+            FamilyName: null,
+            PictureUrl: null));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token")));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+        Assert.Equal(404, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_throws_unauthorized_when_firebase_token_is_invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        var firebaseService = new TestFirebaseAuthService(_ =>
+            throw new Microsoft.IdentityModel.Tokens.SecurityTokenException("Invalid signature"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("bad-token")));
+
+        Assert.Equal("INVALID_FIREBASE_TOKEN", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_throws_forbidden_when_email_is_not_verified()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "firebase-uid-unverified",
+            Email: "unverified@nexus.local",
+            EmailVerified: false,
+            DisplayName: "Unverified",
+            GivenName: "Unverified",
+            FamilyName: "User",
+            PictureUrl: null));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("valid-token")));
+
+        Assert.Equal("FIREBASE_EMAIL_NOT_VERIFIED", ex.ErrorCode);
+        Assert.Equal(403, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginWithGoogleAsync_throws_bad_request_when_id_token_is_empty()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            authService.LoginWithGoogleAsync(new GoogleLoginDto("   ")));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+        Assert.Equal(400, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginAsync_returns_invalid_credentials_when_user_has_null_password_hash()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+
+        dbContext.Users.Add(new User.Domain.Entities.User
+        {
+            Id = Guid.NewGuid(),
+            Email = "googleonly@nexus.local",
+            PasswordHash = null,
+            FirebaseUid = "firebase-uid-only",
+            FirstName = "Google",
+            LastName = "Only",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, jwtGenerator);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.LoginAsync(new LoginDto("googleonly@nexus.local", "AnyPassword123!")));
+
+        Assert.Equal("INVALID_CREDENTIALS", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task ChangePasswordAsync_throws_password_not_set_when_user_has_null_password_hash()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var userId = Guid.NewGuid();
+
+        dbContext.Users.Add(new User.Domain.Entities.User
+        {
+            Id = userId,
+            Email = "googleonly.pwd@nexus.local",
+            PasswordHash = null,
+            FirebaseUid = "firebase-uid-only-pwd",
+            FirstName = "Google",
+            LastName = "Only",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            authService.ChangePasswordAsync(userId, new ChangePasswordDto("OldPass123!", "NewPass123!", "NewPass123!")));
+
+        Assert.Equal("PASSWORD_NOT_SET", ex.ErrorCode);
+        Assert.Equal(400, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task FirebaseAuthService_verifies_valid_rs256_jwt_against_jwks_and_caches_keys()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var rsaKey = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsa) { KeyId = "test-key-1" };
+        var jwk = Microsoft.IdentityModel.Tokens.JsonWebKeyConverter.ConvertFromRSASecurityKey(rsaKey);
+        var jwksJson = System.Text.Json.JsonSerializer.Serialize(new { keys = new[] { jwk } });
+
+        var handler = new MockJwksHttpMessageHandler(jwksJson);
+        using var httpClient = new System.Net.Http.HttpClient(handler);
+        using var memoryCache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new System.Collections.Generic.Dictionary<string, string?>
+            {
+                ["Firebase:ProjectId"] = "nexus-test-project"
+            })
+            .Build();
+
+        var service = new User.Infrastructure.Services.Auth.FirebaseAuthService(
+            httpClient,
+            memoryCache,
+            config,
+            NullLogger<User.Infrastructure.Services.Auth.FirebaseAuthService>.Instance);
+
+        var now = DateTime.UtcNow;
+        var tokenDescriptor = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: "https://securetoken.google.com/nexus-test-project",
+            audience: "nexus-test-project",
+            claims: new[]
+            {
+                new System.Security.Claims.Claim("sub", "uid-rsa-123"),
+                new System.Security.Claims.Claim("user_id", "uid-rsa-123"),
+                new System.Security.Claims.Claim("email", "rsa.user@gmail.com"),
+                new System.Security.Claims.Claim("email_verified", "true"),
+                new System.Security.Claims.Claim("name", "RSA User"),
+                new System.Security.Claims.Claim("given_name", "RSA"),
+                new System.Security.Claims.Claim("family_name", "User"),
+                new System.Security.Claims.Claim("picture", "https://example.com/rsa.png")
+            },
+            notBefore: now.AddMinutes(-1),
+            expires: now.AddMinutes(10),
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                rsaKey, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.RsaSha256));
+
+        var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
+
+        var claims1 = await service.VerifyIdTokenAsync(jwt);
+        var claims2 = await service.VerifyIdTokenAsync(jwt);
+
+        Assert.Equal("uid-rsa-123", claims1.Uid);
+        Assert.Equal("rsa.user@gmail.com", claims1.Email);
+        Assert.True(claims1.EmailVerified);
+        Assert.Equal("RSA", claims1.GivenName);
+        Assert.Equal("User", claims1.FamilyName);
+        Assert.Equal("https://example.com/rsa.png", claims1.PictureUrl);
+        Assert.Equal(claims1.Uid, claims2.Uid);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task FirebaseAuthService_rejects_wrong_audience_token()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var rsaKey = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsa) { KeyId = "test-key-2" };
+        var jwk = Microsoft.IdentityModel.Tokens.JsonWebKeyConverter.ConvertFromRSASecurityKey(rsaKey);
+        var jwksJson = System.Text.Json.JsonSerializer.Serialize(new { keys = new[] { jwk } });
+
+        var handler = new MockJwksHttpMessageHandler(jwksJson);
+        using var httpClient = new System.Net.Http.HttpClient(handler);
+        using var memoryCache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new System.Collections.Generic.Dictionary<string, string?>
+            {
+                ["Firebase:ProjectId"] = "nexus-test-project"
+            })
+            .Build();
+
+        var service = new User.Infrastructure.Services.Auth.FirebaseAuthService(
+            httpClient,
+            memoryCache,
+            config,
+            NullLogger<User.Infrastructure.Services.Auth.FirebaseAuthService>.Instance);
+
+        var now = DateTime.UtcNow;
+        var tokenDescriptor = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: "https://securetoken.google.com/nexus-test-project",
+            audience: "wrong-project",
+            claims: new[]
+            {
+                new System.Security.Claims.Claim("sub", "uid-rsa-123"),
+                new System.Security.Claims.Claim("email", "rsa.user@gmail.com")
+            },
+            notBefore: now.AddMinutes(-1),
+            expires: now.AddMinutes(10),
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                rsaKey, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.RsaSha256));
+
+        var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(tokenDescriptor);
+
+        await Assert.ThrowsAnyAsync<Microsoft.IdentityModel.Tokens.SecurityTokenException>(() =>
+            service.VerifyIdTokenAsync(jwt));
+    }
+
+    [Fact]
+    public async Task FirebaseAuthService_refreshes_jwks_on_signature_failure_and_verifies_rotated_key()
+    {
+        using var rsaOld = System.Security.Cryptography.RSA.Create(2048);
+        var oldKey = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsaOld) { KeyId = "old-key" };
+        var oldJwk = Microsoft.IdentityModel.Tokens.JsonWebKeyConverter.ConvertFromRSASecurityKey(oldKey);
+        var oldJwksJson = System.Text.Json.JsonSerializer.Serialize(new { keys = new[] { oldJwk } });
+
+        using var rsaNew = System.Security.Cryptography.RSA.Create(2048);
+        var newKey = new Microsoft.IdentityModel.Tokens.RsaSecurityKey(rsaNew) { KeyId = "new-key" };
+        var newJwk = Microsoft.IdentityModel.Tokens.JsonWebKeyConverter.ConvertFromRSASecurityKey(newKey);
+        var newJwksJson = System.Text.Json.JsonSerializer.Serialize(new { keys = new[] { newJwk } });
+
+        var callCount = 0;
+        var rotatingHandler = new RotatingJwksHttpMessageHandler(() =>
+        {
+            callCount++;
+            return callCount == 1 ? oldJwksJson : newJwksJson;
+        });
+
+        using var httpClient = new System.Net.Http.HttpClient(rotatingHandler);
+        using var memoryCache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new System.Collections.Generic.Dictionary<string, string?>
+            {
+                ["Firebase:ProjectId"] = "nexus-test-project"
+            })
+            .Build();
+
+        var service = new User.Infrastructure.Services.Auth.FirebaseAuthService(
+            httpClient,
+            memoryCache,
+            config,
+            NullLogger<User.Infrastructure.Services.Auth.FirebaseAuthService>.Instance);
+
+        var now = DateTime.UtcNow;
+        var oldToken = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: "https://securetoken.google.com/nexus-test-project",
+            audience: "nexus-test-project",
+            claims: new[]
+            {
+                new System.Security.Claims.Claim("sub", "uid-old"),
+                new System.Security.Claims.Claim("email", "old@gmail.com"),
+                new System.Security.Claims.Claim("email_verified", "true")
+            },
+            notBefore: now.AddMinutes(-1),
+            expires: now.AddMinutes(10),
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                oldKey, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.RsaSha256));
+
+        var newToken = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+            issuer: "https://securetoken.google.com/nexus-test-project",
+            audience: "nexus-test-project",
+            claims: new[]
+            {
+                new System.Security.Claims.Claim("sub", "uid-rotated"),
+                new System.Security.Claims.Claim("email", "rotated@gmail.com"),
+                new System.Security.Claims.Claim("email_verified", "true")
+            },
+            notBefore: now.AddMinutes(-1),
+            expires: now.AddMinutes(10),
+            signingCredentials: new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                newKey, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.RsaSha256));
+
+        var jwtHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var oldClaims = await service.VerifyIdTokenAsync(jwtHandler.WriteToken(oldToken));
+        Assert.Equal("uid-old", oldClaims.Uid);
+        Assert.Equal(1, callCount);
+
+        var rotatedClaims = await service.VerifyIdTokenAsync(jwtHandler.WriteToken(newToken));
+        Assert.Equal("uid-rotated", rotatedClaims.Uid);
+        Assert.Equal(2, callCount);
+    }
+
+    private sealed class RotatingJwksHttpMessageHandler : System.Net.Http.HttpMessageHandler
+    {
+        private readonly Func<string> _jwksProvider;
+
+        public RotatingJwksHttpMessageHandler(Func<string> jwksProvider)
+        {
+            _jwksProvider = jwksProvider;
+        }
+
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(
+            System.Net.Http.HttpRequestMessage request,
+            System.Threading.CancellationToken cancellationToken)
+        {
+            var response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new System.Net.Http.StringContent(_jwksProvider(), System.Text.Encoding.UTF8, "application/json")
+            };
+            return Task.FromResult(response);
         }
     }
 }

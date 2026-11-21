@@ -116,4 +116,12 @@ public interface IAuthService
     /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
     /// <returns>Kết quả đổi mật khẩu thành công.</returns>
     Task<ChangePasswordResultDto> ChangePasswordAsync(Guid userId, ChangePasswordDto dto, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Xác thực đăng nhập bằng Google qua Firebase ID Token và cấp phát cặp Access Token (JWT) và Refresh Token.
+    /// </summary>
+    /// <param name="dto">Dữ liệu đăng nhập Google: Firebase ID Token, DeviceInfo, IP.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
+    /// <returns>Token JWT và Refresh Token nội bộ của UserService.</returns>
+    Task<LoginResultDto> LoginWithGoogleAsync(GoogleLoginDto dto, CancellationToken cancellationToken = default);
 }

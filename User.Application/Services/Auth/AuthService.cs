@@ -20,6 +20,7 @@ public class AuthService : IAuthService
     private readonly IRedisOtpService _otpService;
     private readonly IJwtTokenGenerator? _jwtTokenGenerator;
     private readonly IEmailNotificationClient? _emailNotificationClient;
+    private readonly IFirebaseAuthService? _firebaseAuthService;
     private readonly ILogger<AuthService> _logger;
 
 
@@ -29,13 +30,15 @@ public class AuthService : IAuthService
         IRedisOtpService otpService,
         ILogger<AuthService> logger,
         IJwtTokenGenerator? jwtTokenGenerator = null,
-        IEmailNotificationClient? emailNotificationClient = null)
+        IEmailNotificationClient? emailNotificationClient = null,
+        IFirebaseAuthService? firebaseAuthService = null)
     {
         _dbContext = dbContext;
         _otpService = otpService;
         _logger = logger;
         _jwtTokenGenerator = jwtTokenGenerator;
         _emailNotificationClient = emailNotificationClient;
+        _firebaseAuthService = firebaseAuthService;
     }
 
     // =========================================================================================
@@ -151,21 +154,7 @@ public class AuthService : IAuthService
             _dbContext.Users.Add(user);
 
             // Assign default role: Buyer (clean query by RoleCode Enum, zero hardcoded GUIDs)
-            var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
-            if (buyerRole == null)
-            {
-                buyerRole = new Role
-                {
-                    Id = Guid.NewGuid(),
-                    RoleCode = RoleType.Buyer,
-                    RoleName = "Buyer",
-                    Description = "Khách mua hàng và tham gia đấu giá",
-                    IsActive = true,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                };
-                _dbContext.Roles.Add(buyerRole);
-            }
+            var buyerRole = await GetOrCreateBuyerRoleAsync(cancellationToken);
             user.RoleId = buyerRole.Id;
             user.Role = buyerRole;
 
@@ -536,14 +525,17 @@ public class AuthService : IAuthService
         }
 
         bool isPasswordValid = false;
-        try
+        if (!string.IsNullOrWhiteSpace(user.PasswordHash))
         {
-            isPasswordValid = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error occurred while verifying password hash for '{Email}'.", user.Email);
-            isPasswordValid = false;
+            try
+            {
+                isPasswordValid = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while verifying password hash for '{Email}'.", user.Email);
+                isPasswordValid = false;
+            }
         }
 
         if (!isPasswordValid)
@@ -566,6 +558,200 @@ public class AuthService : IAuthService
             throw new DomainException("ACCOUNT_NOT_VERIFIED", "Account has not been verified with OTP.", 403);
         }
 
+        return await IssueAuthTokensAsync(user, dto.DeviceInfo, dto.IpAddress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Xác thực đăng nhập bằng Google qua Firebase ID Token và cấp phát cặp Access Token (JWT) và Refresh Token.
+    /// </summary>
+    /// <param name="dto">Dữ liệu đăng nhập Google: Firebase ID Token, DeviceInfo, IP.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Token JWT và Refresh Token nội bộ của UserService.</returns>
+    public async Task<LoginResultDto> LoginWithGoogleAsync(GoogleLoginDto dto, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(dto.IdToken))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Firebase ID token is required.");
+        }
+
+        if (_firebaseAuthService == null)
+        {
+            throw new InvalidOperationException("FirebaseAuthService is not configured.");
+        }
+
+        FirebaseUserClaims claims;
+        try
+        {
+            claims = await _firebaseAuthService.VerifyIdTokenAsync(dto.IdToken.Trim(), cancellationToken);
+        }
+        catch (DomainException)
+        {
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (System.Net.Http.HttpRequestException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AUTH] Firebase ID token verification failed.");
+            throw new DomainException("INVALID_FIREBASE_TOKEN", "Invalid or expired Firebase ID token.", 401);
+        }
+
+        if (string.IsNullOrWhiteSpace(claims.Uid))
+        {
+            throw new DomainException("INVALID_FIREBASE_TOKEN", "Invalid or expired Firebase ID token.", 401);
+        }
+
+        if (string.IsNullOrWhiteSpace(claims.Email))
+        {
+            throw new DomainException("FIREBASE_EMAIL_REQUIRED", "Google account must provide an email address.", 400);
+        }
+
+        if (!claims.EmailVerified)
+        {
+            throw new DomainException("FIREBASE_EMAIL_NOT_VERIFIED", "Google email address is not verified.", 403);
+        }
+
+        var normalizedEmail = claims.Email.Trim().ToLowerInvariant();
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
+            .Where(u => u.FirebaseUid == claims.Uid || u.Email.ToLower() == normalizedEmail)
+            .OrderBy(u => u.IsDeleted)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (user != null)
+        {
+            if (user.IsDeleted || user.Status == UserStatus.Deleted)
+            {
+                _logger.LogWarning("[AUTH] Google login rejected: User '{Email}' has been deleted.", normalizedEmail);
+                throw new DomainException("USER_NOT_FOUND", "User account does not exist or has been deleted.", 404);
+            }
+
+            if (user.Status == UserStatus.Banned)
+            {
+                _logger.LogWarning("[AUTH] Google login rejected: User '{Email}' has been banned. Reason: '{Reason}'.", user.Email, user.BanReason);
+                throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
+            }
+
+            if (!string.IsNullOrWhiteSpace(user.FirebaseUid) && !string.Equals(user.FirebaseUid, claims.Uid, StringComparison.Ordinal))
+            {
+                _logger.LogWarning("[AUTH] Google login rejected: Email '{Email}' is already linked to a different FirebaseUid.", user.Email);
+                throw new DomainException("FIREBASE_UID_MISMATCH", "This email is already linked to another Google account.", 409);
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            if (string.IsNullOrWhiteSpace(user.FirebaseUid))
+            {
+                user.FirebaseUid = claims.Uid;
+                user.UpdatedAt = now;
+            }
+
+            if (user.Status == UserStatus.PendingVerification)
+            {
+                // Clear any unverified password hash to prevent pre-account takeover.
+                user.PasswordHash = null;
+                user.Status = UserStatus.Active;
+                user.EmailVerifiedAt ??= now;
+                user.UpdatedAt = now;
+            }
+
+            if (string.IsNullOrWhiteSpace(user.AvatarUrl) && !string.IsNullOrWhiteSpace(claims.PictureUrl))
+            {
+                user.AvatarUrl = Truncate(claims.PictureUrl, 500);
+                user.UpdatedAt = now;
+            }
+        }
+        else
+        {
+            var buyerRole = await GetOrCreateBuyerRoleAsync(cancellationToken);
+            var (firstName, lastName) = ResolveGoogleName(claims.GivenName, claims.FamilyName, claims.DisplayName, normalizedEmail);
+            var now = DateTimeOffset.UtcNow;
+            var userId = Guid.NewGuid();
+
+            user = new User
+            {
+                Id = userId,
+                Email = normalizedEmail,
+                PasswordHash = null,
+                FirebaseUid = claims.Uid,
+                FirstName = firstName,
+                LastName = lastName,
+                AvatarUrl = Truncate(claims.PictureUrl, 500),
+                Status = UserStatus.Active,
+                EmailVerifiedAt = now,
+                Gender = Gender.Unspecified,
+                RoleId = buyerRole.Id,
+                Role = buyerRole,
+                CreatedAt = now,
+                UpdatedAt = now,
+                IsDeleted = false
+            };
+
+            _dbContext.Users.Add(user);
+            _dbContext.ReputationScores.Add(ReputationScore.CreateDefault(userId));
+            _dbContext.AddAuditLog(
+                AuditAction.UserCreate,
+                nameof(User),
+                userId.ToString(),
+                oldValues: null,
+                newValues: new
+                {
+                    user.Email,
+                    user.FirebaseUid,
+                    user.Status,
+                    Role = "buyer",
+                    AuthProvider = "google"
+                },
+                userId: userId.ToString(),
+                userName: user.Email,
+                ipAddress: Truncate(dto.IpAddress, 50),
+                userAgent: Truncate(dto.DeviceInfo, 500),
+                traceId: Activity.Current?.Id);
+
+            _logger.LogInformation("[AUTH] Created new user '{Email}' via Google Sign-In with Active status and Buyer role.", normalizedEmail);
+        }
+
+        return await IssueAuthTokensAsync(user, dto.DeviceInfo, dto.IpAddress, cancellationToken);
+    }
+
+    private async Task<Role> GetOrCreateBuyerRoleAsync(CancellationToken cancellationToken)
+    {
+        var buyerRole = await _dbContext.Roles.FirstOrDefaultAsync(r => r.RoleCode == RoleType.Buyer, cancellationToken);
+        if (buyerRole == null)
+        {
+            buyerRole = new Role
+            {
+                Id = Guid.NewGuid(),
+                RoleCode = RoleType.Buyer,
+                RoleName = "Buyer",
+                Description = "Khách mua hàng và tham gia đấu giá",
+                IsActive = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            _dbContext.Roles.Add(buyerRole);
+        }
+
+        return buyerRole;
+    }
+
+    private async Task<LoginResultDto> IssueAuthTokensAsync(
+        User user,
+        string? deviceInfo,
+        string? ipAddress,
+        CancellationToken cancellationToken)
+    {
         var roles = new List<string>();
         ExtractUserRoles(user, roles);
 
@@ -594,8 +780,8 @@ public class AuthService : IAuthService
             UserId = user.Id,
             SessionId = sessionId,
             TokenHash = tokenHash,
-            DeviceInfo = Truncate(dto.DeviceInfo, 255),
-            IpAddress = Truncate(dto.IpAddress, 100),
+            DeviceInfo = Truncate(deviceInfo, 255),
+            IpAddress = Truncate(ipAddress, 100),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
             IsRevoked = false,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -631,6 +817,47 @@ public class AuthService : IAuthService
             Role: primaryRole,
             Roles: roles,
             Permissions: Array.Empty<string>());
+    }
+
+    private static (string FirstName, string LastName) ResolveGoogleName(
+        string? givenName,
+        string? familyName,
+        string? displayName,
+        string normalizedEmail)
+    {
+        var first = Truncate(givenName, 150);
+        var last = Truncate(familyName, 150);
+
+        if (string.IsNullOrWhiteSpace(first) && !string.IsNullOrWhiteSpace(displayName))
+        {
+            var parts = displayName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 1)
+            {
+                first = Truncate(parts[0], 150);
+            }
+            else if (parts.Length > 1)
+            {
+                first = Truncate(parts[0], 150);
+                if (string.IsNullOrWhiteSpace(last))
+                {
+                    last = Truncate(string.Join(" ", parts.Skip(1)), 150);
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(first))
+        {
+            var atIndex = normalizedEmail.IndexOf('@');
+            var localPart = atIndex > 0 ? normalizedEmail[..atIndex] : normalizedEmail;
+            first = Truncate(localPart, 150) ?? "User";
+        }
+
+        if (string.IsNullOrWhiteSpace(last))
+        {
+            last = "User";
+        }
+
+        return (first, last);
     }
 
     /// <summary>
@@ -1113,6 +1340,12 @@ public class AuthService : IAuthService
         }
 
         // 5. Verify OldPassword with BCrypt
+        if (string.IsNullOrWhiteSpace(user.PasswordHash))
+        {
+            _logger.LogWarning("[CHANGE PASSWORD] User '{UserId}' does not have a password set.", userId);
+            throw new DomainException("PASSWORD_NOT_SET", "This account does not have a password set. Please use password reset to set a password.", 400);
+        }
+
         if (!BCrypt.Net.BCrypt.Verify(dto.OldPassword, user.PasswordHash))
         {
             _logger.LogWarning("[CHANGE PASSWORD] Old password verification failed for user '{UserId}'.", userId);
