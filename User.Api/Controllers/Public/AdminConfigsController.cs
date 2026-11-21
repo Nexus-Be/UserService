@@ -45,6 +45,16 @@ public sealed class AdminConfigsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Lists who changed a setting, when, and from what to what.</summary>
+    [HttpGet("{key}/history")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(PagedData<SystemConfigHistoryItemDto>))]
+    public async Task<IActionResult> GetConfigHistory(
+        [FromRoute] string key,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+        => Ok(await _configService.GetConfigHistoryAsync(key, page, pageSize, cancellationToken));
+
     /// <summary>
     /// [Admin] Cập nhật giá trị một tham số cấu hình hệ thống và làm mới bộ nhớ đệm.
     /// </summary>

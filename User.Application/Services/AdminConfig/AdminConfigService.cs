@@ -53,6 +53,8 @@ public sealed class AdminConfigService : IAdminConfigService
             Value = c.ConfigValue,
             Description = c.Description,
             DataType = c.DataType.ToEnumString(),
+            MinValue = c.MinValue,
+            MaxValue = c.MaxValue,
             UpdatedAt = c.UpdatedAt
         }).ToList();
 
@@ -81,6 +83,7 @@ public sealed class AdminConfigService : IAdminConfigService
         }
 
         ValidateConfigValueByType(config.DataType, normalizedValue);
+        ValidateConfigRange(config, normalizedValue);
 
         var oldValue = config.ConfigValue;
         var now = DateTimeOffset.UtcNow;
@@ -114,6 +117,76 @@ public sealed class AdminConfigService : IAdminConfigService
             NewValue = normalizedValue,
             UpdatedAt = now
         };
+    }
+
+    public async Task<PagedData<SystemConfigHistoryItemDto>> GetConfigHistoryAsync(
+        string key,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var (safePage, safeLimit) = PaginationConstants.Normalize(page, pageSize);
+        var normalizedKey = key?.Trim() ?? string.Empty;
+        var config = await _dbContext.SystemConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ConfigKey == normalizedKey, cancellationToken);
+        if (config == null)
+        {
+            throw new DomainException("CONFIG_NOT_FOUND", "Configuration key was not found.", 404);
+        }
+
+        var entityId = config.Id.ToString();
+        var query = _dbContext.AuditLogs.AsNoTracking()
+            .Where(a => a.EntityName == nameof(SystemConfig) && a.EntityId == entityId);
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query.OrderByDescending(a => a.CreatedAt).ThenByDescending(a => a.Id)
+            .Skip((safePage - 1) * safeLimit).Take(safeLimit).ToListAsync(cancellationToken);
+
+        var items = rows.Select(a => new SystemConfigHistoryItemDto
+        {
+            Id = a.Id,
+            ChangedBy = a.UserId,
+            OldValue = ReadString(a.OldValues, "Value"),
+            NewValue = ReadString(a.NewValues, "Value"),
+            Reason = ReadString(a.NewValues, "Reason"),
+            ChangedAt = a.CreatedAt
+        }).ToList();
+
+        return PagedData<SystemConfigHistoryItemDto>.From(items, safePage, safeLimit, total);
+    }
+
+    private static string? ReadString(string? json, string property)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty(property, out var value)
+                    ? value.ToString()
+                    : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void ValidateConfigRange(SystemConfig config, string value)
+    {
+        if (config.DataType != ConfigDataType.Int || !decimal.TryParse(value, out var number))
+        {
+            return;
+        }
+
+        if (config.MinValue.HasValue && number < config.MinValue.Value)
+        {
+            throw new DomainException("INVALID_CONFIG_VALUE", $"Configuration parameter value must be at least {config.MinValue.Value:0.##}.", 400);
+        }
+
+        if (config.MaxValue.HasValue && number > config.MaxValue.Value)
+        {
+            throw new DomainException("INVALID_CONFIG_VALUE", $"Configuration parameter value must be at most {config.MaxValue.Value:0.##}.", 400);
+        }
     }
 
     private static void ValidateConfigValueByType(ConfigDataType dataType, string value)
