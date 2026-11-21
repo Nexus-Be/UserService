@@ -562,4 +562,79 @@ public sealed class AuthControllerRestTests
         public string ContentRootPath { get; set; } = string.Empty;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
+
+    private sealed class TestFirebaseAuthService : IFirebaseAuthService
+    {
+        private readonly Func<string, FirebaseUserClaims> _handler;
+
+        public TestFirebaseAuthService(Func<string, FirebaseUserClaims> handler) => _handler = handler;
+
+        public Task<FirebaseUserClaims> VerifyIdTokenAsync(string idToken, CancellationToken cancellationToken = default)
+            => Task.FromResult(_handler(idToken));
+    }
+
+    [Fact]
+    public async Task GoogleLogin_Returns_Ok_With_LoginApiResponse_When_Token_Is_Valid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "ctrl-firebase-uid-1",
+            Email: "google.controller@nexus.local",
+            EmailVerified: true,
+            DisplayName: "Controller User",
+            GivenName: "Controller",
+            FamilyName: "User",
+            PictureUrl: "https://example.com/avatar.png"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var result = await controller.GoogleLogin(
+            new GoogleLoginApiRequest("valid-id-token", "UnitTestAgent/1.0"),
+            CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<LoginApiResponse>(okResult.Value);
+        Assert.False(string.IsNullOrWhiteSpace(resp.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(resp.RefreshToken));
+        Assert.Equal("Bearer", resp.TokenType);
+        Assert.Equal("google.controller@nexus.local", resp.Email);
+        Assert.Equal("Controller", resp.User.FirstName);
+        Assert.Equal("User", resp.User.LastName);
+    }
+
+    [Fact]
+    public async Task GoogleLogin_Throws_Unauthorized_When_Token_Is_Invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ =>
+            throw new Microsoft.IdentityModel.Tokens.SecurityTokenException("Invalid token"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var ex = await Assert.ThrowsAsync<global::User.Domain.Exceptions.DomainException>(() =>
+            controller.GoogleLogin(new GoogleLoginApiRequest("bad-id-token"), CancellationToken.None));
+
+        Assert.Equal("INVALID_FIREBASE_TOKEN", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
+    }
 }

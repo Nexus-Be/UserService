@@ -480,6 +480,11 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId", "TargetRole", "PartnerUserId", "CreatedAt");
 
+                    b.HasIndex("UserId", "TargetRole", "ReferenceType", "ReferenceId", "Reason")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ReputationLogs_Idempotency")
+                        .HasFilter("\"ReferenceId\" IS NOT NULL");
+
                     b.ToTable("ReputationLogs");
 
                     b.HasData(
@@ -952,6 +957,11 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<bool>("WarehouseReady")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.HasKey("Id");
 
                     b.HasIndex("ReviewedBy");
@@ -981,7 +991,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
-                            WardCode = "00001"
+                            WardCode = "00001",
+                            WarehouseReady = true
                         });
                 });
 
@@ -1016,6 +1027,12 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxValue")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("MinValue")
+                        .HasColumnType("numeric");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1176,6 +1193,10 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("EmailVerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("FirebaseUid")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -1197,7 +1218,6 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)");
 
                     b.Property<string>("PasswordHash")
-                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
@@ -1227,6 +1247,10 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("FirebaseUid")
+                        .IsUnique()
+                        .HasFilter("\"FirebaseUid\" IS NOT NULL");
 
                     b.HasIndex("RoleId");
 
@@ -1642,6 +1666,17 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<int?>("ReferenceType")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("RefundAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("RefundMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("RefundStatus")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ReportedUserId")
                         .HasColumnType("uuid");
 
@@ -1672,6 +1707,9 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("RefundStatus")
+                        .HasDatabaseName("IX_UserReports_RefundStatus");
+
                     b.HasIndex("ReportedUserId");
 
                     b.HasIndex("ReporterId");
@@ -1688,6 +1726,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             Description = "Yêu cầu cung cấp thêm hoá đơn VAT cho đơn hàng",
                             EvidenceUrls = new List<string> { "https://images.nexus.local/reports/invoice-request.png" },
                             IsDeleted = false,
+                            RefundStatus = 0,
                             ReportedUserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             ReporterId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ResolutionNote = "Người bán đã xuất hoá đơn điện tử gửi qua email.",

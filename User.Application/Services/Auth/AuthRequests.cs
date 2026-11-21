@@ -1,5 +1,7 @@
 namespace User.Application.Services.Auth;
 
+using System.ComponentModel.DataAnnotations;
+
 public sealed record RegisterApiRequest(
     string Email,
     string Password,
@@ -56,4 +58,11 @@ public sealed record ChangePasswordApiRequest(
     string OldPassword,
     string NewPassword,
     string ConfirmPassword
+);
+
+public sealed record GoogleLoginApiRequest(
+    [Required(ErrorMessage = "Firebase ID token is required.")]
+    string IdToken,
+    string? DeviceInfo = null,
+    string? IpAddress = null
 );

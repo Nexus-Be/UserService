@@ -146,6 +146,49 @@ public sealed class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// [Public] Xác thực đăng nhập bằng Google qua Firebase ID Token và cấp cặp JWT Access Token và Refresh Token.
+    /// </summary>
+    /// <param name="request">Payload chứa Firebase ID Token.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu bất đồng bộ.</param>
+    /// <returns>Cặp JWT Access Token, Refresh Token, thời hạn hết hạn và hồ sơ người dùng.</returns>
+    /// <response code="200">Đăng nhập Google thành công.</response>
+    /// <response code="400">VAL_INVALID_INPUT hoặc FIREBASE_EMAIL_REQUIRED.</response>
+    /// <response code="401">INVALID_FIREBASE_TOKEN nếu Firebase ID Token không hợp lệ hoặc đã hết hạn.</response>
+    /// <response code="403">FIREBASE_EMAIL_NOT_VERIFIED hoặc ACCOUNT_BANNED.</response>
+    /// <response code="404">USER_NOT_FOUND nếu tài khoản đã bị xóa.</response>
+    /// <response code="409">FIREBASE_UID_MISMATCH nếu email đã liên kết với tài khoản Google khác.</response>
+    [HttpPost("google")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(LoginApiResponse))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginApiRequest request, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[REST GoogleLogin] Incoming Google Sign-In request");
+        var (deviceInfo, ipAddress) = ExtractClientMetadata();
+        var dto = new GoogleLoginDto(
+            request?.IdToken ?? string.Empty,
+            request?.DeviceInfo ?? deviceInfo,
+            request?.IpAddress ?? ipAddress);
+        var result = await _authService.LoginWithGoogleAsync(dto, cancellationToken);
+
+        return Ok(new LoginApiResponse(
+            AccessToken: result.AccessToken,
+            RefreshToken: result.RefreshToken,
+            TokenType: result.TokenType,
+            ExpiresIn: result.ExpiresIn,
+            User: result.User,
+            UserId: result.UserId ?? result.User.Id,
+            Email: result.Email ?? result.User.Email,
+            Role: result.Role ?? result.User.Role,
+            Roles: result.Roles ?? result.User.Roles,
+            Permissions: result.Permissions ?? result.User.Permissions
+        ));
+    }
+
+    /// <summary>
     /// [Public] Cấp mới Access Token (JWT) bằng Refresh Token hợp lệ (Token Rotation).
     /// </summary>
     /// <param name="request">Payload chứa Refresh Token và DeviceInfo.</param>
