@@ -45,17 +45,19 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
             ward_code = wardCode
         };
 
+        HttpResponseMessage? response = null;
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Creating warehouse for Seller '{SellerId}' (User: '{UserId}'), Shop: '{ShopName}' at public route /api/v1/warehouses/initialize",
                 sellerId, effectiveSellerId, shopName);
-            var response = await _httpClient.PostAsJsonAsync("api/v1/warehouses/initialize", payload, cancellationToken);
+            response = await _httpClient.PostAsJsonAsync("api/v1/warehouses/initialize", payload, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 _logger.LogWarning("[FULFILLMENT CLIENT] Route 'api/v1/warehouses/initialize' returned 404 for Seller '{SellerId}'. Retrying via legacy route 'api/v1/internal/warehouses'...",
                     effectiveSellerId);
                 response.Dispose();
+                response = null;
                 response = await _httpClient.PostAsJsonAsync("api/v1/internal/warehouses", payload, cancellationToken);
             }
 
@@ -69,6 +71,10 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
             _logger.LogWarning("[FULFILLMENT CLIENT] Warehouse creation rejected by FulfillmentService for Seller '{SellerId}'. StatusCode: {StatusCode}, Error: {Error}", effectiveSellerId, (int)response.StatusCode, errorBody);
             return false;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogError(ex, "[FULFILLMENT CLIENT] Warehouse creation timed out (>5s) for Seller '{SellerId}'.", effectiveSellerId);
@@ -78,6 +84,10 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         {
             _logger.LogError(ex, "[FULFILLMENT CLIENT] Network or unexpected failure while calling FulfillmentService for Seller '{SellerId}'.", effectiveSellerId);
             return false;
+        }
+        finally
+        {
+            response?.Dispose();
         }
     }
 
@@ -104,7 +114,7 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Updating warehouse for Seller '{SellerId}'", sellerId);
-            var response = await _httpClient.PutAsJsonAsync($"api/v1/warehouses/seller/{sellerId}", payload, cancellationToken);
+            using var response = await _httpClient.PutAsJsonAsync($"api/v1/warehouses/seller/{sellerId}", payload, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -115,6 +125,10 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogWarning("[FULFILLMENT CLIENT] Warehouse update failed for Seller '{SellerId}'. StatusCode: {StatusCode}, Error: {Error}", sellerId, (int)response.StatusCode, errorBody);
             return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -130,8 +144,12 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         try
         {
             _logger.LogInformation("[FULFILLMENT CLIENT] Compensating action: Deleting orphan warehouse for Seller '{SellerId}'", sellerId);
-            var response = await _httpClient.DeleteAsync($"api/v1/warehouses/seller/{sellerId}", cancellationToken);
+            using var response = await _httpClient.DeleteAsync($"api/v1/warehouses/seller/{sellerId}", cancellationToken);
             return response.IsSuccessStatusCode;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

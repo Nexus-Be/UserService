@@ -22,4 +22,18 @@ public static class IdempotencyViolation
 
         return false;
     }
+
+    public static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        for (var inner = exception.InnerException; inner != null; inner = inner.InnerException)
+        {
+            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            if (sqlState == "23505")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

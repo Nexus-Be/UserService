@@ -24,15 +24,28 @@ public sealed class ReportServiceTests
         return new AppDbContext(options);
     }
 
+    private sealed class FakeCommerceClient : ICommerceServiceClient
+    {
+        public Task<OrderReportCheck> CheckOrderForReportAsync(Guid orderOrSubOrderId, Guid reporterId, Guid reportedUserId, System.Threading.CancellationToken cancellationToken = default)
+            => Task.FromResult(OrderReportCheck.Eligible);
+
+        public Task<bool> VerifyDeliveredOrderForDisputeAsync(Guid orderOrSubOrderId, Guid reporterId, Guid reportedUserId, System.Threading.CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<DisputeRefundResult> RequestDisputeRefundAsync(Guid subOrderId, Guid reportId, string? note, System.Threading.CancellationToken cancellationToken = default)
+            => Task.FromResult(new DisputeRefundResult(DisputeRefundOutcome.Refunded, 100m, "Refunded"));
+    }
+
     [Fact]
     public async Task CreateAndResolveReportAsync_WhenSellerViolates_DeductsSellerScoreAndCreatesPenaltyAndAuditLog()
     {
         using var dbContext = CreateInMemoryDbContext();
-        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance);
+        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, commerceServiceClient: new FakeCommerceClient());
 
         var reporterId = Guid.NewGuid();
         var sellerId = Guid.NewGuid();
         var staffId = Guid.NewGuid();
+        var orderId = Guid.NewGuid().ToString();
 
         dbContext.Users.AddRange(
             new User { Id = reporterId, Email = "buyer@nexus.local", PasswordHash = "h", FirstName = "Buyer", LastName = "Reporter", Status = UserStatus.Active },
@@ -68,8 +81,9 @@ public sealed class ReportServiceTests
             ReportedUserId = sellerId,
             TargetRole = TargetRole.Seller,
             ReferenceType = ReferenceType.Order,
-            ReferenceId = "ORD-FRAUD-99",
+            ReferenceId = orderId,
             ViolationType = ReportViolationType.Counterfeit,
+            EvidenceUrls = new List<string> { "https://cdn.nexus.local/evidence.jpg" },
             Description = "Seller shipped counterfeit replica headphones instead of authentic product."
         });
 
@@ -83,8 +97,9 @@ public sealed class ReportServiceTests
                 ReportedUserId = sellerId,
                 TargetRole = TargetRole.Seller,
                 ReferenceType = ReferenceType.Order,
-                ReferenceId = "ORD-FRAUD-99",
+                ReferenceId = orderId,
                 ViolationType = ReportViolationType.Counterfeit,
+                EvidenceUrls = new List<string> { "https://cdn.nexus.local/evidence.jpg" },
                 Description = "Submitting same report again."
             }));
         Assert.Equal("DUPLICATE_REPORT", dupEx.ErrorCode);
@@ -214,7 +229,7 @@ public sealed class ReportServiceTests
     {
         using var dbContext = CreateInMemoryDbContext();
         var walletClient = new FakeWalletClient();
-        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, walletServiceClient: walletClient);
+        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, walletServiceClient: walletClient, commerceServiceClient: new FakeCommerceClient());
 
         var reporterId = Guid.NewGuid();
         var sellerId = Guid.NewGuid();
@@ -232,8 +247,11 @@ public sealed class ReportServiceTests
             ReferenceType = ReferenceType.Order,
             ReferenceId = Guid.NewGuid().ToString(),
             ViolationType = ReportViolationType.Fraud,
+            EvidenceUrls = new List<string> { "https://cdn.nexus.local/evidence.jpg" },
             Description = "Seller did not ship authentic order."
         });
+
+        walletClient.Frozen.Clear();
 
         await service.ResolveReportAsync(report.ReportId, new ResolveReportRequest
         {
@@ -251,7 +269,7 @@ public sealed class ReportServiceTests
     {
         using var dbContext = CreateInMemoryDbContext();
         var walletClient = new FakeWalletClient();
-        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, walletServiceClient: walletClient);
+        var service = new ReportService(dbContext, NullLogger<ReportService>.Instance, walletServiceClient: walletClient, commerceServiceClient: new FakeCommerceClient());
 
         var reporterId = Guid.NewGuid();
         var sellerId = Guid.NewGuid();
@@ -278,8 +296,11 @@ public sealed class ReportServiceTests
             ReferenceType = ReferenceType.Order,
             ReferenceId = Guid.NewGuid().ToString(),
             ViolationType = ReportViolationType.Fraud,
+            EvidenceUrls = new List<string> { "https://cdn.nexus.local/evidence.jpg" },
             Description = "False report to freeze seller wallet."
         });
+
+        walletClient.Frozen.Clear();
 
         await service.DismissReportAsync(report.ReportId, new DismissReportRequest
         {

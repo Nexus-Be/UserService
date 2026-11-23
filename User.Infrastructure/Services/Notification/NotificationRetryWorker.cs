@@ -120,6 +120,7 @@ public sealed class NotificationRetryWorker : BackgroundService
                     _logger.LogInformation(
                         "[NotificationRetryWorker] Replay succeeded for SourceEventId '{SourceEventId}' (Endpoint: {Endpoint}, NotificationId: {NotificationId}).",
                         item.SourceEventId, item.Endpoint, item.NotificationId ?? "N/A");
+                    await dbContext.SaveChangesAsync(CancellationToken.None);
                     continue;
                 }
 
@@ -143,8 +144,8 @@ public sealed class NotificationRetryWorker : BackgroundService
                 var delayIndex = Math.Clamp(item.RetryCount - 1, 0, RetryBackoffSchedule.Length - 1);
                 item.NextRetryAt = DateTimeOffset.UtcNow.Add(RetryBackoffSchedule[delayIndex]);
             }
-        }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(CancellationToken.None);
+        }
     }
 }

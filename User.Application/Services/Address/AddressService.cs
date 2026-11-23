@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using User.Domain.Exceptions;
 using User.Application.Interfaces;
+using User.Application.Services.Internal;
 using User.Domain.Entities;
 
 namespace User.Application.Services.Address;
@@ -82,7 +83,7 @@ public sealed class AddressService : IAddressService
         };
 
         _dbContext.UserAddresses.Add(entity);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await SaveDefaultChangeAsync(cancellationToken);
         if (tx is not null) await tx.CommitAsync(cancellationToken);
 
         _logger.LogInformation("[ADDRESS] Created address '{AddressId}' for UserId '{UserId}' (IsDefault={IsDefault}).", entity.Id, userId, entity.IsDefault);
@@ -116,7 +117,7 @@ public sealed class AddressService : IAddressService
         entity.UpdatedAt = now;
         entity.UpdatedBy = userId;
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await SaveDefaultChangeAsync(cancellationToken);
         if (tx is not null) await tx.CommitAsync(cancellationToken);
 
         return ToDto(entity);
@@ -134,7 +135,7 @@ public sealed class AddressService : IAddressService
         entity.UpdatedAt = now;
         entity.UpdatedBy = userId;
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await SaveDefaultChangeAsync(cancellationToken);
         if (tx is not null) await tx.CommitAsync(cancellationToken);
 
         return ToDto(entity);
@@ -170,6 +171,18 @@ public sealed class AddressService : IAddressService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         if (tx is not null) await tx.CommitAsync(cancellationToken);
+    }
+
+    private async Task SaveDefaultChangeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsUniqueConstraintViolation(ex))
+        {
+            throw new DomainException("ADDRESS_DEFAULT_CONFLICT", "Another address was concurrently set as default. Please retry.", 409);
+        }
     }
 
     private async Task<UserAddress> FindOwnedAddressAsync(Guid userId, Guid addressId, CancellationToken cancellationToken)

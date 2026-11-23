@@ -11,9 +11,11 @@ using User.Domain.Entities;
 public class AppDbContext : DbContext, IUserDbContext
 {
     private static readonly SemaphoreSlim InMemoryTokenLock = new(1, 1);
+    private readonly DbContextOptions<AppDbContext> _options;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
+        _options = options;
     }
 
     public DbSet<User> Users => Set<User>();
@@ -67,30 +69,26 @@ public class AppDbContext : DbContext, IUserDbContext
         await InMemoryTokenLock.WaitAsync(cancellationToken);
         try
         {
-            var token = await RefreshTokens
-                .AsNoTracking()
+            await using var isolatedContext = new AppDbContext(_options);
+            var token = await isolatedContext.RefreshTokens
                 .FirstOrDefaultAsync(t => t.Id == tokenId, cancellationToken);
             if (token == null || token.IsRevoked)
             {
                 return false;
             }
 
+            token.IsRevoked = true;
+            token.RevokedAt = now;
+            token.UpdatedAt = now;
+
+            await isolatedContext.SaveChangesAsync(cancellationToken);
+
             var tracked = RefreshTokens.Local.FirstOrDefault(t => t.Id == tokenId);
             if (tracked != null)
             {
-                tracked.IsRevoked = true;
-                tracked.RevokedAt = now;
-                tracked.UpdatedAt = now;
-            }
-            else
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = now;
-                token.UpdatedAt = now;
-                RefreshTokens.Update(token);
+                await Entry(tracked).ReloadAsync(cancellationToken);
             }
 
-            await SaveChangesAsync(cancellationToken);
             return true;
         }
         finally

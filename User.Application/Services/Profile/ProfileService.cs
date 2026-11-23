@@ -21,17 +21,20 @@ public class ProfileService : IProfileService
     private readonly ILogger<ProfileService> _logger;
     private readonly IFileStorageService? _fileStorageService;
     private readonly IImageModerationService? _moderationService;
+    private readonly IRedisOtpService? _redisOtpService;
 
     public ProfileService(
         IUserDbContext dbContext,
         ILogger<ProfileService> logger,
         IFileStorageService? fileStorageService = null,
-        IImageModerationService? moderationService = null)
+        IImageModerationService? moderationService = null,
+        IRedisOtpService? redisOtpService = null)
     {
         _dbContext = dbContext;
         _logger = logger;
         _fileStorageService = fileStorageService;
         _moderationService = moderationService;
+        _redisOtpService = redisOtpService;
     }
 
     // =========================================================================================
@@ -54,14 +57,20 @@ public class ProfileService : IProfileService
 
         var user = await _dbContext.Users
             .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
-        if (user == null || user.IsDeleted)
+        if (user == null || user.IsDeleted || user.Status == Domain.Enums.UserStatus.Deleted)
         {
             _logger.LogWarning("[PROFILE] User profile not found or deleted for UserId: {UserId}", userId);
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        if (user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            throw new DomainException("ACCOUNT_BANNED", "User account has been banned.", 403);
         }
 
         _logger.LogInformation("[PROFILE] Profile retrieved for '{Email}' (UserId: {UserId})", user.Email, user.Id);
@@ -134,14 +143,20 @@ public class ProfileService : IProfileService
 
         var user = await _dbContext.Users
             .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
-        if (user == null || user.IsDeleted)
+        if (user == null || user.IsDeleted || user.Status == Domain.Enums.UserStatus.Deleted)
         {
             _logger.LogWarning("[PROFILE UPDATE] User not found or deleted for UserId: {UserId}", userId);
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
+        }
+
+        if (user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            throw new DomainException("ACCOUNT_BANNED", "User account has been banned.", 403);
         }
 
         var firstName = dto.FirstName;
@@ -216,7 +231,12 @@ public class ProfileService : IProfileService
         // 5. AvatarUrl if provided
         if (dto.AvatarUrl != null)
         {
-            user.AvatarUrl = string.IsNullOrWhiteSpace(dto.AvatarUrl.Trim()) ? null : dto.AvatarUrl.Trim();
+            var trimmedAvatar = dto.AvatarUrl.Trim();
+            if (trimmedAvatar.Length > 500)
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Avatar URL cannot exceed 500 characters.");
+            }
+            user.AvatarUrl = string.IsNullOrWhiteSpace(trimmedAvatar) ? null : trimmedAvatar;
         }
 
         // 6. Gender if provided
@@ -416,11 +436,16 @@ public class ProfileService : IProfileService
         }
 
         var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted && u.Status != Domain.Enums.UserStatus.Deleted, cancellationToken);
 
         if (user == null)
         {
             throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        if (user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            throw new DomainException("ACCOUNT_BANNED", "User account has been banned.", 403);
         }
 
         await AvatarViolationHelper.ModerateAndEnforceAsync(
@@ -433,7 +458,8 @@ public class ProfileService : IProfileService
             AvatarViolationHelper.PolicyCode,
             "INAPPROPRIATE_AVATAR",
             "Avatar",
-            cancellationToken);
+            cancellationToken,
+            _redisOtpService);
 
         if (content.CanSeek) content.Position = 0;
 
@@ -486,11 +512,16 @@ public class ProfileService : IProfileService
         }
 
         var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted && u.Status != Domain.Enums.UserStatus.Deleted, cancellationToken);
 
         if (user == null)
         {
             throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        if (user.Status == Domain.Enums.UserStatus.Banned)
+        {
+            throw new DomainException("ACCOUNT_BANNED", "User account has been banned.", 403);
         }
 
         if (user.AvatarUrl != null)

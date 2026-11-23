@@ -160,11 +160,17 @@ public sealed class SellerService : ISellerService
             throw new DomainException("ALREADY_SELLER", "User is already registered as a seller.");
         }
 
-        // 3. Check for pending registration in DB
+        // 3. Check for pending or suspended registration in DB
         if (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Pending)
         {
             _logger.LogWarning("[SELLER ONBOARDING] User '{UserId}' already has a pending registration.", userId);
             throw new DomainException("REQUEST_ALREADY_PENDING", "You already have a pending seller registration request.");
+        }
+
+        if (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+        {
+            _logger.LogWarning("[SELLER ONBOARDING] User '{UserId}' has a suspended seller profile.", userId);
+            throw new DomainException("SELLER_SUSPENDED", "Your seller profile is currently suspended and cannot re-register.", 403);
         }
 
         // 4. Check reputation threshold (>= 50)
@@ -328,6 +334,13 @@ public sealed class SellerService : ISellerService
         if (draft == null)
         {
             throw new DomainException("DRAFT_INVALID", "Invalid registration draft payload.");
+        }
+
+        if (!string.Equals(draft.BusinessEmail, normalizedEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("[SELLER OTP VERIFY] Business email mismatch for User '{UserId}'. Expected '{Expected}', got '{Provided}'.",
+                userId, draft.BusinessEmail, normalizedEmail);
+            throw new DomainException("EMAIL_MISMATCH", "Business email does not match the pending registration draft.", 400);
         }
 
         // 3. Verify user exists and status
@@ -1082,6 +1095,14 @@ public sealed class SellerService : ISellerService
             throw new DomainException("SELLER_NOT_FOUND", "Seller profile was not found for the current user.");
         }
 
+        if (sellerProfile.Status == SellerProfileStatus.Suspended && sellerProfile.User?.Status == UserStatus.Active)
+        {
+            if (await TryLiftExpiredSellerSuspensionAsync(sellerProfile.Id, sellerProfile.UserId, cancellationToken))
+            {
+                sellerProfile.Status = SellerProfileStatus.Approved;
+            }
+        }
+
         var reviews = sellerProfile.User?.ReviewsReceived?.Where(r => !r.IsDisabled).ToList();
         double ratingAvg = 5.0;
         if (reviews != null && reviews.Count > 0)
@@ -1165,6 +1186,11 @@ public sealed class SellerService : ISellerService
             if (trimmedShopName.Length < 3 || trimmedShopName.Length > 100)
             {
                 throw new BusinessRuleValidationException("VAL_INVALID_SHOP_NAME", "Shop name must be between 3 and 100 characters.");
+            }
+
+            if (BannedShopKeywords.Any(k => trimmedShopName.Contains(k, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new BusinessRuleValidationException("VAL_BANNED_SHOP_NAME", "Shop name contains prohibited brand or system keywords.");
             }
 
             if (!string.Equals(sellerProfile.ShopName, trimmedShopName, StringComparison.OrdinalIgnoreCase))
@@ -1265,7 +1291,7 @@ public sealed class SellerService : ISellerService
         {
             try
             {
-                _ = _fulfillmentClient.UpdateWarehouseAsync(
+                await _fulfillmentClient.UpdateWarehouseAsync(
                     sellerId: sellerProfile.UserId,
                     shopName: sellerProfile.ShopName,
                     contactPhone: sellerProfile.Hotline,
@@ -1273,11 +1299,11 @@ public sealed class SellerService : ISellerService
                     provinceId: sellerProfile.ProvinceId,
                     districtId: sellerProfile.DistrictId,
                     wardCode: sellerProfile.WardCode,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: CancellationToken.None);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[SELLER PROFILE UPDATE] Background warehouse sync failed for Seller '{SellerId}'.", sellerProfile.Id);
+                _logger.LogWarning(ex, "[SELLER PROFILE UPDATE] Warehouse sync failed for Seller '{SellerId}'.", sellerProfile.Id);
             }
         }
 
@@ -1536,6 +1562,11 @@ public sealed class SellerService : ISellerService
             throw new DomainException("SELLER_ALREADY_SUSPENDED", "Seller profile is already suspended.", 400);
         }
 
+        if (profile.Status != SellerProfileStatus.Approved)
+        {
+            throw new DomainException("INVALID_STATUS", "Only approved seller profiles can be suspended.", 400);
+        }
+
         var now = DateTimeOffset.UtcNow;
         DateTimeOffset? expiresAt = dto.DurationDays.HasValue && dto.DurationDays.Value > 0
             ? now.AddDays(dto.DurationDays.Value)
@@ -1708,6 +1739,11 @@ public sealed class SellerService : ISellerService
                 .Where(p => p.UserId == userId && !p.IsDeleted)
                 .OrderByDescending(p => p.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        if (profile != null && profile.Status == SellerProfileStatus.Approved)
+        {
+            throw new DomainException("KYC_LOCKED", "KYC documents cannot be modified after seller registration has been approved.", 409);
         }
 
         var folder = $"seller-kyc/{userId}";
@@ -1896,6 +1932,51 @@ public sealed class SellerService : ISellerService
             entityId: profile.Id.ToString(),
             newValues: new { warehouseReady = true, note = "Warehouse created in Fulfillment after a failed attempt at approval." });
         await _dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private async Task<bool> TryLiftExpiredSellerSuspensionAsync(Guid sellerProfileId, Guid userId, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var activePenalties = await _dbContext.UserPenalties
+            .Where(p => p.UserId == userId && p.Status == PenaltyStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        var hasUnexpiredSellerOrAccountSanction = activePenalties.Any(p =>
+            (p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account) &&
+            (p.ExpiresAt == null || p.ExpiresAt > now));
+
+        if (hasUnexpiredSellerOrAccountSanction)
+        {
+            return false;
+        }
+
+        var expiredSellerPenalties = activePenalties
+            .Where(p => p.TargetRole == TargetRole.Seller && p.ExpiresAt.HasValue && p.ExpiresAt.Value <= now)
+            .ToList();
+
+        if (expiredSellerPenalties.Count == 0)
+        {
+            return false;
+        }
+
+        var trackedProfile = await _dbContext.SellerProfiles
+            .FirstOrDefaultAsync(sp => sp.Id == sellerProfileId, cancellationToken);
+
+        if (trackedProfile == null || trackedProfile.Status != SellerProfileStatus.Suspended)
+        {
+            return false;
+        }
+
+        foreach (var penalty in expiredSellerPenalties)
+        {
+            penalty.Status = PenaltyStatus.Expired;
+            penalty.UpdatedAt = now;
+        }
+
+        trackedProfile.Reactivate();
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("[SELLER SUSPENSION EXPIRED] Automatically reactivated SellerProfile '{SellerId}' after temporary suspension expired.", sellerProfileId);
         return true;
     }
 }

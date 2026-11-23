@@ -173,7 +173,8 @@ public sealed class AdminConfigService : IAdminConfigService
 
     private static void ValidateConfigRange(SystemConfig config, string value)
     {
-        if (config.DataType != ConfigDataType.Int || !decimal.TryParse(value, out var number))
+        if (config.DataType is not (ConfigDataType.Int or ConfigDataType.Decimal)
+            || !decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var number))
         {
             return;
         }
@@ -194,9 +195,16 @@ public sealed class AdminConfigService : IAdminConfigService
         switch (dataType)
         {
             case ConfigDataType.Int:
-                if (!int.TryParse(value, out _))
+                if (!int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
                 {
                     throw new DomainException("INVALID_CONFIG_VALUE", "Configuration parameter value must be a valid integer.", 400);
+                }
+                break;
+
+            case ConfigDataType.Decimal:
+                if (!decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _))
+                {
+                    throw new DomainException("INVALID_CONFIG_VALUE", "Configuration parameter value must be a valid decimal number.", 400);
                 }
                 break;
 
@@ -204,6 +212,17 @@ public sealed class AdminConfigService : IAdminConfigService
                 if (!bool.TryParse(value, out _))
                 {
                     throw new DomainException("INVALID_CONFIG_VALUE", "Configuration parameter value must be a valid boolean (true or false).", 400);
+                }
+                break;
+
+            case ConfigDataType.Json:
+                try
+                {
+                    using var _ = System.Text.Json.JsonDocument.Parse(value);
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    throw new DomainException("INVALID_CONFIG_VALUE", "Configuration parameter value must be valid JSON.", 400);
                 }
                 break;
         }

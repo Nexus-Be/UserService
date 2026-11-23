@@ -36,7 +36,8 @@ public static class AvatarViolationHelper
         string policyCode,
         string errorCode,
         string itemLabel,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IRedisOtpService? redisOtpService = null)
     {
         if (moderationService == null)
         {
@@ -61,6 +62,18 @@ public static class AvatarViolationHelper
                     policyCode: policyCode,
                     cancellationToken: cancellationToken);
                 await dbContext.SaveChangesAsync(cancellationToken);
+
+                if (outcome.AutoBanned && redisOtpService != null)
+                {
+                    try
+                    {
+                        await redisOtpService.RevokeUserTokensAsync(userId, TimeSpan.FromDays(30));
+                    }
+                    catch
+                    {
+                        // Best-effort Redis token revocation; DB ban & RefreshToken revocation already committed.
+                    }
+                }
 
                 var message = outcome.AutoBanned
                     ? $"{itemLabel} violates community standards. Your account has been banned due to repeated violations."
@@ -98,7 +111,7 @@ public static class AvatarViolationHelper
             isPenalty: true);
 
         var effectiveReason = string.IsNullOrWhiteSpace(reason)
-            ? "Vi phạm tiêu chuẩn cộng đồng về hình ảnh."
+            ? "Violated community image standards."
             : reason.Trim();
 
         dbContext.ReputationLogs.Add(new ReputationLog
@@ -146,7 +159,7 @@ public static class AvatarViolationHelper
         if (shouldAutoBan && user.Status != UserStatus.Banned)
         {
             var oldStatus = user.Status.ToString();
-            var banReason = $"Tự động khóa tài khoản sau {violationCount} lần vi phạm tải lên hình ảnh không phù hợp.";
+            var banReason = $"Automatically banned account after {violationCount} inappropriate image upload violations.";
             user.Status = UserStatus.Banned;
             user.BannedAt = now;
             user.BannedBy = actorId;

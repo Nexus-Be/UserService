@@ -51,8 +51,8 @@ public sealed class CommerceOrderClient : ICommerceOrderClient
         {
             throw;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException
-                                          || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is HttpRequestException or JsonException
+                                          || (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             _logger.LogError(exception,
                 "[COMMERCE CLIENT] Review eligibility for {ReferenceType} '{ReferenceId}' could not be read.", referenceType, referenceId);

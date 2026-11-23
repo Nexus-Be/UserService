@@ -231,14 +231,6 @@ public sealed class AuthController : ControllerBase
     public async Task<IActionResult> Logout([FromBody] LogoutApiRequest? request, CancellationToken cancellationToken)
     {
         var rawToken = request?.RefreshToken?.Trim();
-        if (string.IsNullOrWhiteSpace(rawToken))
-        {
-            var authHeader = Request.Headers.Authorization.ToString();
-            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            {
-                rawToken = authHeader["Bearer ".Length..].Trim();
-            }
-        }
 
         _logger.LogInformation("[REST Logout] Revoking token");
         await _authService.LogoutAsync(rawToken ?? string.Empty, cancellationToken);

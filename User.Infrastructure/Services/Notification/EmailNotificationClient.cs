@@ -203,6 +203,10 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
                 "[REST Email Notification] Failed '{Endpoint}' (SourceEventId: {SourceEventId}, TraceId: {TraceId}, Status: {StatusCode}, Details: {Details}).",
                 endpoint, sourceEventId, traceId, statusCode, errorDetails);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             errorDetails = Truncate(ex.Message, 1900);
