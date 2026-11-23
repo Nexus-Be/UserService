@@ -113,6 +113,36 @@ public sealed class UserAddressTests
     }
 
     [Fact]
+    public async Task UpdateAddressAsync_PromotingToDefault_ClearsPreviousDefault()
+    {
+        using var db = CreateDbContext();
+        var userId = await SeedActiveUserAsync(db);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+
+        var first = await service.CreateAddressAsync(userId, MakeRequest("Home", isDefault: true));
+        var second = await service.CreateAddressAsync(userId, MakeRequest("Office", isDefault: false));
+
+        var updated = await service.UpdateAddressAsync(userId, second.Id, new UpdateAddressRequest(
+            RecipientName: "Nguyen Van B",
+            Phone: "0901234568",
+            Label: "Office",
+            ProvinceId: 202,
+            ProvinceName: "Ho Chi Minh",
+            DistrictId: 1442,
+            DistrictName: "District 1",
+            WardCode: "20101",
+            WardName: "Ben Nghe",
+            AddressLine: "456 Nguyen Hue",
+            IsDefault: true));
+
+        Assert.True(updated.IsDefault);
+        var all = await service.GetAddressesAsync(userId);
+        Assert.Single(all, a => a.IsDefault);
+        Assert.False(all.Single(a => a.Id == first.Id).IsDefault);
+        Assert.True(all.Single(a => a.Id == second.Id).IsDefault);
+    }
+
+    [Fact]
     public async Task DeleteAddressAsync_WhenDeletingDefault_PromotesMostRecentRemaining()
     {
         using var db = CreateDbContext();

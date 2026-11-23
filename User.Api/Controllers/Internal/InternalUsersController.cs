@@ -105,13 +105,12 @@ public sealed class InternalUsersController : ControllerBase
 
     private ActionResult? ServiceKeyDenial(Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
-        var expected = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
-            ?? configuration["INTERNAL_SERVICE_SECRET"] ?? configuration["InternalSecurity:ServiceKey"];
-        if (string.IsNullOrWhiteSpace(expected)) return StatusCode(StatusCodes.Status503ServiceUnavailable);
-        var provided = Request.Headers["X-Internal-Service-Key"].ToString();
-        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided))
-            ? null
-            : Unauthorized();
+        if (global::User.Api.Common.InternalServiceKeyValidator.TryValidate(Request, configuration, out var isConfigured))
+        {
+            return null;
+        }
+
+        return isConfigured ? Unauthorized() : StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
 
     private readonly IAdminPenaltyService? _penaltyService;

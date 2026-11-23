@@ -1,12 +1,11 @@
 namespace User.Api.Controllers.Internal;
 
 using System;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using User.Api.Common;
 using User.Application.Services.Audit;
 
 /// <summary>Lets the central log service pull audit records that have not been synced yet.</summary>
@@ -41,22 +40,13 @@ public sealed class InternalAuditLogsController : ControllerBase
 
     private IActionResult? Denied()
     {
-        var expected = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
-            ?? _configuration["INTERNAL_SERVICE_SECRET"]
-            ?? _configuration["InternalSecurity:ServiceKey"];
-        if (string.IsNullOrWhiteSpace(expected))
+        if (InternalServiceKeyValidator.TryValidate(Request, _configuration, out var isConfigured))
         {
-            return StatusCode(500, new { errorCode = "INTERNAL_CONFIGURATION_ERROR", message = "Internal service authentication is not configured." });
+            return null;
         }
 
-        var provided = Request.Headers["X-Internal-Service-Key"].ToString();
-        var a = Encoding.UTF8.GetBytes(provided);
-        var b = Encoding.UTF8.GetBytes(expected);
-        if (a.Length == 0 || !CryptographicOperations.FixedTimeEquals(a, b))
-        {
-            return StatusCode(403, new { errorCode = "FORBIDDEN", message = "Access denied to internal service resource." });
-        }
-
-        return null;
+        return isConfigured
+            ? StatusCode(403, new { errorCode = "FORBIDDEN", message = "Access denied to internal service resource." })
+            : StatusCode(500, new { errorCode = "INTERNAL_CONFIGURATION_ERROR", message = "Internal service authentication is not configured." });
     }
 }

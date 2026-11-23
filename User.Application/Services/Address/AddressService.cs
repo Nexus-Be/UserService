@@ -57,7 +57,7 @@ public sealed class AddressService : IAddressService
         var makeDefault = request.IsDefault || existing.Count == 0;
         if (makeDefault)
         {
-            ClearDefaultFlags(existing, now);
+            await ClearDefaultFlagsAndFlushAsync(existing, now, cancellationToken);
         }
 
         var entity = new UserAddress
@@ -99,10 +99,7 @@ public sealed class AddressService : IAddressService
 
         if (request.IsDefault && !entity.IsDefault)
         {
-            var others = await _dbContext.UserAddresses
-                .Where(a => a.UserId == userId && a.Id != addressId && a.IsDefault && !a.IsDeleted)
-                .ToListAsync(cancellationToken);
-            ClearDefaultFlags(others, now);
+            await ClearOtherDefaultsAndFlushAsync(userId, addressId, now, cancellationToken);
             entity.IsDefault = true;
         }
 
@@ -131,10 +128,7 @@ public sealed class AddressService : IAddressService
         var entity = await FindOwnedAddressAsync(userId, addressId, cancellationToken);
         var now = DateTimeOffset.UtcNow;
 
-        var others = await _dbContext.UserAddresses
-            .Where(a => a.UserId == userId && a.Id != addressId && a.IsDefault && !a.IsDeleted)
-            .ToListAsync(cancellationToken);
-        ClearDefaultFlags(others, now);
+        await ClearOtherDefaultsAndFlushAsync(userId, addressId, now, cancellationToken);
 
         entity.IsDefault = true;
         entity.UpdatedAt = now;
@@ -203,15 +197,39 @@ public sealed class AddressService : IAddressService
             : null;
     }
 
-    private static void ClearDefaultFlags(IEnumerable<UserAddress> addresses, DateTimeOffset now)
+    private async Task ClearOtherDefaultsAndFlushAsync(
+        Guid userId,
+        Guid excludeAddressId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
+        var others = await _dbContext.UserAddresses
+            .Where(a => a.UserId == userId && a.Id != excludeAddressId && a.IsDefault && !a.IsDeleted)
+            .ToListAsync(cancellationToken);
+        await ClearDefaultFlagsAndFlushAsync(others, now, cancellationToken);
+    }
+
+    private async Task ClearDefaultFlagsAndFlushAsync(
+        IEnumerable<UserAddress> addresses,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var cleared = false;
         foreach (var addr in addresses)
         {
             if (addr.IsDefault)
             {
                 addr.IsDefault = false;
                 addr.UpdatedAt = now;
+                cleared = true;
             }
+        }
+
+        if (cleared)
+        {
+            // Flush false flags before setting/inserting IsDefault = true so PostgreSQL's
+            // filtered unique index IX_UserAddresses_UserId_Default is never violated mid-batch.
+            await _dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 
