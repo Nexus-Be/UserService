@@ -204,6 +204,11 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
         }
 
         var now = DateTimeOffset.UtcNow;
+        if (penalty.Status == PenaltyStatus.Expired || (penalty.ExpiresAt.HasValue && penalty.ExpiresAt.Value <= now))
+        {
+            throw new DomainException("PENALTY_EXPIRED", "Expired penalty cannot be revoked.", 400);
+        }
+
         penalty.Revoke(adminId, trimmedReason);
 
         var restoredState = "PenaltyRevoked";
@@ -406,21 +411,53 @@ public sealed class AdminPenaltyService : IAdminPenaltyService
                 );
             }
 
+            var hasSellerSanction = activePenalties.Any(p =>
+                (p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account) &&
+                (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+
             if (user.SellerProfile.Status == SellerProfileStatus.Suspended)
             {
+                var hasExpiredSellerPenalty = !hasSellerSanction && user.Status == UserStatus.Active && await _dbContext.UserPenalties
+                    .AsNoTracking()
+                    .AnyAsync(p => p.UserId == userId &&
+                                   p.TargetRole == TargetRole.Seller &&
+                                   p.Status == PenaltyStatus.Active &&
+                                   p.ExpiresAt != null &&
+                                   p.ExpiresAt <= now, cancellationToken);
+
+                if (!hasExpiredSellerPenalty)
+                {
+                    return new UserActionPermissionCheckResponseDto(
+                        UserId: userId.ToString(),
+                        Action: actionName,
+                        IsAllowed: false,
+                        Reason: $"Seller profile is suspended. Reason: {user.SellerProfile.RejectionReason ?? "Operational violation"}",
+                        ExpiresAt: nearestExpiry,
+                        ActiveRestrictions: restrictions
+                    );
+                }
+
                 return new UserActionPermissionCheckResponseDto(
                     UserId: userId.ToString(),
                     Action: actionName,
-                    IsAllowed: false,
-                    Reason: $"Seller profile is suspended. Reason: {user.SellerProfile.RejectionReason ?? "Operational violation"}",
+                    IsAllowed: user.Role?.RoleCode == RoleType.Seller,
+                    Reason: user.Role?.RoleCode == RoleType.Seller ? null : "User does not have the Seller role.",
                     ExpiresAt: nearestExpiry,
                     ActiveRestrictions: restrictions
                 );
             }
 
-            var hasSellerSanction = activePenalties.Any(p =>
-                (p.TargetRole == TargetRole.Seller || p.TargetRole == TargetRole.Account) &&
-                (p.PenaltyApplied == PenaltyType.Restriction || p.PenaltyApplied == PenaltyType.BanAccount));
+            if (user.Role?.RoleCode != RoleType.Seller)
+            {
+                return new UserActionPermissionCheckResponseDto(
+                    UserId: userId.ToString(),
+                    Action: actionName,
+                    IsAllowed: false,
+                    Reason: "User does not have the Seller role.",
+                    ExpiresAt: nearestExpiry,
+                    ActiveRestrictions: new List<string> { "NO_SELLER_ROLE" }
+                );
+            }
 
             var canSell = user.Status == UserStatus.Active &&
                           user.SellerProfile.Status == SellerProfileStatus.Approved &&

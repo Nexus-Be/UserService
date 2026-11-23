@@ -85,17 +85,20 @@ public class AuthService : IAuthService
             }
 
             var usernameLower = username.ToLowerInvariant();
-            var usernameTaken = await _dbContext.Users.AnyAsync(
-                u => u.Username != null && u.Username.ToLower() == usernameLower && u.Email != email,
-                cancellationToken);
+            var usernameTaken = await _dbContext.Users
+                .IgnoreQueryFilters()
+                .AnyAsync(
+                    u => u.Username != null && u.Username.ToLower() == usernameLower && u.Email != email,
+                    cancellationToken);
 
             if (usernameTaken)
             {
-                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.");
+                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.", 409);
             }
         }
 
         var existingUser = await _dbContext.Users
+            .IgnoreQueryFilters()
             .Include(u => u.Role)
                 .ThenInclude(r => r!.ParentRole)
             .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
@@ -104,9 +107,14 @@ public class AuthService : IAuthService
 
         if (existingUser != null)
         {
+            if (existingUser.IsDeleted || existingUser.Status == UserStatus.Deleted)
+            {
+                throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.", 409);
+            }
+
             if (existingUser.Status == UserStatus.Active)
             {
-                throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.");
+                throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.", 409);
             }
 
             if (existingUser.Status == UserStatus.Banned)
@@ -500,7 +508,7 @@ public class AuthService : IAuthService
                 .ThenInclude(r => r!.ParentRole)
             .FirstOrDefaultAsync(u => u.Email == normalizedIdentifier || u.Email == identifier || (u.Username != null && u.Username.ToLower() == normalizedIdentifier), cancellationToken);
 
-        if (user == null || user.IsDeleted)
+        if (user == null || user.IsDeleted || user.Status == UserStatus.Deleted)
         {
             _logger.LogWarning("[AUTH] Login failed: User '{Identifier}' does not exist or was deleted.", identifier);
             var attempts = await _otpService.IncrementLoginAttemptsAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
@@ -512,13 +520,15 @@ public class AuthService : IAuthService
             throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
+        var lockoutKey = user.Email.Trim().ToLowerInvariant();
+
         if (user.Status == UserStatus.Banned)
         {
             _logger.LogWarning("[AUTH] Login rejected: User '{Email}' has been banned. Reason: '{Reason}'.", user.Email, user.BanReason);
             throw new DomainException("ACCOUNT_BANNED", FormatBanMessage(user.BanReason), 403);
         }
 
-        if (await _otpService.IsAccountLockedAsync(normalizedIdentifier))
+        if (await _otpService.IsAccountLockedAsync(lockoutKey))
         {
             _logger.LogWarning("[AUTH] Login rejected: Account '{Identifier}' is temporarily locked.", identifier);
             throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
@@ -541,16 +551,16 @@ public class AuthService : IAuthService
         if (!isPasswordValid)
         {
             _logger.LogWarning("[AUTH] Login failed: Invalid password provided for '{Email}'.", user.Email);
-            var attempts = await _otpService.IncrementLoginAttemptsAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
+            var attempts = await _otpService.IncrementLoginAttemptsAsync(lockoutKey, TimeSpan.FromMinutes(30));
             if (attempts >= 5)
             {
-                await _otpService.LockAccountAsync(normalizedIdentifier, TimeSpan.FromMinutes(30));
+                await _otpService.LockAccountAsync(lockoutKey, TimeSpan.FromMinutes(30));
                 throw new DomainException("ACCOUNT_LOCKED_TEMPORARY", "Account is temporarily locked for 30 minutes due to 5 consecutive failed login attempts.", 423);
             }
             throw new DomainException("INVALID_CREDENTIALS", "Invalid username, email, or password.", 401);
         }
 
-        await _otpService.ResetLoginAttemptsAsync(normalizedIdentifier);
+        await _otpService.ResetLoginAttemptsAsync(lockoutKey);
 
         if (user.Status == UserStatus.PendingVerification)
         {
@@ -906,7 +916,7 @@ public class AuthService : IAuthService
         }
 
         var user = tokenEntity.User;
-        if (user == null || user.IsDeleted)
+        if (user == null || user.IsDeleted || user.Status == UserStatus.Deleted)
         {
             _logger.LogWarning("[AUTH] Refresh token rejected: User '{UserId}' not found or deleted.", tokenEntity.UserId);
             throw new DomainException("USER_NOT_FOUND", "User account not found.");
@@ -929,11 +939,15 @@ public class AuthService : IAuthService
         var now = DateTimeOffset.UtcNow;
         var sessionId = tokenEntity.SessionId != Guid.Empty ? tokenEntity.SessionId : tokenEntity.Id;
 
+        var isRelational = !string.Equals(_dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.OrdinalIgnoreCase);
+        await using var tx = isRelational ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+
         var wonAtomicRevoke = await _dbContext.TryRevokeRefreshTokenAtomicAsync(tokenEntity.Id, now, cancellationToken);
         if (!wonAtomicRevoke)
         {
             _logger.LogWarning("[AUTH] Concurrent or replayed refresh detected for Token '{TokenId}' (Session '{SessionId}'). Revoking session.", tokenEntity.Id, sessionId);
             await _dbContext.RevokeSessionTokensAsync(sessionId, now, cancellationToken);
+            if (tx is not null) await tx.CommitAsync(cancellationToken);
             throw new DomainException("REFRESH_TOKEN_REVOKED", "Refresh token has been revoked.");
         }
 
@@ -990,6 +1004,7 @@ public class AuthService : IAuthService
         );
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (tx is not null) await tx.CommitAsync(cancellationToken);
 
         _logger.LogInformation("[AUTH] Rotated refresh token for UserId: {UserId}. New JWT issued.", user.Id);
 

@@ -64,6 +64,18 @@ public sealed class ReportService : IReportService
         }
 
         var normalizedRefId = string.IsNullOrWhiteSpace(request.ReferenceId) ? null : request.ReferenceId.Trim();
+        var evidence = request.EvidenceUrls?.Where(u => !string.IsNullOrWhiteSpace(u)).Take(5).ToList() ?? new List<string>();
+        Guid orderOrSubOrderId = Guid.Empty;
+
+        if (request.ReferenceType == ReferenceType.Order)
+        {
+            if (!Guid.TryParse(normalizedRefId, out orderOrSubOrderId) || orderOrSubOrderId == Guid.Empty)
+            {
+                throw new DomainException("VAL_INVALID_INPUT", "Order reference must be a valid order or sub-order ID.", 400);
+            }
+
+            normalizedRefId = orderOrSubOrderId.ToString("D");
+        }
 
         var duplicatePending = await _dbContext.UserReports
             .AsNoTracking()
@@ -80,18 +92,16 @@ public sealed class ReportService : IReportService
             throw new DomainException("DUPLICATE_REPORT", "An active report already exists for this user and transaction reference.", 409);
         }
 
-        var evidence = request.EvidenceUrls?.Where(u => !string.IsNullOrWhiteSpace(u)).Take(5).ToList() ?? new List<string>();
         var now = DateTimeOffset.UtcNow;
 
         // An order report must point at a real, delivered order of the reporter against one of its sellers, and the check has to succeed
         // BEFORE anything is saved: when Commerce cannot answer the report is refused (retryable), never stored as if it were verified.
         var orderVerifiedForDispute = false;
-        Guid orderOrSubOrderId = Guid.Empty;
-        if (request.ReferenceType == ReferenceType.Order && _commerceServiceClient != null)
+        if (request.ReferenceType == ReferenceType.Order)
         {
-            if (!Guid.TryParse(normalizedRefId, out orderOrSubOrderId))
+            if (_commerceServiceClient == null)
             {
-                throw new DomainException("VAL_INVALID_INPUT", "Order reference must be a valid order or sub-order ID.", 400);
+                throw new DomainException("ORDER_VERIFICATION_UNAVAILABLE", "The order could not be verified right now. Please try again later.", 503);
             }
 
             if (RequiresEvidence(request.ViolationType) && evidence.Count == 0)
@@ -281,7 +291,10 @@ public sealed class ReportService : IReportService
                 _dbContext.ReputationScores.Add(repScore);
             }
 
-            var scoreTrack = effectiveTargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+            var scoreTrack = effectiveTargetRole == TargetRole.Seller
+                || (effectiveTargetRole == TargetRole.Account && report.ReferenceType == ReferenceType.Order && reportedUser.SellerProfile != null)
+                ? TargetRole.Seller
+                : TargetRole.Buyer;
             var (_, newScore, appliedDelta) = repScore.ApplyScoreChange(
                 scoreTrack,
                 -Math.Abs(request.ScoreDeduction),
@@ -312,13 +325,13 @@ public sealed class ReportService : IReportService
         {
             reportedUser.Status = UserStatus.Banned;
             reportedUser.UpdatedAt = now;
-            if (reportedUser.SellerProfile != null)
+            if (reportedUser.SellerProfile != null && reportedUser.SellerProfile.Status == SellerProfileStatus.Approved)
             {
                 reportedUser.SellerProfile.Status = SellerProfileStatus.Suspended;
                 reportedUser.SellerProfile.UpdatedAt = now;
             }
         }
-        else if (request.SuspendSellerShop && reportedUser.SellerProfile != null)
+        else if (request.SuspendSellerShop && reportedUser.SellerProfile != null && reportedUser.SellerProfile.Status == SellerProfileStatus.Approved)
         {
             reportedUser.SellerProfile.Status = SellerProfileStatus.Suspended;
             reportedUser.SellerProfile.UpdatedAt = now;
@@ -365,6 +378,11 @@ public sealed class ReportService : IReportService
             appliedPenaltyName = effectivePenaltyType.ToEnumString();
         }
 
+        if (request.RefundBuyer)
+        {
+            report.RefundStatus = ReportRefundStatus.Pending;
+        }
+
         _dbContext.AddAuditLog(
             action: AuditAction.ReportResolve,
             entityName: nameof(UserReport),
@@ -381,8 +399,7 @@ public sealed class ReportService : IReportService
             userId: actorId.ToString(),
             changedColumns: new[] { nameof(UserReport.Status), nameof(UserReport.ResolvedBy), nameof(UserReport.ResolvedAt), nameof(UserReport.ResolutionNote) });
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
+        var isBanning = request.BanAccount || request.PenaltyApplied == PenaltyType.BanAccount;
         if (report.ReferenceType == ReferenceType.Order && _walletServiceClient != null)
         {
             if (request.FreezeWallet)
@@ -392,7 +409,7 @@ public sealed class ReportService : IReportService
                     $"REPORT_RESOLVED_{report.Id}",
                     cancellationToken);
             }
-            else
+            else if (!isBanning)
             {
                 await _walletServiceClient.UnfreezeWalletAsync(
                     report.ReportedUserId,
@@ -400,6 +417,8 @@ public sealed class ReportService : IReportService
                     cancellationToken);
             }
         }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         // The decision is saved first. The refund is a separate step whose outcome is stored on the report, so a Commerce or wallet
         // failure never undoes the decision, and a failed refund is visible to staff and can be retried.
@@ -761,6 +780,9 @@ public sealed class ReportService : IReportService
         ResolvedBy = r.ResolvedBy,
         ResolvedAt = r.ResolvedAt,
         ResolutionNote = r.ResolutionNote,
+        RefundStatus = r.RefundStatus.ToString(),
+        RefundAmount = r.RefundAmount,
+        RefundMessage = r.RefundMessage,
         CreatedAt = r.CreatedAt
     };
 }

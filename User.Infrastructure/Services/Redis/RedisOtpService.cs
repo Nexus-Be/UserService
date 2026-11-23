@@ -22,6 +22,28 @@ public sealed class RedisOtpService : IRedisOtpService
     private readonly ConcurrentDictionary<string, (string Value, DateTimeOffset ExpiresAt)> _inMemoryBans = new(StringComparer.OrdinalIgnoreCase);
     private const string KeyPrefix = "otp:registration:";
 
+    private const string MarkOtpConsumedScript = @"
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local entry = cjson.decode(raw)
+if entry['Status'] == 1 then return 0 end
+entry['Status'] = 1
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl > 0 then
+    redis.call('SET', KEYS[1], cjson.encode(entry), 'PX', ttl)
+else
+    redis.call('SET', KEYS[1], cjson.encode(entry), 'EX', tonumber(ARGV[1]))
+end
+return 1";
+
+    private const string IncrementWithExpiryScript = @"
+local count = redis.call('INCR', KEYS[1])
+local ttl = redis.call('TTL', KEYS[1])
+if ttl == -1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return count";
+
     public RedisOtpService(
         ILogger<RedisOtpService> logger,
         IConnectionMultiplexer? redis = null)
@@ -98,27 +120,21 @@ public sealed class RedisOtpService : IRedisOtpService
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(key);
-            if (!value.IsNullOrEmpty)
+            try
             {
-                try
-                {
-                    var entry = JsonSerializer.Deserialize<OtpEntry>(value.ToString()!);
-                    if (entry != null)
-                    {
-                        entry.Status = OtpStatus.Consumed;
-                        var ttl = await db.KeyTimeToLiveAsync(key);
-                        var remainingTtl = ttl ?? TimeSpan.FromMinutes(10);
-                        if (remainingTtl <= TimeSpan.Zero) remainingTtl = TimeSpan.FromMinutes(1);
+                var updated = (int)await db.ScriptEvaluateAsync(
+                    MarkOtpConsumedScript,
+                    new RedisKey[] { key },
+                    new RedisValue[] { 600 });
 
-                        await db.StringSetAsync(key, JsonSerializer.Serialize(entry), remainingTtl);
-                        _logger.LogInformation("Marked OTP as Consumed for '{Email}'.", email);
-                    }
-                }
-                catch (Exception ex)
+                if (updated == 1)
                 {
-                    _logger.LogError(ex, "Failed to mark OTP as consumed in Redis for '{Email}'.", email);
+                    _logger.LogInformation("Marked OTP as Consumed for '{Email}'.", email);
                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to mark OTP as consumed in Redis for '{Email}'.", email);
             }
         }
         else
@@ -156,12 +172,11 @@ public sealed class RedisOtpService : IRedisOtpService
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            var count = await db.StringIncrementAsync(key);
-            if (count == 1)
-            {
-                await db.KeyExpireAsync(key, window);
-            }
-            return (int)count;
+            var count = (int)await db.ScriptEvaluateAsync(
+                IncrementWithExpiryScript,
+                new RedisKey[] { key },
+                new RedisValue[] { Math.Max(1, (long)window.TotalSeconds) });
+            return count;
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -331,13 +346,12 @@ public sealed class RedisOtpService : IRedisOtpService
         if (_redis != null && _redis.IsConnected)
         {
             var db = _redis.GetDatabase();
-            var count = await db.StringIncrementAsync(key);
-            if (count == 1)
-            {
-                await db.KeyExpireAsync(key, window);
-            }
+            var count = (int)await db.ScriptEvaluateAsync(
+                IncrementWithExpiryScript,
+                new RedisKey[] { key },
+                new RedisValue[] { Math.Max(1, (long)window.TotalSeconds) });
             _logger.LogInformation("[REDIS] Incremented OTP attempts for '{Email}' (purpose: {Purpose}, count: {Count}).", email, purpose, count);
-            return (int)count;
+            return count;
         }
 
         var now = DateTimeOffset.UtcNow;

@@ -20,10 +20,16 @@ public static class RoleExtensions
     public static List<string> GetInheritedRoleClaims(this Role? role)
     {
         var roles = new List<string>();
+        var visitedRoleIds = new HashSet<Guid>();
+        var visitedRefs = new HashSet<Role>(ReferenceEqualityComparer.Instance);
         var currentRole = role;
 
         while (currentRole != null)
         {
+            if (!visitedRefs.Add(currentRole) || (currentRole.Id != Guid.Empty && !visitedRoleIds.Add(currentRole.Id)))
+            {
+                break;
+            }
             var roleClaim = currentRole.RoleCode switch
             {
                 RoleType.Admin => "admin",

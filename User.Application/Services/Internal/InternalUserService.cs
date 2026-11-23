@@ -331,6 +331,22 @@ public sealed class InternalUserService : IInternalUserService
             };
         }
 
+        var auctionProfile = await _dbContext.UserAuctionProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == request.UserId, cancellationToken);
+
+        var restriction = auctionProfile.ResolveActiveRestriction(now);
+        if (restriction.IsRestricted)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = restriction.Type == AuctionRestrictionType.Suspended ? "AUCTION_SUSPENDED" : "AUCTION_TEMP_RESTRICTED"
+            };
+        }
+
         var minRequiredScore = await GetThresholdScoreAsync(BidMinScoreConfigKey, ReputationRules.DefaultMinScoreToBid, cancellationToken);
         if (currentScore < minRequiredScore)
         {
@@ -653,24 +669,21 @@ public sealed class InternalUserService : IInternalUserService
             ? repScore.SellerTrustLevel.ToEnumString()
             : repScore.TrustLevel.ToEnumString();
 
-        if (appliedDelta != 0)
+        _dbContext.ReputationLogs.Add(new ReputationLog
         {
-            _dbContext.ReputationLogs.Add(new ReputationLog
-            {
-                Id = Guid.NewGuid(),
-                UserId = request.UserId,
-                TargetRole = effectiveTrack,
-                ChangeAmount = appliedDelta,
-                ScoreAfter = newScore,
-                Reason = request.Reason,
-                ReferenceType = request.ReferenceType,
-                ReferenceId = normalizedRefId,
-                PartnerUserId = request.PartnerUserId,
-                Note = request.Note,
-                CreatedAt = now,
-                UpdatedAt = now
-            });
-        }
+            Id = Guid.NewGuid(),
+            UserId = request.UserId,
+            TargetRole = effectiveTrack,
+            ChangeAmount = appliedDelta,
+            ScoreAfter = newScore,
+            Reason = request.Reason,
+            ReferenceType = request.ReferenceType,
+            ReferenceId = normalizedRefId,
+            PartnerUserId = request.PartnerUserId,
+            Note = request.Note,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
 
         try
         {
@@ -798,6 +811,10 @@ public sealed class InternalUserService : IInternalUserService
         var orderId = request.OrderId.Value;
         var occurredAt = request.OccurredAt.Value;
 
+        var isRelational = !string.Equals(_dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.OrdinalIgnoreCase);
+        await using var transaction = isRelational ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        await _dbContext.LockAuctionPaymentAsync(userId, auctionId, cancellationToken);
+
         var user = await _dbContext.Users
             .Include(u => u.ReputationScore)
             .FirstOrDefaultAsync(u => u.Id == userId && u.Status != UserStatus.Deleted, cancellationToken);
@@ -888,10 +905,16 @@ public sealed class InternalUserService : IInternalUserService
         try
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
             return MapRecordViolationResponse(violation, created: true);
         }
         catch (DbUpdateException)
         {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
             var duplicate = await FindSystemViolationAsync(userId, auctionId, violationType, cancellationToken);
 
             if (duplicate is not null)
@@ -1124,8 +1147,13 @@ public sealed class InternalUserService : IInternalUserService
 
     public async Task<BatchSellerInfoResponse> GetBatchSellerInfoAsync(BatchSellerInfoRequest request, CancellationToken cancellationToken = default)
     {
-        var userIds = request.UserIds.Where(id => id != Guid.Empty).Distinct().ToList();
-        var sellerIds = request.SellerIds.Where(id => id != Guid.Empty).Distinct().ToList();
+        if (request is null)
+        {
+            return new BatchSellerInfoResponse(Array.Empty<InternalSellerBatchItemDto>());
+        }
+
+        var userIds = (request.UserIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
+        var sellerIds = (request.SellerIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
         if (userIds.Count + sellerIds.Count > 100)
         {
             throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Batch seller lookup supports at most 100 identifiers per request.");

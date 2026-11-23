@@ -38,7 +38,7 @@ public sealed class WalletServiceClient : IWalletServiceClient
             };
 
             _logger.LogInformation("[WALLET CLIENT] Freezing wallet for User '{UserId}' due to '{Reason}'", userId, payload.reason);
-            var response = await _httpClient.PostAsJsonAsync("api/v1/internal/wallets/freeze-purchase", payload, cancellationToken);
+            using var response = await _httpClient.PostAsJsonAsync("api/v1/internal/wallets/freeze-purchase", payload, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 return true;
@@ -47,6 +47,10 @@ public sealed class WalletServiceClient : IWalletServiceClient
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogWarning("[WALLET CLIENT] Freeze wallet returned {StatusCode} for User '{UserId}': {Error}", (int)response.StatusCode, userId, errorBody);
             return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -74,7 +78,7 @@ public sealed class WalletServiceClient : IWalletServiceClient
             };
 
             _logger.LogInformation("[WALLET CLIENT] Unfreezing wallet for User '{UserId}' due to '{Reason}'", userId, payload.reason);
-            var response = await _httpClient.PostAsJsonAsync("api/v1/internal/wallets/unfreeze-purchase", payload, cancellationToken);
+            using var response = await _httpClient.PostAsJsonAsync("api/v1/internal/wallets/unfreeze-purchase", payload, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 return true;
@@ -83,6 +87,10 @@ public sealed class WalletServiceClient : IWalletServiceClient
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogWarning("[WALLET CLIENT] Unfreeze wallet returned {StatusCode} for User '{UserId}': {Error}", (int)response.StatusCode, userId, errorBody);
             return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

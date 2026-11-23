@@ -12,6 +12,7 @@ using User.Application.Common.Extensions;
 using User.Application.Common.Helpers;
 using User.Application.Common.Models;
 using User.Application.Interfaces;
+using User.Application.Services.Internal;
 using User.Domain.Constants;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -75,6 +76,8 @@ public sealed class ReviewService : IReviewService
         {
             throw new DomainException("VAL_INVALID_INPUT", "Reference ID must be the ID of a sub-order or an auction order.", 400);
         }
+
+        normalizedRefId = referenceGuid.ToString("D");
 
         var duplicateExists = await _dbContext.UserReviews
             .AsNoTracking()
@@ -223,7 +226,14 @@ public sealed class ReviewService : IReviewService
             });
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsUniqueConstraintViolation(ex))
+        {
+            throw new DomainException("REVIEW_ALREADY_EXISTS", "A review has already been submitted for this transaction reference.", 409);
+        }
 
         _logger.LogInformation(
             "[ReviewService] Review '{ReviewId}' created by '{ReviewerId}' for '{RevieweeId}' ({TargetTrack} delta: {Delta})",
@@ -293,6 +303,20 @@ public sealed class ReviewService : IReviewService
             : !IsCompleted(reference) ? "ORDER_NOT_COMPLETED"
             : IsExpired(reference) ? "PERIOD_EXPIRED"
             : null;
+
+        if (reason is null)
+        {
+            var sellerUserIdToCheck = role == ReviewerRole.Buyer ? revieweeId : reviewerId;
+            var hasApprovedSellerProfile = await _dbContext.SellerProfiles
+                .AsNoTracking()
+                .AnyAsync(sp => sp.UserId == sellerUserIdToCheck && sp.Status == SellerProfileStatus.Approved, cancellationToken);
+
+            if (!hasApprovedSellerProfile)
+            {
+                reason = "INVALID_REVIEW_ROLE";
+            }
+        }
+
         var expiresAt = reference.CompletedAt?.AddDays(ReviewWindowDays);
 
         return new ReviewEligibilityResponse(reason is null, already, reason, revieweeId, role.Value.ToEnumString(), expiresAt);

@@ -72,12 +72,13 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         var emailTaken = await _dbContext.Users
+            .IgnoreQueryFilters()
             .AnyAsync(u => u.Email == normalizedEmail, cancellationToken);
 
         if (emailTaken)
         {
             _logger.LogWarning("[ADMIN USER CREATE] Email '{Email}' is already registered.", normalizedEmail);
-            throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.");
+            throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.", 409);
         }
 
         // 2. Validate password (8 - 72 characters for BCrypt)
@@ -114,12 +115,13 @@ public sealed class AdminUserService : IAdminUserService
 
             var usernameLower = username.ToLowerInvariant();
             var usernameTaken = await _dbContext.Users
+                .IgnoreQueryFilters()
                 .AnyAsync(u => u.Username != null && u.Username.ToLower() == usernameLower, cancellationToken);
 
             if (usernameTaken)
             {
                 _logger.LogWarning("[ADMIN USER CREATE] Username '{Username}' is already taken.", username);
-                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.");
+                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.", 409);
             }
         }
 
@@ -323,14 +325,19 @@ public sealed class AdminUserService : IAdminUserService
         {
             if (status.TryToEnum<UserStatus>(out var parsedStatus))
             {
-                query = query.Where(u => u.Status == parsedStatus);
+                query = parsedStatus == UserStatus.Deleted
+                    ? query.Where(u => u.Status == UserStatus.Deleted || u.IsDeleted)
+                    : query.Where(u => !u.IsDeleted && u.Status == parsedStatus);
             }
             else if (string.Equals(status.Trim(), "pending", StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(u => u.Status == UserStatus.PendingVerification);
+                query = query.Where(u => !u.IsDeleted && u.Status == UserStatus.PendingVerification);
+            }
+            else
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_INPUT", $"Invalid status filter '{status.Trim()}'.");
             }
         }
-
         else
         {
             query = query.Where(u => !u.IsDeleted);
@@ -811,6 +818,8 @@ public sealed class AdminUserService : IAdminUserService
         // 1. Find user in DB (including soft-deleted for restoration)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
+            .Include(u => u.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
@@ -903,18 +912,84 @@ public sealed class AdminUserService : IAdminUserService
             if (parsedStatus != user.Status)
             {
                 var previousStatus = user.Status;
+                var now = DateTimeOffset.UtcNow;
+
+                // Guards before transitioning to Banned or Deleted
+                if (parsedStatus == UserStatus.Banned)
+                {
+                    if (adminId.HasValue && adminId.Value == targetUserId)
+                    {
+                        throw new BusinessRuleValidationException("CANNOT_BAN_SELF", "Administrators cannot ban their own account.");
+                    }
+
+                    if (user.Role != null && user.Role.RoleCode == RoleType.Admin)
+                    {
+                        var activeAdminCount = await _dbContext.Users
+                            .Include(u => u.Role)
+                            .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
+                            .CountAsync(cancellationToken);
+
+                        if (activeAdminCount <= 1)
+                        {
+                            throw new BusinessRuleValidationException("CANNOT_BAN_LAST_ADMIN", "Cannot ban the last active Administrator in the system.");
+                        }
+                    }
+                }
+                else if (parsedStatus == UserStatus.Deleted)
+                {
+                    if (user.Role != null && user.Role.RoleCode == RoleType.Admin)
+                    {
+                        var activeAdminCount = await _dbContext.Users
+                            .Include(u => u.Role)
+                            .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
+                            .CountAsync(cancellationToken);
+
+                        if (activeAdminCount <= 1)
+                        {
+                            throw new BusinessRuleValidationException("CANNOT_DELETE_LAST_ADMIN", "Cannot delete the last active Administrator in the system.");
+                        }
+                    }
+                }
+
                 user.Status = parsedStatus;
                 changedColumns.Add("Status");
 
                 // If transitioning to Banned
                 if (parsedStatus == UserStatus.Banned)
                 {
-                    user.BannedAt = DateTimeOffset.UtcNow;
+                    user.BannedAt = now;
                     user.BannedBy = adminId;
                     user.BanReason = dto.Reason.Trim();
                     changedColumns.Add("BannedAt");
                     changedColumns.Add("BannedBy");
                     changedColumns.Add("BanReason");
+
+                    if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Approved)
+                    {
+                        user.SellerProfile.Suspend(dto.Reason.Trim(), adminId);
+                    }
+
+                    _dbContext.UserPenalties.Add(new UserPenalty
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = targetUserId,
+                        TargetRole = TargetRole.Account,
+                        ViolationType = PenaltyViolationType.Fraud,
+                        Reason = dto.Reason.Trim(),
+                        PenaltyApplied = PenaltyType.BanAccount,
+                        PointsDeducted = 0,
+                        Status = PenaltyStatus.Active,
+                        IssuedAt = now,
+                        ExpiresAt = null,
+                        CreatedBy = adminId,
+                        PolicyClauseCode = "ACCOUNT_TERMS_VIOLATION",
+                        EvidenceUrls = new List<string>(),
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                        IsDeleted = false
+                    });
+
+                    await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
                 }
                 // If unbanning
                 else if (previousStatus == UserStatus.Banned)
@@ -925,15 +1000,39 @@ public sealed class AdminUserService : IAdminUserService
                     changedColumns.Add("BannedAt");
                     changedColumns.Add("BannedBy");
                     changedColumns.Add("BanReason");
+
+                    if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+                    {
+                        var hasActiveSellerPenalties = await _dbContext.UserPenalties
+                            .AnyAsync(p => p.UserId == targetUserId &&
+                                           p.TargetRole == TargetRole.Seller &&
+                                           p.Status == PenaltyStatus.Active &&
+                                           (p.ExpiresAt == null || p.ExpiresAt > now), cancellationToken);
+
+                        if (!hasActiveSellerPenalties)
+                        {
+                            user.SellerProfile.Reactivate();
+                        }
+                    }
+
+                    var activeAccountPenalties = await _dbContext.UserPenalties
+                        .Where(p => p.UserId == targetUserId && p.TargetRole == TargetRole.Account && p.Status == PenaltyStatus.Active)
+                        .ToListAsync(cancellationToken);
+
+                    foreach (var penalty in activeAccountPenalties)
+                    {
+                        penalty.Revoke(adminId ?? Guid.Empty, dto.Reason.Trim());
+                    }
                 }
 
                 // If transitioning to Deleted
                 if (parsedStatus == UserStatus.Deleted)
                 {
                     user.IsDeleted = true;
-                    user.DeletedAt = DateTimeOffset.UtcNow;
+                    user.DeletedAt = now;
                     changedColumns.Add("IsDeleted");
                     changedColumns.Add("DeletedAt");
+                    await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
                 }
                 else if (previousStatus == UserStatus.Deleted)
                 {
@@ -973,6 +1072,40 @@ public sealed class AdminUserService : IAdminUserService
             changedColumns: changedColumns);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        if (_redisOtpService != null && oldValues["Status"]?.ToString() != user.Status.ToString())
+        {
+            try
+            {
+                if (user.Status == UserStatus.Banned)
+                {
+                    await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+                    await _redisOtpService.LockAccountAsync(user.Email, TimeSpan.FromDays(30));
+                    await _redisOtpService.LockAccountAsync(targetUserId.ToString(), TimeSpan.FromDays(30));
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_registration");
+                }
+                else if (user.Status == UserStatus.Deleted)
+                {
+                    await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_registration");
+                }
+                else if (string.Equals(oldValues["Status"]?.ToString(), nameof(UserStatus.Banned), StringComparison.Ordinal)
+                         || string.Equals(oldValues["Status"]?.ToString(), nameof(UserStatus.Deleted), StringComparison.Ordinal))
+                {
+                    await _redisOtpService.UnbanUserAsync(targetUserId);
+                    await _redisOtpService.ResetLoginAttemptsAsync(user.Email);
+                    await _redisOtpService.ResetLoginAttemptsAsync(targetUserId.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN USER UPDATE] Error syncing Redis session state for User '{UserId}'.", targetUserId);
+            }
+        }
 
         _logger.LogInformation("[ADMIN USER UPDATE] Successfully updated user '{UserId}'. Changed columns: {ChangedCols}",
             targetUserId, string.Join(", ", changedColumns));
@@ -1186,8 +1319,8 @@ public sealed class AdminUserService : IAdminUserService
         // 3. Update User Entity via encapsulated domain method
         user.ApplyAccountBan(trimmedReason, adminId);
 
-        // 3.1. Suspend associated seller profile if present
-        if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status != SellerProfileStatus.Suspended)
+        // 3.1. Suspend associated seller profile if present and approved
+        if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Approved)
         {
             user.SellerProfile.Suspend(trimmedReason, adminId);
         }
@@ -1248,7 +1381,7 @@ public sealed class AdminUserService : IAdminUserService
                 await _redisOtpService.LockAccountAsync(targetUserId.ToString(), TimeSpan.FromDays(30));
                 await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
                 await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
-                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_onboarding");
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_registration");
             }
             catch (Exception ex)
             {
@@ -1499,9 +1632,10 @@ public sealed class AdminUserService : IAdminUserService
         user.UpdatedAt = now;
 
         var penaltyApplied = false;
+        var autoBanned = false;
         if (dto?.ApplyPenalty == true)
         {
-            await AvatarViolationHelper.ApplyPenaltyAsync(
+            var outcome = await AvatarViolationHelper.ApplyPenaltyAsync(
                 _dbContext,
                 user,
                 reason,
@@ -1510,6 +1644,7 @@ public sealed class AdminUserService : IAdminUserService
                 policyCode: AvatarViolationHelper.PolicyCode,
                 cancellationToken: cancellationToken);
             penaltyApplied = true;
+            autoBanned = outcome.AutoBanned;
         }
 
         _dbContext.AddAuditLog(
@@ -1522,6 +1657,18 @@ public sealed class AdminUserService : IAdminUserService
             changedColumns: new[] { "AvatarUrl" });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        if (autoBanned && _redisOtpService != null)
+        {
+            try
+            {
+                await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN AVATAR REMOVE] Failed to revoke Redis tokens for auto-banned user '{UserId}'.", targetUserId);
+            }
+        }
 
         _logger.LogInformation(
             "[ADMIN AVATAR REMOVE] Removed avatar for UserId '{UserId}' by Admin '{AdminId}'. PenaltyApplied={PenaltyApplied}.",

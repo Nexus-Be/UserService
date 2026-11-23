@@ -64,7 +64,6 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             new("userId", user.Id.ToString()),
             new("id", user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email),
-            new("email", user.Email),
             new(JwtRegisteredClaimNames.Name, $"{user.FirstName} {user.LastName}".Trim()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };

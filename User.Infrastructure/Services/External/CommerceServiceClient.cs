@@ -62,7 +62,8 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
             };
             return new DisputeRefundResult(outcome, amount, message);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+                                   || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             _logger.LogWarning(ex, "[COMMERCE CLIENT] Could not request the dispute refund for sub-order '{SubOrderId}'.", subOrderId);
             return new DisputeRefundResult(DisputeRefundOutcome.Failed, 0m, "Commerce could not be reached.");
@@ -149,7 +150,8 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
                 return best;
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+                                   || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             _logger.LogWarning(ex, "[COMMERCE CLIENT] Could not check order '{OrderId}' for a report.", orderOrSubOrderId);
             return OrderReportCheck.Unavailable;
@@ -204,7 +206,7 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
 
             return false;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "[COMMERCE CLIENT] Failed to verify order '{OrderId}' for dispute.", orderOrSubOrderId);
             return false;
@@ -239,7 +241,7 @@ public sealed class CommerceServiceClient : ICommerceServiceClient
 
     private async Task<JsonDocument?> TryFetchJsonAsync(string relativeUrl, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.GetAsync(relativeUrl, cancellationToken);
+        using var response = await _httpClient.GetAsync(relativeUrl, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             return null;

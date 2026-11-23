@@ -45,6 +45,11 @@ public static class EnumExtensions
         }
 
         var trimmed = value.Trim();
+        if (trimmed.Contains(',') && !typeof(TEnum).IsDefined(typeof(FlagsAttribute), inherit: false))
+        {
+            throw new ArgumentException($"Invalid value '{value}' for enum '{typeof(TEnum).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<TEnum>())}.");
+        }
+
         if (long.TryParse(trimmed, out _))
         {
             throw new ArgumentException($"Invalid value '{value}' for enum '{typeof(TEnum).Name}'. Valid values are: {string.Join(", ", Enum.GetNames<TEnum>())}.");
@@ -88,6 +93,12 @@ public static class EnumExtensions
         }
 
         var trimmed = value.Trim();
+        if (trimmed.Contains(',') && !typeof(TEnum).IsDefined(typeof(FlagsAttribute), inherit: false))
+        {
+            result = default;
+            return false;
+        }
+
         if (long.TryParse(trimmed, out _))
         {
             result = default;
