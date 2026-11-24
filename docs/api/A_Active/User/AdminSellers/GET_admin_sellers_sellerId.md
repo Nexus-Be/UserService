@@ -89,7 +89,6 @@ public sealed record AdminSellerProfileResponseDto(
   "avatarUrl": "https://cdn.example.com/avatars/shop1.png",
   "businessEmail": "seller@greengarden.com",
   "hotline": "0901234567",
-  "description": "Chuyên cung cấp cây cảnh và nông sản sạch",
   "pickupAddress": "123 Garden Street, Ward 5",
   "warehouseAddress": "123 Garden Street, Ward 5",
   "provinceId": 201,

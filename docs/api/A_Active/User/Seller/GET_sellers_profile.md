@@ -72,7 +72,6 @@ public sealed record SellerOwnProfileResponseDto(
   "avatarUrl": "https://cdn.example.com/shops/techzone.png",
   "businessEmail": "contact@techzone.vn",
   "hotline": "19001234",
-  "description": "Official electronics store",
   "pickupAddress": "123 Nguyen Van Linh, District 7",
   "provinceId": 201,
   "districtId": 1442,

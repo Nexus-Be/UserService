@@ -43,7 +43,6 @@ public sealed class UpdateSellerOwnProfileDto
 {
   "shopName": "TechZone Store Official",
   "hotline": "19009999",
-  "description": "Premium electronics and accessories",
   "pickupAddress": "456 Nguyen Van Linh, District 7"
 }
 ```
