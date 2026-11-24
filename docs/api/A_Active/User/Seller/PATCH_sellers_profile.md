@@ -35,7 +35,6 @@ public sealed class UpdateSellerOwnProfileDto
     public int? ProvinceId { get; set; }
     public int? DistrictId { get; set; }
     public string? WardCode { get; set; }
-    public string? Description { get; set; }
 }
 ```
 - **JSON Request Body mẫu (camelCase):**

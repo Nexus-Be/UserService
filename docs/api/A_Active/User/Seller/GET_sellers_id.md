@@ -51,7 +51,6 @@ public sealed record PublicSellerProfileResponseDto(
     string SellerId,
     string ShopName,
     string? LogoUrl,
-    string? Description,
     string Hotline,
     double RatingAvg,
     int TotalProducts,

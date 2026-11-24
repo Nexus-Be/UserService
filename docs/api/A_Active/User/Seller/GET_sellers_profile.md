@@ -49,7 +49,6 @@ public sealed record SellerOwnProfileResponseDto(
     string? AvatarUrl,
     string? BusinessEmail,
     string Hotline,
-    string? Description,
     string PickupAddress,
     int ProvinceId,
     int DistrictId,
