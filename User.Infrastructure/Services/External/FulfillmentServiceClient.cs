@@ -19,6 +19,52 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    public async Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await _httpClient.PostAsJsonAsync(
+                "api/v1/internal/shipping/locations/validate",
+                new { provinceId, districtId, wardCode },
+                cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var ok = await response.Content.ReadFromJsonAsync<ValidateLocationBody>(cancellationToken: cancellationToken);
+                return LocationCheck.Confirmed(ok?.ProvinceName, ok?.DistrictName, ok?.WardName);
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.BadRequest && body.Contains("VAL_INVALID_LOCATION", StringComparison.Ordinal))
+            {
+                return LocationCheck.Rejected(ReadMessage(body));
+            }
+
+            _logger.LogWarning("[FULFILLMENT CLIENT] Location check answered {StatusCode}; the address is not saved until the GHN lists can be read.", (int)response.StatusCode);
+            return LocationCheck.SourceUnavailable();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "[FULFILLMENT CLIENT] Location check could not be completed.");
+            return LocationCheck.SourceUnavailable();
+        }
+    }
+
+    private sealed record ValidateLocationBody(string? ProvinceName, string? DistrictName, string? WardName);
+
+    private static string? ReadMessage(string body)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("message", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String ? m.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     public async Task<bool> CreateWarehouseAsync(
         Guid sellerId,
         Guid userId,

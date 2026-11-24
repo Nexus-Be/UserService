@@ -108,3 +108,9 @@ public sealed record SellerOwnProfileUpdatedResponseDto(
 - [x] **Api:** Thin Controller đã ghép cặp 1-to-1, trả DTO thuần, XML summary 1 dòng.
 - [x] **Tests:** Đã viết unit/integration tests bao phủ happy path và các mã lỗi trong Error Matrix.
 - [x] **Verify:** `dotnet build User.sln -c Release` và `dotnet test User.sln -c Release` vượt qua 100% với 0 lỗi.
+
+## Địa chỉ lấy hàng được xác minh với GHN (24/11/2026)
+Khi request đổi bộ mã `provinceId`, `districtId`, `wardCode` (so với hồ sơ đang lưu), UserService hỏi Fulfillment (`/api/v1/internal/shipping/locations/validate`) trước khi lưu. Chỉ đổi tên shop, hotline hoặc địa chỉ cụ thể thì không hỏi.
+- Bộ mã sai: `400 VAL_INVALID_LOCATION`, không đổi gì.
+- Không có nguồn GHN đáng tin cậy: `503 LOCATION_SOURCE_UNAVAILABLE`, không đổi gì.
+- Request không còn nhận trường `description` (mô tả gian hàng đã bỏ).

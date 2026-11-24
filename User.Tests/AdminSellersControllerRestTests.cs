@@ -34,6 +34,9 @@ public sealed class AdminSellersControllerRestTests
 
     private sealed class NoOpFulfillmentServiceClient : IFulfillmentServiceClient
     {
+        public Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(LocationCheck.Confirmed());
+
         public Task<bool> CreateWarehouseAsync(Guid sellerId, Guid userId, string shopName, string contactName, string contactPhone, string pickupAddress, int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> UpdateWarehouseAsync(Guid sellerId, string shopName, string contactPhone, string pickupAddress, int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> DeleteWarehouseBySellerIdAsync(Guid sellerId, CancellationToken cancellationToken = default) => Task.FromResult(true);

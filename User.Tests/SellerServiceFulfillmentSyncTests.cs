@@ -26,6 +26,9 @@ public sealed class SellerServiceFulfillmentSyncTests
 
     private sealed class TrackingFulfillmentServiceClient : IFulfillmentServiceClient
     {
+        public Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(LocationCheck.Confirmed());
+
         public Guid? LastDeletedSellerId { get; private set; }
         public Guid? LastUpdatedSellerId { get; private set; }
 

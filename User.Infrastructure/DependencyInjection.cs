@@ -85,10 +85,16 @@ public static class DependencyInjection
             ?? configuration["FulfillmentService:BaseUrl"]
             ?? "http://localhost:8006/";
 
+        var fulfillmentServiceKey = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
+            ?? configuration["INTERNAL_SERVICE_SECRET"]
+            ?? configuration["InternalSecurity:ServiceKey"];
         services.AddHttpClient<IFulfillmentServiceClient, Services.External.FulfillmentServiceClient>(client =>
         {
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
-            client.Timeout = TimeSpan.FromSeconds(5);
+            client.Timeout = TimeSpan.FromSeconds(8);
+            // The location check is an internal route of Fulfillment.
+            if (!string.IsNullOrWhiteSpace(fulfillmentServiceKey))
+                client.DefaultRequestHeaders.Add("X-Internal-Service-Key", fulfillmentServiceKey);
         }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
         // CommerceService: UserService asks it who took part in an order before it accepts a review.

@@ -123,6 +123,9 @@ public sealed class SellerService : ISellerService
             throw new BusinessRuleValidationException("VAL_INVALID_GHN_CODE", "Valid GHN ProvinceId, DistrictId, and WardCode are required.");
         }
 
+        // The pickup address is saved only as a chain the GHN lists confirm (400 VAL_INVALID_LOCATION; 503 when GHN cannot be read).
+        await Common.LocationVerification.EnsureConfirmedAsync(_fulfillmentClient, provinceId, districtId, wardCode!, cancellationToken);
+
         var normalizedEmail = dto.BusinessEmail.Trim().ToLowerInvariant();
         var normalizedIdentityCard = dto.IdentityCardNumber.Trim();
 
@@ -1155,6 +1158,16 @@ public sealed class SellerService : ISellerService
             throw new DomainException("USER_BANNED", "User account has been banned.");
         }
 
+        // A changed pickup chain (province, district, ward) is saved only when the GHN lists confirm it; with no trusted GHN source the update
+        // is 503 and nothing changes. A change of name, hotline or street alone is not held up by the lists.
+        var newProvinceId = dto.ProvinceId is > 0 ? dto.ProvinceId.Value : sellerProfile.ProvinceId;
+        var newDistrictId = dto.DistrictId is > 0 ? dto.DistrictId.Value : sellerProfile.DistrictId;
+        var newWardCode = !string.IsNullOrWhiteSpace(dto.WardCode) ? dto.WardCode.Trim() : sellerProfile.WardCode;
+        if (newProvinceId != sellerProfile.ProvinceId || newDistrictId != sellerProfile.DistrictId || newWardCode != sellerProfile.WardCode)
+        {
+            await Common.LocationVerification.EnsureConfirmedAsync(_fulfillmentClient, newProvinceId, newDistrictId, newWardCode, cancellationToken);
+        }
+
         var addressOrContactChanged = false;
 
         // 1. Update ShopName if provided
@@ -1264,6 +1277,7 @@ public sealed class SellerService : ISellerService
         {
             try
             {
+                var syncedSellerId = sellerProfile.Id;
                 _ = _fulfillmentClient.UpdateWarehouseAsync(
                     sellerId: sellerProfile.UserId,
                     shopName: sellerProfile.ShopName,
@@ -1272,7 +1286,14 @@ public sealed class SellerService : ISellerService
                     provinceId: sellerProfile.ProvinceId,
                     districtId: sellerProfile.DistrictId,
                     wardCode: sellerProfile.WardCode,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken)
+                    .ContinueWith(
+                        t =>
+                        {
+                            if (t.IsFaulted || (t.IsCompletedSuccessfully && !t.Result))
+                                _logger.LogWarning("[SELLER PROFILE UPDATE] The warehouse of Seller '{SellerId}' was not updated; the profile and the warehouse now differ until the next sync.", syncedSellerId);
+                        },
+                        TaskScheduler.Default);
             }
             catch (Exception ex)
             {
