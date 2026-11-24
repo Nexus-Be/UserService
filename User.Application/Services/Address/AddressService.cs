@@ -49,7 +49,7 @@ public sealed class AddressService : IAddressService
     public async Task<UserAddressDto> CreateAddressAsync(Guid userId, CreateAddressRequest request, CancellationToken cancellationToken = default)
     {
         ValidateFields(request.RecipientName, request.Phone, request.ProvinceId, request.DistrictId, request.WardCode, request.AddressLine);
-        await LocationVerification.EnsureConfirmedAsync(_fulfillment, request.ProvinceId, request.DistrictId, request.WardCode.Trim(), cancellationToken);
+        var confirmed = await LocationVerification.EnsureConfirmedAsync(_fulfillment, request.ProvinceId, request.DistrictId, request.WardCode.Trim(), cancellationToken);
 
         await using var tx = await BeginRelationalTransactionAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -72,11 +72,11 @@ public sealed class AddressService : IAddressService
             Phone = request.Phone.Trim(),
             Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim(),
             ProvinceId = request.ProvinceId,
-            ProvinceName = request.ProvinceName.Trim(),
+            ProvinceName = (confirmed.ProvinceName ?? request.ProvinceName).Trim(),
             DistrictId = request.DistrictId,
-            DistrictName = request.DistrictName.Trim(),
+            DistrictName = (confirmed.DistrictName ?? request.DistrictName).Trim(),
             WardCode = request.WardCode.Trim(),
-            WardName = request.WardName.Trim(),
+            WardName = (confirmed.WardName ?? request.WardName).Trim(),
             AddressLine = request.AddressLine.Trim(),
             IsDefault = makeDefault,
             CreatedAt = now,
@@ -102,10 +102,11 @@ public sealed class AddressService : IAddressService
         var now = DateTimeOffset.UtcNow;
 
         // Only a changed chain is checked: a new recipient name or phone must not wait for the GHN lists.
+        LocationCheck? confirmedChange = null;
         if (entity.ProvinceId != request.ProvinceId || entity.DistrictId != request.DistrictId
             || !string.Equals(entity.WardCode, request.WardCode.Trim(), StringComparison.Ordinal))
         {
-            await LocationVerification.EnsureConfirmedAsync(_fulfillment, request.ProvinceId, request.DistrictId, request.WardCode.Trim(), cancellationToken);
+            confirmedChange = await LocationVerification.EnsureConfirmedAsync(_fulfillment, request.ProvinceId, request.DistrictId, request.WardCode.Trim(), cancellationToken);
         }
 
         if (request.IsDefault && !entity.IsDefault)
@@ -121,11 +122,11 @@ public sealed class AddressService : IAddressService
         entity.Phone = request.Phone.Trim();
         entity.Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim();
         entity.ProvinceId = request.ProvinceId;
-        entity.ProvinceName = request.ProvinceName.Trim();
+        entity.ProvinceName = (confirmedChange?.ProvinceName ?? request.ProvinceName).Trim();
         entity.DistrictId = request.DistrictId;
-        entity.DistrictName = request.DistrictName.Trim();
+        entity.DistrictName = (confirmedChange?.DistrictName ?? request.DistrictName).Trim();
         entity.WardCode = request.WardCode.Trim();
-        entity.WardName = request.WardName.Trim();
+        entity.WardName = (confirmedChange?.WardName ?? request.WardName).Trim();
         entity.AddressLine = request.AddressLine.Trim();
         entity.UpdatedAt = now;
         entity.UpdatedBy = userId;

@@ -1165,6 +1165,11 @@ public sealed class SellerService : ISellerService
         var newWardCode = !string.IsNullOrWhiteSpace(dto.WardCode) ? dto.WardCode.Trim() : sellerProfile.WardCode;
         if (newProvinceId != sellerProfile.ProvinceId || newDistrictId != sellerProfile.DistrictId || newWardCode != sellerProfile.WardCode)
         {
+            if (newProvinceId <= 0 || newDistrictId <= 0 || string.IsNullOrWhiteSpace(newWardCode))
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_GHN_CODE", "Valid GHN ProvinceId, DistrictId, and WardCode are required together.");
+            }
+
             await Common.LocationVerification.EnsureConfirmedAsync(_fulfillmentClient, newProvinceId, newDistrictId, newWardCode, cancellationToken);
         }
 

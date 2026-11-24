@@ -178,4 +178,20 @@ public sealed class LocationVerificationTests
         await service.UpdateSellerOwnProfileAsync(userId, new UpdateSellerOwnProfileDto { ProvinceId = 202, DistrictId = 1442, WardCode = "20101" }, CancellationToken.None);
         Assert.Empty(fulfillment.Asked);
     }
+
+    [Fact]
+    public async Task The_names_saved_with_an_address_are_the_ones_the_GHN_lists_gave_not_the_typed_ones()
+    {
+        using var db = NewDb();
+        var userId = await SeedUserAsync(db);
+        var fulfillment = new ConfirmingFulfillment();   // answers Ho Chi Minh / Quan 1 / Phuong Ben Nghe
+
+        await new AddressService(db, NullLogger<AddressService>.Instance, fulfillment)
+            .CreateAddressAsync(userId, Create() with { ProvinceName = "Ha Noi", DistrictName = "Wrong", WardName = "Wrong" });
+
+        var saved = await db.UserAddresses.SingleAsync();
+        Assert.Equal("Ho Chi Minh", saved.ProvinceName);
+        Assert.Equal("Quan 1", saved.DistrictName);
+        Assert.Equal("Phuong Ben Nghe", saved.WardName);
+    }
 }
