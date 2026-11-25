@@ -66,6 +66,24 @@ public sealed record InternalReputationAdjustResponse
     public string NewTrustLevel { get; init; } = string.Empty;
 }
 
+public sealed record InternalPenaltyRevokeResponse
+{
+    public Guid UserId { get; init; }
+    public string TargetRole { get; init; } = string.Empty;
+
+    /// <summary>True when this sub-order was already revoked: nothing changed and the first answer stands.</summary>
+    public bool IsDuplicate { get; init; }
+
+    /// <summary>Restored (points were given back), NothingToRestore (no penalty had been applied; the sub-order is marked so a late penalty is ignored).</summary>
+    public string Outcome { get; init; } = string.Empty;
+
+    /// <summary>The points really given back; never more than the penalty really took, which can be less than the configured amount (the score is limited to 0 to 100).</summary>
+    public int RestoredPoints { get; init; }
+    public int PreviousScore { get; init; }
+    public int NewScore { get; init; }
+    public string NewTrustLevel { get; init; } = string.Empty;
+}
+
 public sealed record AuctionRestrictionDto
 {
     public bool IsRestricted { get; init; }
