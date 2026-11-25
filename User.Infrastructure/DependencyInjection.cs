@@ -97,9 +97,12 @@ public static class DependencyInjection
             ?? configuration["FulfillmentService:BaseUrl"]
             ?? "http://localhost:8006/";
 
-        var fulfillmentServiceKey = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
-            ?? configuration["INTERNAL_SERVICE_SECRET"]
-            ?? configuration["InternalSecurity:ServiceKey"];
+        var fulfillmentServiceKey = new[]
+            {
+                Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET"),
+                configuration["INTERNAL_SERVICE_SECRET"],
+                configuration["InternalSecurity:ServiceKey"]
+            }.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
         services.AddHttpClient<IFulfillmentServiceClient, Services.External.FulfillmentServiceClient>(client =>
         {
             client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");

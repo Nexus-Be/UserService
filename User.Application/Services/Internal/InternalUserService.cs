@@ -721,12 +721,22 @@ public sealed class InternalUserService : IInternalUserService
         }
         catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
         {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            var existingRevoke = await _dbContext.ReputationLogs.AsNoTracking().FirstOrDefaultAsync(l =>
+                l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == ReferenceType.Order &&
+                l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusalPenaltyRevoked, cancellationToken);
+
             return new InternalPenaltyRevokeResponse
             {
                 UserId = request.UserId,
                 TargetRole = track.ToEnumString(),
                 IsDuplicate = true,
-                Outcome = "Restored",
+                Outcome = existingRevoke is not null && existingRevoke.ChangeAmount > 0 ? "Restored" : "NothingToRestore",
+                RestoredPoints = existingRevoke?.ChangeAmount ?? 0,
                 PreviousScore = current,
                 NewScore = current,
                 NewTrustLevel = trust

@@ -120,11 +120,14 @@ public sealed class AddressService : IAddressService
         entity.Phone = request.Phone.Trim();
         entity.Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim();
         entity.ProvinceId = request.ProvinceId;
-        entity.ProvinceName = (confirmedChange?.ProvinceName ?? request.ProvinceName).Trim();
         entity.DistrictId = request.DistrictId;
-        entity.DistrictName = (confirmedChange?.DistrictName ?? request.DistrictName).Trim();
         entity.WardCode = request.WardCode.Trim();
-        entity.WardName = (confirmedChange?.WardName ?? request.WardName).Trim();
+        if (confirmedChange is not null)
+        {
+            entity.ProvinceName = (confirmedChange.ProvinceName ?? request.ProvinceName).Trim();
+            entity.DistrictName = (confirmedChange.DistrictName ?? request.DistrictName).Trim();
+            entity.WardName = (confirmedChange.WardName ?? request.WardName).Trim();
+        }
         entity.AddressLine = request.AddressLine.Trim();
         entity.UpdatedAt = now;
         entity.UpdatedBy = userId;
