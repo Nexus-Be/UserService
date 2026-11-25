@@ -17,7 +17,7 @@ using User.Domain.Enums;
 /// Quản lý đánh giá đối tác sau giao dịch (Peer Reviews).
 /// </summary>
 [ApiController]
-[Route("api/v1/reviews")]
+[Route("api/v1/peer-reviews")]
 public sealed class ReviewsController : ControllerBase
 {
     private readonly IReviewService _reviewService;

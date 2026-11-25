@@ -1,4 +1,4 @@
-﻿# [POST] /api/v1/reviews
+﻿# [POST] /api/v1/peer-reviews
 
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Review`  
@@ -12,7 +12,7 @@
 
 * **Mô tả chức năng:** Đánh giá đối tác 2 chiều (`Buyer` $\leftrightarrow$ `Seller`) sau giao dịch và tự động cập nhật đúng quỹ điểm uy tín (`SellerScore` nếu `ReviewerRole == Buyer`, hoặc `CurrentScore` nếu `ReviewerRole == Seller`), kèm cơ chế chống cày điểm **7-Day Anti-Farming Cooldown** cho cùng một cặp giao dịch.
 * **HTTP Method:** `POST`
-* **Đường dẫn chuẩn:** `/api/v1/reviews`
+* **Đường dẫn chuẩn:** `/api/v1/peer-reviews`
 * **Quyền hạn truy cập (RBAC):** `Authenticated` (`[RequireRole]`)
 
 ---
@@ -99,6 +99,6 @@
 ## 7. CHECKLIST HOÀN THÀNH & NGHIỆM THU (COMPLETION CHECKLIST)
 
 - [x] **1. Tầng Application:** `IReviewService.cs` và `ReviewService.cs` đã được triển khai hoàn chỉnh.
-- [x] **2. Tầng Api:** `ReviewsController.cs` (`POST /api/v1/reviews`) đã triển khai chuẩn.
+- [x] **2. Tầng Api:** `ReviewsController.cs` (`POST /api/v1/peer-reviews`) đã triển khai chuẩn.
 - [x] **3. Kiểm thử tự động:** `dotnet test` vượt qua 100% (`ReviewServiceTests.cs`, `ReputationAndGovernanceControllersTests.cs`).
 

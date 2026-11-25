@@ -1,4 +1,4 @@
-﻿# [PUT] /api/v1/admin/reviews/{reviewId}/hide
+﻿# [PUT] /api/v1/admin/peer-reviews/{reviewId}/hide
 
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Review`  
@@ -12,7 +12,7 @@
 
 * **Mô tả chức năng:** Admin hoặc Support Staff ẩn đánh giá vi phạm tiêu chuẩn cộng đồng / oan sai (`IsDisabled = true`) và **tự động hoàn trả điểm uy tín (`-review.ScoreImpact`)** vào đúng quỹ điểm (`SellerScore` hoặc `CurrentScore`) kèm bản ghi `ReputationLog` (`Reason = DisputeCompensation`) và `AuditLog` (`AuditAction.ReviewHide`).
 * **HTTP Method:** `PUT`
-* **Đường dẫn chuẩn:** `/api/v1/admin/reviews/{reviewId}/hide`
+* **Đường dẫn chuẩn:** `/api/v1/admin/peer-reviews/{reviewId}/hide`
 * **Quyền hạn truy cập (RBAC):** `Admin`, `Staff` (`[RequireRole("admin", "staff")]`)
 
 ---
@@ -79,6 +79,6 @@
 ## 6. CHECKLIST HOÀN THÀNH & NGHIỆM THU (COMPLETION CHECKLIST)
 
 - [x] **1. Tầng Application:** `IReviewService.cs` và `ReviewService.cs` đã được triển khai hoàn chỉnh.
-- [x] **2. Tầng Api:** `AdminReviewsController.cs` (`PUT /api/v1/admin/reviews/{reviewId}/hide`) đã triển khai chuẩn.
+- [x] **2. Tầng Api:** `AdminReviewsController.cs` (`PUT /api/v1/admin/peer-reviews/{reviewId}/hide`) đã triển khai chuẩn.
 - [x] **3. Kiểm thử tự động:** `dotnet test` vượt qua 100% (`ReviewServiceTests.cs`, `ReputationAndGovernanceControllersTests.cs`).
 

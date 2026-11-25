@@ -74,13 +74,20 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(10);
-        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+            client.DefaultRequestHeaders.Add("x-user-id", "00000000-0000-0000-0000-000000000001");
+            client.DefaultRequestHeaders.Add("x-user-roles", "service");
+            client.DefaultRequestHeaders.Add("X-Caller-Service", "user-service");
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>()
+          .AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
 
         services.AddHttpClient(NotificationRetryWorker.HttpClientName, client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(10);
-        });
+            client.DefaultRequestHeaders.Add("x-user-id", "00000000-0000-0000-0000-000000000001");
+            client.DefaultRequestHeaders.Add("x-user-roles", "service");
+            client.DefaultRequestHeaders.Add("X-Caller-Service", "user-service");
+        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
         services.AddHostedService<NotificationRetryWorker>();
 
         // REST Fulfillment Service Client (Internal sync with 5s timeout)
@@ -125,8 +132,11 @@ public static class DependencyInjection
           .AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
 
         var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
+            ?? configuration["WALLET_SERVICE_URL"]
+            ?? configuration["Services:Wallet:BaseUrl"]
+            ?? configuration["WalletService:BaseUrl"]
             ?? configuration["ExternalServices:WalletServiceUrl"]
-            ?? "http://wallet-service:8008";
+            ?? "http://localhost:8008/";
 
         services.AddHttpClient<IWalletServiceClient, Services.External.WalletServiceClient>(client =>
         {
