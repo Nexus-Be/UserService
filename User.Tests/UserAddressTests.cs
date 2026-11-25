@@ -67,7 +67,7 @@ public sealed class UserAddressTests
     {
         using var db = CreateDbContext();
         var userId = await SeedActiveUserAsync(db);
-        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var created = await service.CreateAddressAsync(userId, MakeRequest("Home", isDefault: false));
 
@@ -82,7 +82,7 @@ public sealed class UserAddressTests
     {
         using var db = CreateDbContext();
         var userId = await SeedActiveUserAsync(db);
-        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var first = await service.CreateAddressAsync(userId, MakeRequest("Home", isDefault: true));
         var second = await service.CreateAddressAsync(userId, MakeRequest("Office", isDefault: true));
@@ -99,7 +99,7 @@ public sealed class UserAddressTests
     {
         using var db = CreateDbContext();
         var userId = await SeedActiveUserAsync(db);
-        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var first = await service.CreateAddressAsync(userId, MakeRequest("Home", isDefault: true));
         var second = await service.CreateAddressAsync(userId, MakeRequest("Office", isDefault: false));
@@ -147,7 +147,7 @@ public sealed class UserAddressTests
     {
         using var db = CreateDbContext();
         var userId = await SeedActiveUserAsync(db);
-        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var first = await service.CreateAddressAsync(userId, MakeRequest("Home", isDefault: true));
         var second = await service.CreateAddressAsync(userId, MakeRequest("Office", isDefault: false));
@@ -170,7 +170,7 @@ public sealed class UserAddressTests
         using var db = CreateDbContext();
         var userA = await SeedActiveUserAsync(db, "usera");
         var userB = await SeedActiveUserAsync(db, "userb");
-        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var addrA = await service.CreateAddressAsync(userA, MakeRequest());
 
@@ -196,7 +196,7 @@ public sealed class UserAddressTests
     {
         using var db = CreateDbContext();
         var userId = await SeedActiveUserAsync(db);
-        var addressService = new AddressService(db, NullLogger<AddressService>.Instance);
+        var addressService = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var controller = new MeController(
             profileService: null!,
@@ -238,7 +238,7 @@ public sealed class UserAddressTests
         using var cache = new MemoryCache(new MemoryCacheOptions());
         var userA = await SeedActiveUserAsync(db, "a");
         var userB = await SeedActiveUserAsync(db, "b");
-        var addressService = new AddressService(db, NullLogger<AddressService>.Instance);
+        var addressService = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
         var addrA = await addressService.CreateAddressAsync(userA, MakeRequest("Home", true));
 
         var internalService = new InternalUserService(db, cache, NullLogger<InternalUserService>.Instance);

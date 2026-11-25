@@ -30,6 +30,9 @@ public sealed class SellerServiceTests
 
     private sealed class FakeFulfillmentServiceClient : IFulfillmentServiceClient
     {
+        public Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(LocationCheck.Confirmed());
+
         public bool ShouldSucceed { get; set; } = true;
         public (Guid SellerId, Guid UserId, string ShopName, string ContactName, string ContactPhone, string PickupAddress, int ProvinceId, int DistrictId, string WardCode)? LastCreated { get; private set; }
         public Guid? LastDeletedSellerId { get; private set; }
@@ -167,7 +170,7 @@ public sealed class SellerServiceTests
         }
     }
 
-    private static SellerService CreateSellerService(AppDbContext dbContext, IRedisOtpService? otp = null, IFulfillmentServiceClient? fulfillment = null, IEmailNotificationClient? emailNotification = null) =>
+    internal static SellerService CreateSellerService(AppDbContext dbContext, IRedisOtpService? otp = null, IFulfillmentServiceClient? fulfillment = null, IEmailNotificationClient? emailNotification = null) =>
         new(dbContext, otp ?? new FakeRedisOtpService(), emailNotification, fulfillment ?? new FakeFulfillmentServiceClient(), NullLogger<SellerService>.Instance);
 
     [Fact]

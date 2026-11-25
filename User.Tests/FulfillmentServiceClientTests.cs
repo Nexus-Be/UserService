@@ -138,7 +138,7 @@ public sealed class FulfillmentServiceClientTests
         Assert.True(result);
         Assert.NotNull(capture.LastRequest);
         Assert.Equal(HttpMethod.Put, capture.LastRequest!.Method);
-        Assert.Equal($"/api/v1/warehouses/seller/{targetSellerId}", capture.LastRequest.RequestUri!.AbsolutePath);
+        Assert.Equal($"/api/v1/internal/warehouses/seller/{targetSellerId}", capture.LastRequest.RequestUri!.AbsolutePath);
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public sealed class FulfillmentServiceClientTests
         Assert.True(result);
         Assert.NotNull(capture.LastRequest);
         Assert.Equal(HttpMethod.Delete, capture.LastRequest!.Method);
-        Assert.Equal($"/api/v1/warehouses/seller/{targetSellerId}", capture.LastRequest.RequestUri!.AbsolutePath);
+        Assert.Equal($"/api/v1/internal/warehouses/seller/{targetSellerId}", capture.LastRequest.RequestUri!.AbsolutePath);
     }
 
     private sealed class CapturingHandler : HttpMessageHandler

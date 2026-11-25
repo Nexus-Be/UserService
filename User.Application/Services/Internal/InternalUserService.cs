@@ -591,6 +591,168 @@ public sealed class InternalUserService : IInternalUserService
         InternalReputationAdjustRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (request.Reason != ReputationChangeReason.BuyerRefusedDelivery)
+        {
+            return await ApplyReputationAdjustCoreAsync(request, cancellationToken);
+        }
+
+        // A refusal penalty and its withdrawal must not pass each other: both run under the same per-user lock. If the withdrawal came first
+        // (it leaves a marker even when there was nothing to give back), the penalty is not applied.
+        await using var transaction = await BeginRelationalTransactionAsync(cancellationToken);
+        await _dbContext.LockAuctionPaymentAsync(request.UserId, Guid.Empty, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(request.ReferenceId))
+        {
+            var track = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+            var referenceId = request.ReferenceId.Trim();
+            var revoked = await _dbContext.ReputationLogs.AsNoTracking().AnyAsync(l =>
+                l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == request.ReferenceType &&
+                l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusalPenaltyRevoked, cancellationToken);
+            if (revoked)
+            {
+                var stored = await _dbContext.ReputationScores.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == request.UserId, cancellationToken);
+                var score = stored is null ? 0 : track == TargetRole.Seller ? stored.SellerScore : stored.CurrentScore;
+                return new InternalReputationAdjustResponse
+                {
+                    UserId = request.UserId,
+                    TargetRole = track.ToEnumString(),
+                    IsDuplicate = true,
+                    PreviousScore = score,
+                    NewScore = score,
+                    AppliedDelta = 0,
+                    NewTrustLevel = stored is null ? string.Empty : track == TargetRole.Seller ? stored.SellerTrustLevel.ToEnumString() : stored.TrustLevel.ToEnumString()
+                };
+            }
+        }
+
+        var result = await ApplyReputationAdjustCoreAsync(request, cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return result;
+    }
+
+    public async Task<InternalPenaltyRevokeResponse> RevokeBuyerRefusalPenaltyAsync(
+        InternalPenaltyRevokeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ReferenceId))
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Reference ID is required to revoke a penalty.", 400);
+        }
+
+        if (request.ApprovedBy == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "The approving admin is required to revoke a penalty.", 400);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length < 10)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "The reason must be at least 10 characters long.", 400);
+        }
+
+        await using var transaction = await BeginRelationalTransactionAsync(cancellationToken);
+        await _dbContext.LockAuctionPaymentAsync(request.UserId, Guid.Empty, cancellationToken);
+
+        var user = await _dbContext.Users
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken)
+            ?? throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+
+        var track = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+        var referenceId = request.ReferenceId.Trim();
+        var repScore = EnsureReputationScore(user);
+        var current = track == TargetRole.Seller ? repScore.SellerScore : repScore.CurrentScore;
+
+        var already = await _dbContext.ReputationLogs.AsNoTracking().FirstOrDefaultAsync(l =>
+            l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == ReferenceType.Order &&
+            l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusalPenaltyRevoked, cancellationToken);
+        if (already is not null)
+        {
+            return new InternalPenaltyRevokeResponse
+            {
+                UserId = request.UserId,
+                TargetRole = track.ToEnumString(),
+                IsDuplicate = true,
+                Outcome = already.ChangeAmount > 0 ? "Restored" : "NothingToRestore",
+                RestoredPoints = already.ChangeAmount,
+                PreviousScore = current,
+                NewScore = current,
+                NewTrustLevel = track == TargetRole.Seller ? repScore.SellerTrustLevel.ToEnumString() : repScore.TrustLevel.ToEnumString()
+            };
+        }
+
+        // The points really taken are what the penalty log recorded (the amount is limited by the 0 to 100 range, so it can be smaller than
+        // the configured penalty, even zero, in which case no log was written at all).
+        var penalty = await _dbContext.ReputationLogs.AsNoTracking().FirstOrDefaultAsync(l =>
+            l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == ReferenceType.Order &&
+            l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusedDelivery, cancellationToken);
+        var toRestore = penalty is not null && penalty.ChangeAmount < 0 ? -penalty.ChangeAmount : 0;
+
+        var now = DateTimeOffset.UtcNow;
+        var (oldScore, newScore, applied) = toRestore > 0 ? repScore.ApplyScoreChange(track, toRestore) : (current, current, 0);
+        var trust = track == TargetRole.Seller ? repScore.SellerTrustLevel.ToEnumString() : repScore.TrustLevel.ToEnumString();
+
+        _dbContext.ReputationLogs.Add(new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = request.UserId,
+            TargetRole = track,
+            ChangeAmount = applied,
+            ScoreAfter = newScore,
+            Reason = ReputationChangeReason.BuyerRefusalPenaltyRevoked,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = referenceId,
+            Note = request.Note.Trim(),
+            CreatedBy = request.ApprovedBy,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
+        {
+            return new InternalPenaltyRevokeResponse
+            {
+                UserId = request.UserId,
+                TargetRole = track.ToEnumString(),
+                IsDuplicate = true,
+                Outcome = "Restored",
+                PreviousScore = current,
+                NewScore = current,
+                NewTrustLevel = trust
+            };
+        }
+
+        return new InternalPenaltyRevokeResponse
+        {
+            UserId = request.UserId,
+            TargetRole = track.ToEnumString(),
+            IsDuplicate = false,
+            Outcome = applied > 0 ? "Restored" : "NothingToRestore",
+            RestoredPoints = applied,
+            PreviousScore = oldScore,
+            NewScore = newScore,
+            NewTrustLevel = trust
+        };
+    }
+
+    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginRelationalTransactionAsync(CancellationToken cancellationToken) =>
+        !string.Equals(_dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.OrdinalIgnoreCase) ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+
+    private async Task<InternalReputationAdjustResponse> ApplyReputationAdjustCoreAsync(
+        InternalReputationAdjustRequest request,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(request.ReferenceId))
         {
             throw new DomainException("VAL_INVALID_INPUT", "Reference ID is required for internal reputation adjustment.", 400);

@@ -11,7 +11,6 @@ public sealed record SellerOwnProfileResponseDto(
     [property: JsonPropertyName("avatarUrl")] string? AvatarUrl,
     [property: JsonPropertyName("businessEmail")] string? BusinessEmail,
     [property: JsonPropertyName("hotline")] string Hotline,
-    [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("pickupAddress")] string PickupAddress,
     [property: JsonPropertyName("provinceId")] int ProvinceId,
     [property: JsonPropertyName("districtId")] int DistrictId,
@@ -55,8 +54,6 @@ public sealed class UpdateSellerOwnProfileDto
     [JsonPropertyName("wardCode")]
     public string? WardCode { get; set; }
 
-    [JsonPropertyName("description")]
-    public string? Description { get; set; }
 }
 
 public sealed record SellerOwnProfileUpdatedResponseDto(
