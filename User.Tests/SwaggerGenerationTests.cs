@@ -110,10 +110,10 @@ public sealed class SwaggerGenerationTests
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/{userId}/reputation/history"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/{userId}/reviews"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/users/reports"));
-        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/peer-reviews"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/reviews"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/reputation/policy"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/users/{userId}/reputation"));
-        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/peer-reviews/{reviewId}/hide"));
+        Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reviews/{reviewId}/hide"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reports"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reports/{reportId}/resolve"));
         Assert.True(swaggerDoc.Paths.ContainsKey("/api/v1/admin/reports/{reportId}/dismiss"));

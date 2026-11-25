@@ -14,7 +14,7 @@ using User.Application.Services.Review;
 /// Kiểm duyệt đánh giá đối tác dành cho Admin và Support Staff.
 /// </summary>
 [ApiController]
-[Route("api/v1/admin/peer-reviews")]
+[Route("api/v1/admin/reviews")]
 [RequireRole("admin", "staff")]
 public sealed class AdminReviewsController : ControllerBase
 {

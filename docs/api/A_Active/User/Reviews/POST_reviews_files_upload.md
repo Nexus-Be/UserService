@@ -1,4 +1,4 @@
-# [POST] /api/v1/peer-reviews/files/upload
+# [POST] /api/v1/reviews/files/upload
 
 > **Phân hệ thụ lý:** `UserService`  
 > **Tên tính năng:** `Users`  
@@ -12,7 +12,7 @@
 
 * **Mô tả chức năng:** Upload đánh giá sản phẩm
 * **HTTP Method:** `POST`
-* **Đường dẫn chuẩn:** `/api/v1/peer-reviews/files/upload`
+* **Đường dẫn chuẩn:** `/api/v1/reviews/files/upload`
 * **Đường dẫn gốc trong Excel:** `/api/v1/review/files/upload` (Chuẩn hóa sang `/api/v1/reviews/files/upload` theo quy chuẩn 100% số nhiều.)
 * **Quyền hạn truy cập (RBAC):** `Buyer, Seller`
 * **Yêu cầu Idempotency:** Tùy chọn (Khuyến nghị gửi header `Idempotency-Key: UUIDv4` để tránh gửi lặp)

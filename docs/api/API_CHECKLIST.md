@@ -336,7 +336,7 @@ tags:
 
 > **Mục tiêu:** 100% RESTful API xử lý đánh giá 2 chiều sau đơn hàng (`COMPLETED`), khiếu nại tố cáo và xử lý chế tài kỷ luật vi phạm (Đã hoàn thành 8/10 APIs cốt lõi theo PR #40).
 
-- [x] **REVIEW-01** — `POST /api/v1/peer-reviews`
+- [x] **REVIEW-01** — `POST /api/v1/reviews`
   - **Tên Function:** `CreateReview` | **Role:** `RequireRole (Authenticated - BUYER, SELLER)`
   - **Mô tả:** Đánh giá đối tác 2 chiều sau khi đơn hàng hoàn tất (`COMPLETED`). Kiểm tra phân quyền giao dịch, chống spam đánh giá lặp lại.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Reviews/POST_reviews.md`
@@ -344,7 +344,7 @@ tags:
   - **Tên Function:** `GetUserReviews` | **Role:** `AllowAnonymous`
   - **Mô tả:** Xem danh sách công khai các đánh giá của cộng đồng dành cho một tài khoản có phân trang DB.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Users/GET_users_userId_reviews.md`
-- [x] **REVIEW-04** — `PUT /api/v1/admin/peer-reviews/{reviewId}/hide`
+- [x] **REVIEW-04** — `PUT /api/v1/admin/reviews/{reviewId}/hide`
   - **Tên Function:** `HideReview` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Quản trị viên ẩn đánh giá vi phạm tiêu chuẩn cộng đồng, đồng thời kích hoạt bù trừ điểm uy tín nếu đánh giá trước đó có tác động sai.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminReviews/PUT_admin_reviews_reviewId_hide.md`
@@ -372,7 +372,7 @@ tags:
   - **Tên Function:** `UploadReportFile` | **Role:** `ADMIN, STAFF, SELLER, BUYER`
   - **Mô tả:** Upload ảnh chụp màn hình / video bằng chứng tố cáo hành vi gian lận (1–5 file; ảnh <= 5MB, video MP4/WebM <= 20MB).
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Users/POST_reports_files_upload.md`
-- [x] **FILE-02** — `POST /api/v1/peer-reviews/files/upload`
+- [x] **FILE-02** — `POST /api/v1/reviews/files/upload`
   - **Tên Function:** `UploadReviewFile` | **Role:** `BUYER, SELLER`
   - **Mô tả:** Upload hình ảnh sản phẩm đính kèm bài đánh giá đơn hàng / đối tác (1–5 ảnh <= 5MB).
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Reviews/POST_reviews_files_upload.md`

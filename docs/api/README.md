@@ -3,7 +3,7 @@
 > **Tác giả:** Trần Hoàng Vinh & AI Agent  
 > **Cổng Microservice:** `user-service:8001` | **Database:** `usermanagement_db:5433` | **API Gateway YARP:** `8080`  
 > **Kiến trúc:** 100% RESTful HTTP/JSON (Cấm gRPC & Message Broker)  
-> **Quy chuẩn Định tuyến:** 100% Plural Route Convention (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/admin/sellers`, `/api/v1/admin/penalties`, `/api/v1/me`, `/api/v1/auth`, `/api/v1/internal/users`, `/api/v1/admin/configs`, `/api/v1/peer-reviews`, `/api/v1/admin/reports`)  
+> **Quy chuẩn Định tuyến:** 100% Plural Route Convention (`/api/v1/users`, `/api/v1/admin/users`, `/api/v1/sellers`, `/api/v1/admin/sellers`, `/api/v1/admin/penalties`, `/api/v1/me`, `/api/v1/auth`, `/api/v1/internal/users`, `/api/v1/admin/configs`, `/api/v1/reviews`, `/api/v1/admin/reports`)  
 > **Phân quyền chuẩn:** 4 Fixed Roles (`ADMIN`, `STAFF`, `SELLER`, `BUYER`) — Bãi bỏ Dynamic RBAC  
 > **Quy chuẩn Định danh:** 1 User - 1 Primary Role strictly enforced & Segregation of Duties (SoD)  
 > **Cơ chế Quản lý 2 Nhánh:**
@@ -81,9 +81,9 @@
 | 47 | `GET` | `/api/v1/admin/configs` | [A_Active/User/AdminConfigs/GET_admin_configs.md](A_Active/User/AdminConfigs/GET_admin_configs.md) | `RequireRole("admin")` | Xem danh sách các tham số cấu hình động toàn hệ thống. |
 | 48 | `PUT` | `/api/v1/admin/configs` | [A_Active/User/AdminConfigs/PUT_admin_configs.md](A_Active/User/AdminConfigs/PUT_admin_configs.md) | `RequireRole("admin")` | Cập nhật tham số cấu hình động toàn hệ thống. |
 | 49 | `GET` | `/health` | [A_Active/User/Health/GET_health.md](A_Active/User/Health/GET_health.md) | `AllowAnonymous` | Service health verification for orchestration and API gateway. |
-| 50 | `POST` | `/api/v1/peer-reviews` | [A_Active/User/Reviews/POST_reviews.md](A_Active/User/Reviews/POST_reviews.md) | `RequireRole (Authenticated)` | Đánh giá đối tác 2 chiều sau đơn hàng hoàn tất. |
+| 50 | `POST` | `/api/v1/reviews` | [A_Active/User/Reviews/POST_reviews.md](A_Active/User/Reviews/POST_reviews.md) | `RequireRole (Authenticated)` | Đánh giá đối tác 2 chiều sau đơn hàng hoàn tất. |
 | 51 | `GET` | `/api/v1/users/{userId}/reviews` | [A_Active/User/Users/GET_users_userId_reviews.md](A_Active/User/Users/GET_users_userId_reviews.md) | `AllowAnonymous` | Xem danh sách công khai các đánh giá của một tài khoản. |
-| 52 | `PUT` | `/api/v1/admin/peer-reviews/{reviewId}/hide` | [A_Active/User/AdminReviews/PUT_admin_reviews_reviewId_hide.md](A_Active/User/AdminReviews/PUT_admin_reviews_reviewId_hide.md) | `RequireRole("admin", "staff")` | Quản trị viên ẩn đánh giá vi phạm và kích hoạt bù trừ điểm uy tín. |
+| 52 | `PUT` | `/api/v1/admin/reviews/{reviewId}/hide` | [A_Active/User/AdminReviews/PUT_admin_reviews_reviewId_hide.md](A_Active/User/AdminReviews/PUT_admin_reviews_reviewId_hide.md) | `RequireRole("admin", "staff")` | Quản trị viên ẩn đánh giá vi phạm và kích hoạt bù trừ điểm uy tín. |
 | 53 | `POST` | `/api/v1/users/reports` | [A_Active/User/Users/POST_users_reports.md](A_Active/User/Users/POST_users_reports.md) | `RequireRole (Authenticated)` | Nộp đơn khiếu nại / tố cáo tài khoản đối tác vi phạm quy chế sàn. |
 | 54 | `GET` | `/api/v1/me/reports` | [A_Active/User/Me/GET_me_reports.md](A_Active/User/Me/GET_me_reports.md) | `RequireRole (Authenticated)` | Xem danh sách lịch sử các đơn tố cáo do chính mình đã gửi. |
 | 55 | `GET` | `/api/v1/admin/reports` | [A_Active/User/AdminReports/GET_admin_reports.md](A_Active/User/AdminReports/GET_admin_reports.md) | `RequireRole("admin", "staff")` | Hàng đợi danh sách đơn tố cáo vi phạm chờ Staff giải quyết. |
@@ -102,7 +102,7 @@
 | 68 | `GET` | `/api/v1/users/{userId}/avatar` | [A_Active/User/Users/GET_users_userId_avatar.md](A_Active/User/Users/GET_users_userId_avatar.md) | `AllowAnonymous` | Xem URL ảnh đại diện công khai của người dùng theo ID. |
 | 69 | `POST` | `/api/v1/sellers/registration/documents` | [A_Active/User/Seller/POST_sellers_registration_documents.md](A_Active/User/Seller/POST_sellers_registration_documents.md) | `RequireRole (Authenticated)` | Upload private KYC (CCCD & GPKD) lên Cloudinary Signed URL (TTL 10 phút). |
 | 70 | `POST` | `/api/v1/reports/files/upload` | [A_Active/User/Users/POST_reports_files_upload.md](A_Active/User/Users/POST_reports_files_upload.md) | `RequireRole("admin", "staff", "seller", "buyer")` | Upload 1–5 file bằng chứng tố cáo (ảnh <= 5MB, video MP4/WebM <= 20MB). |
-| 71 | `POST` | `/api/v1/peer-reviews/files/upload` | [A_Active/User/Reviews/POST_reviews_files_upload.md](A_Active/User/Reviews/POST_reviews_files_upload.md) | `RequireRole("buyer", "seller")` | Upload 1–5 ảnh đánh giá sản phẩm/đối tác (<= 5MB). |
+| 71 | `POST` | `/api/v1/reviews/files/upload` | [A_Active/User/Reviews/POST_reviews_files_upload.md](A_Active/User/Reviews/POST_reviews_files_upload.md) | `RequireRole("buyer", "seller")` | Upload 1–5 ảnh đánh giá sản phẩm/đối tác (<= 5MB). |
 
 ---
 
