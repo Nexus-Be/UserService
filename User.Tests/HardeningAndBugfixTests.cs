@@ -47,6 +47,9 @@ public sealed class HardeningAndBugfixTests
         public Guid LastUpdatedSellerId { get; private set; }
         public CancellationToken LastCancellationToken { get; private set; }
 
+        public Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(LocationCheck.Confirmed("Ho Chi Minh", "Quan 1", "Phuong Ben Nghe"));
+
         public Task<bool> CreateWarehouseAsync(Guid sellerId, Guid userId, string shopName, string contactName, string contactPhone, string pickupAddress, int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 

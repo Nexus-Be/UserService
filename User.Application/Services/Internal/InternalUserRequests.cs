@@ -75,6 +75,27 @@ public sealed record InternalReputationAdjustRequest
     public string? Note { get; init; }
 }
 
+public sealed record InternalPenaltyRevokeRequest
+{
+    [Required(ErrorMessage = "User ID is required.")]
+    public Guid UserId { get; init; }
+
+    public TargetRole TargetRole { get; init; } = TargetRole.Buyer;
+
+    /// <summary>The sub-order whose refusal penalty is withdrawn (the reference the penalty was applied with).</summary>
+    [Required(ErrorMessage = "Reference ID is required.")]
+    [StringLength(100, MinimumLength = 1, ErrorMessage = "Reference ID must be between 1 and 100 characters long.")]
+    public string ReferenceId { get; init; } = string.Empty;
+
+    /// <summary>The admin who decided the withdrawal.</summary>
+    [Required(ErrorMessage = "Approver is required.")]
+    public Guid ApprovedBy { get; init; }
+
+    [Required(ErrorMessage = "A reason is required.")]
+    [StringLength(500, MinimumLength = 10, ErrorMessage = "The reason must be between 10 and 500 characters long.")]
+    public string Note { get; init; } = string.Empty;
+}
+
 public sealed record RecordAuctionViolationRequest
 {
     [Required(ErrorMessage = "Violation type is required.")]

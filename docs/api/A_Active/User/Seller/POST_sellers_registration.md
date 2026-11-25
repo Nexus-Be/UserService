@@ -137,3 +137,6 @@ public sealed record SellerRegistrationResponseDto(
 - [x] **Api:** Thin Controller đã ghép cặp 1-to-1, trả DTO thuần, XML summary 1 dòng.
 - [x] **Tests:** Đã viết unit/integration tests bao phủ happy path và các mã lỗi trong Error Matrix.
 - [x] **Verify:** `dotnet build User.sln -c Release` và `dotnet test User.sln -c Release` vượt qua 100% với 0 lỗi.
+
+## Địa chỉ kho được xác minh với GHN (24/11/2026)
+Bộ mã `provinceId`, `districtId`, `wardCode` phải được danh sách GHN xác nhận trước khi hồ sơ được lưu: sai bộ mã `400 VAL_INVALID_LOCATION`; không có nguồn GHN đáng tin cậy `503 LOCATION_SOURCE_UNAVAILABLE` và không lưu.

@@ -22,6 +22,9 @@ public sealed class SellerWarehouseRetryTests
 {
     private sealed class ScriptedFulfillment : IFulfillmentServiceClient
     {
+        public Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(LocationCheck.Confirmed());
+
         public bool Succeed { get; set; }
         public int Calls { get; private set; }
 

@@ -123,6 +123,9 @@ public sealed class SellerService : ISellerService
             throw new BusinessRuleValidationException("VAL_INVALID_GHN_CODE", "Valid GHN ProvinceId, DistrictId, and WardCode are required.");
         }
 
+        // The pickup address is saved only as a chain the GHN lists confirm (400 VAL_INVALID_LOCATION; 503 when GHN cannot be read).
+        await Common.LocationVerification.EnsureConfirmedAsync(_fulfillmentClient, provinceId, districtId, wardCode!, cancellationToken);
+
         var normalizedEmail = dto.BusinessEmail.Trim().ToLowerInvariant();
         var normalizedIdentityCard = dto.IdentityCardNumber.Trim();
 
@@ -1123,7 +1126,6 @@ public sealed class SellerService : ISellerService
             AvatarUrl: sellerProfile.AvatarUrl,
             BusinessEmail: sellerProfile.BusinessEmail,
             Hotline: sellerProfile.Hotline,
-            Description: null,
             PickupAddress: sellerProfile.PickupAddress,
             ProvinceId: sellerProfile.ProvinceId,
             DistrictId: sellerProfile.DistrictId,
@@ -1175,6 +1177,21 @@ public sealed class SellerService : ISellerService
         {
             _logger.LogWarning("[SELLER PROFILE UPDATE] User '{UserId}' is banned.", userId);
             throw new DomainException("USER_BANNED", "User account has been banned.");
+        }
+
+        // A changed pickup chain (province, district, ward) is saved only when the GHN lists confirm it; with no trusted GHN source the update
+        // is 503 and nothing changes. A change of name, hotline or street alone is not held up by the lists.
+        var newProvinceId = dto.ProvinceId is > 0 ? dto.ProvinceId.Value : sellerProfile.ProvinceId;
+        var newDistrictId = dto.DistrictId is > 0 ? dto.DistrictId.Value : sellerProfile.DistrictId;
+        var newWardCode = !string.IsNullOrWhiteSpace(dto.WardCode) ? dto.WardCode.Trim() : sellerProfile.WardCode;
+        if (newProvinceId != sellerProfile.ProvinceId || newDistrictId != sellerProfile.DistrictId || newWardCode != sellerProfile.WardCode)
+        {
+            if (newProvinceId <= 0 || newDistrictId <= 0 || string.IsNullOrWhiteSpace(newWardCode))
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_GHN_CODE", "Valid GHN ProvinceId, DistrictId, and WardCode are required together.");
+            }
+
+            await Common.LocationVerification.EnsureConfirmedAsync(_fulfillmentClient, newProvinceId, newDistrictId, newWardCode, cancellationToken);
         }
 
         var addressOrContactChanged = false;
@@ -1291,7 +1308,7 @@ public sealed class SellerService : ISellerService
         {
             try
             {
-                await _fulfillmentClient.UpdateWarehouseAsync(
+                var updated = await _fulfillmentClient.UpdateWarehouseAsync(
                     sellerId: sellerProfile.UserId,
                     shopName: sellerProfile.ShopName,
                     contactPhone: sellerProfile.Hotline,
@@ -1300,6 +1317,10 @@ public sealed class SellerService : ISellerService
                     districtId: sellerProfile.DistrictId,
                     wardCode: sellerProfile.WardCode,
                     cancellationToken: CancellationToken.None);
+                if (!updated)
+                {
+                    _logger.LogWarning("[SELLER PROFILE UPDATE] The warehouse of Seller '{SellerId}' was not updated; the profile and the warehouse now differ until the next sync.", sellerProfile.Id);
+                }
             }
             catch (Exception ex)
             {
@@ -1404,7 +1425,6 @@ public sealed class SellerService : ISellerService
             SellerId: sellerProfile.UserId.ToString(),
             ShopName: sellerProfile.ShopName,
             LogoUrl: sellerProfile.AvatarUrl ?? sellerProfile.User?.AvatarUrl,
-            Description: null,
             Hotline: sellerProfile.Hotline,
             RatingAvg: ratingAvg,
             TotalProducts: 0,
@@ -1486,7 +1506,6 @@ public sealed class SellerService : ISellerService
             AvatarUrl: profile.AvatarUrl,
             BusinessEmail: profile.BusinessEmail,
             Hotline: profile.Hotline,
-            Description: null,
             PickupAddress: profile.PickupAddress,
             WarehouseAddress: profile.PickupAddress,
             ProvinceId: profile.ProvinceId,

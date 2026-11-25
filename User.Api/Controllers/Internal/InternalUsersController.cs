@@ -216,6 +216,18 @@ public sealed class InternalUsersController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Withdraws the penalty of a refused delivery: gives back the points really taken, once per sub-order, and blocks a penalty that arrives later.</summary>
+    [HttpPost("reputation-penalty-revoke")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(InternalPenaltyRevokeResponse))]
+    public async Task<ActionResult<InternalPenaltyRevokeResponse>> RevokeBuyerRefusalPenalty(
+        [FromBody] InternalPenaltyRevokeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("[Internal RevokePenalty] Revoking the refusal penalty of UserId: '{UserId}', ReferenceId: '{RefId}'", request.UserId, request.ReferenceId);
+        var result = await _internalUserService!.RevokeBuyerRefusalPenaltyAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
     /// <summary>[INT-19] Tra cứu hồ sơ đặt cọc đấu giá của Buyer (trạng thái tài khoản, uy tín, violation streak, hạn chế đấu giá).</summary>
     [HttpGet("{userId:guid}/auction-deposit-profile")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(AuctionDepositProfileResponse))]

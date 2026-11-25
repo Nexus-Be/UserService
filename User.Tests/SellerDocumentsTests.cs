@@ -214,6 +214,9 @@ public sealed class SellerDocumentsTests
 
     private sealed class StubFulfillmentClient : IFulfillmentServiceClient
     {
+        public Task<LocationCheck> ValidateLocationAsync(int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(LocationCheck.Confirmed());
+
         public Task<bool> CreateWarehouseAsync(Guid sellerId, Guid userId, string shopName, string contactName, string contactPhone, string pickupAddress, int provinceId, int districtId, string wardCode, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 
