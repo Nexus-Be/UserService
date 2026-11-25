@@ -117,7 +117,7 @@ public sealed class UserAddressTests
     {
         using var db = CreateDbContext();
         var userId = await SeedActiveUserAsync(db);
-        var service = new AddressService(db, NullLogger<AddressService>.Instance);
+        var service = new AddressService(db, NullLogger<AddressService>.Instance, new ConfirmingFulfillment());
 
         var first = await service.CreateAddressAsync(userId, MakeRequest("Home", isDefault: true));
         var second = await service.CreateAddressAsync(userId, MakeRequest("Office", isDefault: false));
