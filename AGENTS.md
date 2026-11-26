@@ -79,6 +79,7 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
 4. `specs/03_EVENT_MESSAGING.md`: Trạng thái bãi bỏ RabbitMQ / MassTransit; gửi email qua `IEmailNotificationClient`.
 5. `specs/04_DATA_PERSISTENCE.md`: Schema PostgreSQL (`Users`, `Roles`, `Permissions`, `SellerRegistrations`...).
 6. `specs/05_DEV_VERIFICATION_CHECKLIST.md`: Lệnh build & test kiểm chứng service.
+7. `specs/06_BUSINESS_RULES_AND_FLOWS.md`: Nghiệp vụ, luồng xử lý, máy trạng thái & quy tắc Được làm / Không được làm (SoD, Auth/RTR, Seller onboarding, Dual-track Reputation, Auction streak, Reviews/Reports).
 
 ---
 

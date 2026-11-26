@@ -42,15 +42,15 @@ tags:
 
 | Nhóm Nghiệp Vụ | Tổng API | Đã xong `[x]` | Chưa làm `[ ]` | Bãi bỏ `[-]` | Ghi chú kiến trúc & Đối soát Docs |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **1. Xác thực & Quản lý Phiên (Auth Flow)** | 13 | **13** | 0 | 0 | Hoàn thành Register, Login, Refresh, Password, Test, Logout-all & Sessions (`GET/DELETE /me/sessions`). |
-| **2. Hồ sơ Cá nhân & Avatar (Profile Flow)** | 13 | **11** | 0 | **2** | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Avatar (`POST/GET /me/avatar`, `GET /users/{userId}/avatar`), Uy tín & Policy. Bãi bỏ Đổi Email (`USER-10`, `USER-11`). |
-| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 11 | **11** | 0 | 0 | Hoàn thành Onboarding, OTP, Status, Profile, Public Shop, Upload Docs CCCD, Suspend, Reactivate & Chi tiết Admin. |
-| **4. Quản trị User & Kỷ luật (Admin Flow)** | 20 | **19** | 0 | **1** | Hoàn thành CRUD Users, Ban/Unban, Roles SoD, Duyệt/Từ chối Shop, Danh sách/Chi tiết/Thu hồi Án phạt, Chỉnh Uy tín & System Configs. Bãi bỏ Audit Logs (`ADMIN-11`). |
-| **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway |
-| **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 10 | **10** | 0 | 0 | Hoàn thành Tạo/Xem/Ẩn Review, Nộp/Xem/Duyệt/Bác bỏ Report & Upload file đính kèm (`FILE-01`, `FILE-02`). |
-| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 8 | **6** | 0 | **2** | Hoàn thành Gatekeeper permission-check, verify-bid-eligibility, batch-public-info, check-reputation, penalties, reputation-adjust. Bãi bỏ Warehouse (`INT-03`) & Contact (`INT-05`). |
-| **8. REST Nội bộ UserService Gọi Đi (Outbound REST)**| 4 | **3** | 0 | **1** | Hoàn thành gọi Notification (8007) & Fulfillment (8006). Đã Decouple bãi bỏ gọi Wallet (8008) theo PR #37 |
-| **TỔNG CỘNG USER SERVICE** | **80 API** | **74** | **0** | **6** | **Toàn bộ 71 Web & Inbound APIs trong A_Active Docs đã Verify 100% (432/432 Tests Pass); 6 API còn lại đã Bãi bỏ.** |
+| **1. Xác thực & Quản lý Phiên (Auth Flow)** | 14 | **14** | 0 | 0 | Hoàn thành Register, Login, Google OAuth2, Refresh, Password, Test, Logout-all & Sessions (`GET/DELETE /me/sessions`). |
+| **2. Hồ sơ Cá nhân, Avatar & Địa chỉ (Profile Flow)** | 20 | **18** | 0 | **2** | Hoàn thành Me Profile, Safe Profile (`/users/{userId}`), Avatar (`POST/GET/DELETE /me/avatar`), 6 API Địa chỉ GHN (`/me/addresses*`), Uy tín & Policy. Bãi bỏ Đổi Email (`USER-10`, `USER-11`). |
+| **3. Đăng ký & Quản lý Shop (Seller Flow)** | 14 | **14** | 0 | 0 | Hoàn thành Onboarding, OTP, Status, Profile, Public Search/Shop, Upload Docs CCCD, Admin Sellers (`GET`, `warehouse/retry`, `GET {id}`, `suspend`, `reactivate`). |
+| **4. Quản trị User & Kỷ luật (Admin Flow)** | 22 | **21** | 0 | **1** | Hoàn thành CRUD Users, Ban/Unban, Gỡ Avatar, Roles SoD, Duyệt/Từ chối Shop, Án phạt, Chỉnh Uy tín & System Configs (`GET`, `history`, `PUT`). Bãi bỏ Audit Logs (`ADMIN-11`). |
+| **5. Giám Sát Hoạt Động (Health Check)** | 1 | **1** | 0 | 0 | Hoàn thành Endpoint `/health` phục vụ Docker & Gateway. |
+| **6. Đánh giá & Tố cáo Vi phạm (Reviews & Reports)** | 14 | **14** | 0 | 0 | Hoàn thành Eligibility, Tạo/Xem/Ẩn Review, Nộp/Xem/Chi tiết/Duyệt/Bác bỏ Report, Refund Retry & Upload file đính kèm (`FILE-01`, `FILE-02`). |
+| **7. REST Nội bộ Service Gọi Đến (Inbound REST)** | 18 | **16** | 0 | **2** | Hoàn thành Gatekeeper, Bid/Sell eligibility, Batch info, Penalties/Revoke, Reputation adjust, Auction payments/violations, Shop, Contact, Addresses, Audit sync. Bãi bỏ `INT-03`, `INT-05`. |
+| **8. REST Nội bộ UserService Gọi Đi (Outbound REST)** | 4 | **3** | 0 | **1** | Hoàn thành gọi Notification (8007) & Fulfillment (8006). Đã Decouple bãi bỏ gọi Wallet (8008) theo PR #37. |
+| **TỔNG CỘNG USER SERVICE** | **107 API** | **101** | **0** | **6** | **Toàn bộ 98 Web & Inbound APIs + 3 Outbound APIs đều đã có tài liệu đặc tả trong `docs/api/A_Active/User/`; 6 API còn lại đã Bãi bỏ.** |
 
 ---
 
@@ -80,6 +80,10 @@ tags:
   - **Tên Function:** `Login` | **Role:** `AllowAnonymous`
   - **Mô tả:** Đăng nhập hệ thống (Email/Username + Password). Cấp Access Token JWT (60 phút) + Refresh Token (30 ngày). Nhúng vai trò cố định (`ADMIN`, `STAFF`, `SELLER`, `BUYER`). Khóa 30 phút nếu sai 5 lần liên tiếp.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Auth/POST_login.md`
+- [x] **AUTH-GOOGLE** — `POST /api/v1/auth/google`
+  - **Tên Function:** `GoogleLogin` | **Role:** `AllowAnonymous`
+  - **Mô tả:** Đăng nhập hoặc tự động tạo tài khoản thông qua Google OAuth2 ID Token.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Auth/POST_google.md`
 - [x] **AUTH-05** — `POST /api/v1/auth/refresh`
   - **Tên Function:** `RefreshToken` | **Role:** `AllowAnonymous`
   - **Mô tả:** Làm mới phiên ngầm (Refresh Token Rotation - RTR). Thu hồi token cũ, cấp mới, phát hiện reuse token.
@@ -160,6 +164,34 @@ tags:
   - **Tên Function:** `GetMyAvatar` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** API rút gọn lấy nhanh URL avatar phục vụ Header UI.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_avatar.md`
+- [x] **USER-06C** — `DELETE /api/v1/me/avatar`
+  - **Tên Function:** `DeleteMyAvatar` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Xóa ảnh đại diện cá nhân hiện tại.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/DELETE_me_avatar.md`
+- [x] **ADDR-01** — `GET /api/v1/me/addresses`
+  - **Tên Function:** `GetMyAddresses` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Lấy danh sách địa chỉ giao hàng đã lưu của người dùng hiện tại.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_addresses.md`
+- [x] **ADDR-02** — `GET /api/v1/me/addresses/default`
+  - **Tên Function:** `GetMyDefaultAddress` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Lấy địa chỉ giao hàng mặc định của người dùng hiện tại.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_addresses_default.md`
+- [x] **ADDR-03** — `POST /api/v1/me/addresses`
+  - **Tên Function:** `CreateMyAddress` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Tạo mới địa chỉ giao hàng kèm mã địa giới GHN.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/POST_me_addresses.md`
+- [x] **ADDR-04** — `PUT /api/v1/me/addresses/{addressId}`
+  - **Tên Function:** `UpdateMyAddress` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Cập nhật địa chỉ giao hàng thuộc sở hữu của người dùng.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/PUT_me_addresses_addressId.md`
+- [x] **ADDR-05** — `PATCH /api/v1/me/addresses/{addressId}/default`
+  - **Tên Function:** `SetMyDefaultAddress` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Đặt địa chỉ giao hàng cụ thể làm mặc định.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/PATCH_me_addresses_addressId_default.md`
+- [x] **ADDR-06** — `DELETE /api/v1/me/addresses/{addressId}`
+  - **Tên Function:** `DeleteMyAddress` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Xóa mềm địa chỉ giao hàng thuộc sở hữu của người dùng.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/DELETE_me_addresses_addressId.md`
 - [x] **USER-07B** — `GET /api/v1/users/{userId}/avatar`
   - **Tên Function:** `GetUserAvatar` | **Role:** `AllowAnonymous`
   - **Mô tả:** Tải nhanh ảnh avatar công khai của người dùng khác trong danh sách đấu giá / bình luận.
@@ -210,6 +242,18 @@ tags:
   - **Tên Function:** `GetPublicSellerProfile` | **Role:** `AllowAnonymous`
   - **Mô tả:** Khách / Quản trị viên xem hồ sơ công khai của Shop theo Shop ID hoặc Seller User ID.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Seller/GET_sellers_id.md`
+- [x] **SELLER-08B** — `GET /api/v1/sellers`
+  - **Tên Function:** `SearchPublicSellers` | **Role:** `AllowAnonymous`
+  - **Mô tả:** Tìm kiếm danh sách các gian hàng công khai theo tên shop (phân trang).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Seller/GET_sellers.md`
+- [x] **SELLER-09A** — `GET /api/v1/admin/sellers`
+  - **Tên Function:** `ListAdminSellers` | **Role:** `RequireRole("admin", "staff")`
+  - **Mô tả:** Danh sách hồ sơ người bán toàn hệ thống có phân trang và lọc `status`, `keyword`, `warehouseReady`.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminSellers/GET_admin_sellers.md`
+- [x] **SELLER-09B** — `POST /api/v1/admin/sellers/{sellerId}/warehouse/retry`
+  - **Tên Function:** `RetryWarehouse` | **Role:** `RequireRole("admin", "staff")`
+  - **Mô tả:** Thử tạo lại kho GHN bên FulfillmentService cho Seller đã duyệt nhưng lỗi tạo kho.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminSellers/POST_admin_sellers_sellerId_warehouse_retry.md`
 - [x] **SELLER-09** — `GET /api/v1/admin/sellers/{sellerId}`
   - **Tên Function:** `GetAdminSellerProfile` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Quản trị viên / Nhân viên xem hồ sơ chi tiết người bán, thông tin KYC, địa chỉ kho lấy hàng GHN và điểm uy tín người bán.
@@ -311,10 +355,18 @@ tags:
   - **Tên Function:** `GetConfigs` | **Role:** `RequireRole("admin")`
   - **Mô tả:** Xem danh sách toàn bộ các tham số cấu hình động toàn sàn (Ngưỡng cọc, điểm uy tín tối thiểu, cooldown).
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminConfigs/GET_admin_configs.md`
+- [x] **ADMIN-12B** — `GET /api/v1/admin/configs/{key}/history`
+  - **Tên Function:** `GetConfigHistory` | **Role:** `RequireRole("admin")`
+  - **Mô tả:** Xem lịch sử thay đổi giá trị của một tham số cấu hình theo `key`.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminConfigs/GET_admin_configs_key_history.md`
 - [x] **ADMIN-13** — `PUT /api/v1/admin/configs`
   - **Tên Function:** `UpdateConfig` | **Role:** `RequireRole("admin")`
   - **Mô tả:** Cập nhật các tham số cấu hình động toàn hệ thống với kiểm tra kiểu dữ liệu và ghi vết kiểm toán.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminConfigs/PUT_admin_configs.md`
+- [x] **ADMIN-15** — `DELETE /api/v1/admin/users/{userId}/avatar`
+  - **Tên Function:** `RemoveUserAvatar` | **Role:** `RequireRole("admin")`
+  - **Mô tả:** Admin gỡ ảnh đại diện vi phạm của người dùng (kèm lý do và tùy chọn phạt điểm uy tín).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminUsers/DELETE_admin_users_userId_avatar.md`
 - [-] **ADMIN-11** — `GET /api/v1/admin/audit-logs`
   - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Tên Function:** `GetAuditLogs` | **Role:** `RequireRole("admin")`
@@ -340,6 +392,10 @@ tags:
   - **Tên Function:** `CreateReview` | **Role:** `RequireRole (Authenticated - BUYER, SELLER)`
   - **Mô tả:** Đánh giá đối tác 2 chiều sau khi đơn hàng hoàn tất (`COMPLETED`). Kiểm tra phân quyền giao dịch, chống spam đánh giá lặp lại.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Reviews/POST_reviews.md`
+- [x] **REVIEW-01B** — `GET /api/v1/reviews/eligibility`
+  - **Tên Function:** `GetEligibility` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Kiểm tra điều kiện được phép đánh giá đối tác cho một đơn hàng (`Order`) hoặc đơn đấu giá (`Auction`).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Reviews/GET_reviews_eligibility.md`
 - [x] **REVIEW-02** — `GET /api/v1/users/{userId}/reviews`
   - **Tên Function:** `GetUserReviews` | **Role:** `AllowAnonymous`
   - **Mô tả:** Xem danh sách công khai các đánh giá của cộng đồng dành cho một tài khoản có phân trang DB.
@@ -356,14 +412,26 @@ tags:
   - **Tên Function:** `GetMyReports` | **Role:** `RequireRole (Authenticated)`
   - **Mô tả:** Xem danh sách lịch sử các đơn tố cáo do chính mình đã gửi có phân trang và trạng thái xử lý.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_reports.md`
+- [x] **REPORT-05B** — `GET /api/v1/me/reports/{reportId}`
+  - **Tên Function:** `GetMyReportById` | **Role:** `RequireRole (Authenticated)`
+  - **Mô tả:** Xem chi tiết một đơn tố cáo do chính mình đã gửi.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/Me/GET_me_reports_reportId.md`
 - [x] **REPORT-02** — `GET /api/v1/admin/reports`
   - **Tên Function:** `GetAdminReports` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Hàng đợi đơn tố cáo vi phạm chờ Staff giải quyết có lọc theo trạng thái `PENDING`, `RESOLVED`, `DISMISSED`.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminReports/GET_admin_reports.md`
+- [x] **REPORT-02B** — `GET /api/v1/admin/reports/{reportId}`
+  - **Tên Function:** `GetAdminReportById` | **Role:** `RequireRole("admin", "staff")`
+  - **Mô tả:** Admin/Staff xem chi tiết đầy đủ một đơn báo cáo vi phạm.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminReports/GET_admin_reports_reportId.md`
 - [x] **REPORT-03** — `PUT /api/v1/admin/reports/{reportId}/resolve`
   - **Tên Function:** `ResolveReport` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Phê chuẩn đơn tố cáo, áp dụng chế tài kỷ luật tự động (Trừ điểm uy tín đúng nhánh Buyer/Seller, ghi nhận án phạt vào `UserPenalties`).
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminReports/PUT_admin_reports_reportId_resolve.md`
+- [x] **REPORT-03B** — `POST /api/v1/admin/reports/{reportId}/refund/retry`
+  - **Tên Function:** `RetryRefund` | **Role:** `RequireRole("admin", "staff")`
+  - **Mô tả:** Thử kích hoạt lại hoàn tiền cho đơn tố cáo đã `Resolved` nhưng `RefundStatus` đang `Pending` hoặc `Failed`.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/AdminReports/POST_admin_reports_reportId_refund_retry.md`
 - [x] **REPORT-04** — `PUT /api/v1/admin/reports/{reportId}/dismiss`
   - **Tên Function:** `DismissReport` | **Role:** `RequireRole("admin", "staff")`
   - **Mô tả:** Bác bỏ khiếu nại do không đủ chứng cứ hoặc sai sự thật kèm ghi chú nguyên nhân bác bỏ.
@@ -410,6 +478,46 @@ tags:
   - **Tên Function:** `AdjustReputation` | **Service gọi:** Commerce/Order Service
   - **Mô tả:** Thưởng +1 điểm uy tín cho Buyer hoặc Seller khi đơn hàng hoàn tất (`OrderCompleted`), có chống cày điểm 7-Day Cooldown và bảo vệ Idempotency theo `ReferenceId`.
   - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#5-post-apiv1internalusersreputation-adjust-int-07`
+- [x] **INT-08** — `POST /api/v1/internal/users/reputation-penalty-revoke`
+  - **Tên Function:** `RevokeBuyerRefusalPenalty` | **Service gọi:** Commerce/Order Service
+  - **Mô tả:** Thu hồi án phạt từ chối nhận hàng, hoàn điểm đã trừ (idempotent theo `ReferenceId`).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#6-post-apiv1internalusersreputation-penalty-revoke`
+- [x] **INT-09** — `POST /api/v1/internal/users/{userId}/auction-payments`
+  - **Tên Function:** `RecordAuctionPayment` | **Service gọi:** Auction/Payment Service
+  - **Mô tả:** Ghi nhận thanh toán đơn đấu giá thành công để cập nhật `ViolationStreak` và gỡ hạn chế đấu giá.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#7-post-apiv1internalusersuseridauction-payments`
+- [x] **INT-10** — `GET /api/v1/internal/users/{userId}/shop`
+  - **Tên Function:** `GetShop` | **Service gọi:** Catalog/Order/Fulfillment Service
+  - **Mô tả:** Lấy thông tin gian hàng và địa chỉ kho GHN của người bán theo `userId`.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#8-get-apiv1internalusersuseridshop`
+- [x] **INT-11** — `POST /api/v1/internal/sellers/batch-info`
+  - **Tên Function:** `GetBatchSellerInfo` | **Service gọi:** Catalog/Order/Auction Service
+  - **Mô tả:** Truy vấn hàng loạt thông tin gian hàng (tối đa 100 IDs).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#9-post-apiv1internalsellersbatch-info`
+- [x] **INT-12** — `POST /api/v1/internal/users/contact-info`
+  - **Tên Function:** `GetContact` | **Service gọi:** Notification Service
+  - **Mô tả:** Lấy `email` và `fullName` của người dùng phục vụ gửi thông báo giao dịch.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#10-post-apiv1internaluserscontact-info`
+- [x] **INT-13** — `GET /api/v1/internal/users/{userId}`
+  - **Tên Function:** `GetUserById` | **Service gọi:** Order/Notification/Audit Service
+  - **Mô tả:** Lấy thông tin cơ bản nội bộ của tài khoản người dùng.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#11-get-apiv1internalusersuserid`
+- [x] **INT-14** — `GET /api/v1/internal/users/{userId}/addresses/default`
+  - **Tên Function:** `GetUserDefaultAddress` | **Service gọi:** Order/Auction Service
+  - **Mô tả:** Lấy địa chỉ giao hàng mặc định của người dùng phục vụ checkout.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#12-get-apiv1internalusersuseridaddressesdefault`
+- [x] **INT-15** — `GET /api/v1/internal/users/{userId}/addresses/{addressId}`
+  - **Tên Function:** `GetUserAddressById` | **Service gọi:** Order Service
+  - **Mô tả:** Kiểm tra quyền sở hữu và lấy chi tiết một địa chỉ giao hàng cụ thể của người dùng.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalUsers/INBOUND_INTERNAL_REST_APIS.md#13-get-apiv1internalusersuseridaddressesaddressid`
+- [x] **INT-AUDIT-01** — `GET /api/v1/internal/audit-logs/unsynced`
+  - **Tên Function:** `GetUnsynced` | **Service gọi:** Central Log Service
+  - **Mô tả:** Kéo danh sách các bản ghi `AuditLogs` chưa đồng bộ (`IsSynced = false`).
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalAuditLogs/GET_internal_audit_logs_unsynced.md`
+- [x] **INT-AUDIT-02** — `POST /api/v1/internal/audit-logs/mark-synced`
+  - **Tên Function:** `MarkSynced` | **Service gọi:** Central Log Service
+  - **Mô tả:** Đánh dấu các bản ghi `AuditLogs` đã đồng bộ xong.
+  - **Tài liệu đặc tả:** `docs/api/A_Active/User/InternalAuditLogs/POST_internal_audit_logs_mark_synced.md`
 - [-] **INT-03** — `GET /api/v1/internal/sellers/{sellerId}/pickup-address`
   - **Trạng thái:** `[-] ĐÃ BÃI BỎ`
   - **Service gọi:** Fulfillment Service

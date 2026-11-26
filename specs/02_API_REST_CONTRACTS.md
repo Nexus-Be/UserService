@@ -5,8 +5,9 @@
 > - Nhóm Quản trị hệ thống & tài khoản (`/api/v1/admin/users`, `/api/v1/admin/roles`): **Chỉ dành cho Admin** (`[RequireRole("admin")]`).
 > - Nhóm Thẩm định & duyệt hồ sơ Seller (`/api/v1/admin/seller-registrations`): **Chỉ dành cho Support Staff** (`[RequireRole("staff")]`).
 > - Nhóm Tra cứu hồ sơ người bán quản trị (`/api/v1/admin/sellers`): **Dành cho Admin & Support Staff** (`[RequireRole("admin", "staff")]`).
-> **Nguồn sự thật:** code (`User.Api/Controllers/AuthController.cs`, `User.Api/Controllers/UsersController.cs`, `User.Api/Controllers/AdminUsersController.cs`, `User.Api/Controllers/AdminRolesController.cs`, `User.Api/Controllers/AdminSellerRegistrationsController.cs`, `User.Api/Controllers/AdminSellersController.cs`, `User.Api/Controllers/SellerController.cs`).
-> **Cập nhật lần cuối:** 2026-11-02.
+> **Nguồn sự thật:** code (`User.Api/Controllers/`).
+> **Lưu ý:** Tài liệu này tóm tắt **quy chuẩn hợp đồng RESTful & phân quyền cốt lõi**. Danh mục đầy đủ 100% các endpoints (kèm payload mẫu, validation và error matrix) được duy trì tại [docs/api/API_CHECKLIST.md](../docs/api/API_CHECKLIST.md) và thư mục [docs/api/A_Active/User/](../docs/api/A_Active/User/).
+> **Cập nhật lần cuối:** 2026-11-26.
 > **Tác giả:** Hiển Vinh & AI Agent
 
 ---
