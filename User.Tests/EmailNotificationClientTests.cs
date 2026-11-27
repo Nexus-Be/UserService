@@ -62,7 +62,8 @@ public sealed class EmailNotificationClientTests
 
         using var doc = JsonDocument.Parse(handler.Requests[0].Body);
         var root = doc.RootElement;
-        Assert.Equal("pwd-changed:1", root.GetProperty("sourceEventId").GetString());
+        Assert.True(Guid.TryParse(root.GetProperty("sourceEventId").GetString(), out var parsedEventId));
+        Assert.NotEqual(Guid.Empty, parsedEventId);
         Assert.Equal(userId.ToString(), root.GetProperty("userId").GetString());
         Assert.Equal("user@example.com", root.GetProperty("email").GetString());
         Assert.Equal("Changed", root.GetProperty("kind").GetString());
@@ -106,11 +107,15 @@ public sealed class EmailNotificationClientTests
         Assert.Equal("http://localhost:8007/api/v1/notifications/account-status-changes", handler.Requests[1].Uri);
 
         using var sellerDoc = JsonDocument.Parse(handler.Requests[0].Body);
+        Assert.True(Guid.TryParse(sellerDoc.RootElement.GetProperty("sourceEventId").GetString(), out _));
+        Assert.True(Guid.TryParse(sellerDoc.RootElement.GetProperty("applicationId").GetString(), out _));
         Assert.Equal("Rejected", sellerDoc.RootElement.GetProperty("decision").GetString());
-        Assert.Equal("Missing tax ID", sellerDoc.RootElement.GetProperty("reason").GetString());
+        Assert.Equal("Missing tax ID", sellerDoc.RootElement.GetProperty("rejectionReason").GetString());
 
         using var banDoc = JsonDocument.Parse(handler.Requests[1].Body);
-        Assert.Equal("Banned", banDoc.RootElement.GetProperty("status").GetString());
+        Assert.True(Guid.TryParse(banDoc.RootElement.GetProperty("sourceEventId").GetString(), out _));
+        Assert.True(banDoc.RootElement.GetProperty("statusVersion").GetInt64() >= 1);
+        Assert.Equal("Banned", banDoc.RootElement.GetProperty("change").GetString());
         Assert.Equal("Fraud", banDoc.RootElement.GetProperty("reason").GetString());
     }
 
@@ -157,7 +162,8 @@ public sealed class EmailNotificationClientTests
         {
             var db = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
             var log = await db.NotificationDispatchLogs.SingleAsync();
-            Assert.Equal("pwd-reset:retry-1", log.SourceEventId);
+            Assert.True(Guid.TryParse(log.SourceEventId, out var loggedEventId));
+            Assert.NotEqual(Guid.Empty, loggedEventId);
             Assert.Equal(NotificationDispatchStatus.PendingRetry, log.Status);
             Assert.Equal(503, log.LastHttpStatusCode);
 

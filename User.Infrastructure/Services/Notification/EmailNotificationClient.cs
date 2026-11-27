@@ -3,6 +3,7 @@ namespace User.Infrastructure.Services.Notification;
 using System;
 using System.Diagnostics;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -80,25 +81,25 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
         CancellationToken cancellationToken = default)
     {
         var resolvedTraceId = traceId ?? Activity.Current?.Id;
+        var resolvedEventId = ToDeterministicGuid(sourceEventId);
         var trimmedReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         var payload = new
         {
-            sourceEventId,
-            registrationId,
+            sourceEventId = resolvedEventId,
+            applicationId = registrationId,
             userId,
             email = email.Trim(),
             fullName = fullName.Trim(),
             shopName = shopName.Trim(),
             decision = isApproved ? "Approved" : "Rejected",
-            reason = trimmedReason,
-            rejectReason = isApproved ? null : trimmedReason,
+            rejectionReason = isApproved ? null : trimmedReason,
             decidedAt,
             traceId = resolvedTraceId
         };
 
         return PostNotificationAsync(
             "api/v1/notifications/seller-decisions",
-            sourceEventId,
+            resolvedEventId.ToString("D"),
             resolvedTraceId,
             payload,
             persistRetryOnFailure: true,
@@ -117,22 +118,26 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
         CancellationToken cancellationToken = default)
     {
         var resolvedTraceId = traceId ?? Activity.Current?.Id;
+        var resolvedEventId = ToDeterministicGuid(sourceEventId);
+        var resolvedReason = string.IsNullOrWhiteSpace(reason)
+            ? (isBanned ? "Tài khoản bị khóa bởi quản trị viên." : "Tài khoản đã được mở khóa bởi quản trị viên.")
+            : reason.Trim();
         var payload = new
         {
-            sourceEventId,
+            sourceEventId = resolvedEventId,
             userId,
+            statusVersion = Math.Max(1L, changedAt.ToUnixTimeMilliseconds()),
             email = email.Trim(),
             fullName = fullName.Trim(),
-            status = isBanned ? "Banned" : "Unbanned",
-            action = isBanned ? "Ban" : "Unban",
-            reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+            change = isBanned ? "Banned" : "Unbanned",
+            reason = resolvedReason,
             changedAt,
             traceId = resolvedTraceId
         };
 
         return PostNotificationAsync(
             "api/v1/notifications/account-status-changes",
-            sourceEventId,
+            resolvedEventId.ToString("D"),
             resolvedTraceId,
             payload,
             persistRetryOnFailure: true,
@@ -150,9 +155,10 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
         CancellationToken cancellationToken = default)
     {
         var resolvedTraceId = traceId ?? Activity.Current?.Id;
+        var resolvedEventId = ToDeterministicGuid(sourceEventId);
         var payload = new
         {
-            sourceEventId,
+            sourceEventId = resolvedEventId,
             userId,
             email = email.Trim(),
             kind = kind.ToString(),
@@ -163,11 +169,24 @@ public sealed class EmailNotificationClient : IEmailNotificationClient
 
         return PostNotificationAsync(
             "api/v1/notifications/password-changes",
-            sourceEventId,
+            resolvedEventId.ToString("D"),
             resolvedTraceId,
             payload,
             persistRetryOnFailure: true,
             cancellationToken);
+    }
+
+    private static Guid ToDeterministicGuid(string sourceEventId)
+    {
+        if (Guid.TryParse(sourceEventId, out var parsed) && parsed != Guid.Empty)
+        {
+            return parsed;
+        }
+
+        var normalized = string.IsNullOrWhiteSpace(sourceEventId)
+            ? Guid.NewGuid().ToString("N")
+            : sourceEventId.Trim();
+        return new Guid(MD5.HashData(Encoding.UTF8.GetBytes(normalized)));
     }
 
     private async Task<bool> PostNotificationAsync(
