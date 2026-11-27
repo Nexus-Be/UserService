@@ -98,10 +98,12 @@ public sealed class FulfillmentServiceClient : IFulfillmentServiceClient
                 sellerId, effectiveSellerId, shopName);
             response = await _httpClient.PostAsJsonAsync("api/v1/warehouses/initialize", payload, cancellationToken);
 
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            if (response.StatusCode is System.Net.HttpStatusCode.NotFound
+                or System.Net.HttpStatusCode.Unauthorized
+                or System.Net.HttpStatusCode.Forbidden)
             {
-                _logger.LogWarning("[FULFILLMENT CLIENT] Route 'api/v1/warehouses/initialize' returned 404 for Seller '{SellerId}'. Retrying via legacy route 'api/v1/internal/warehouses'...",
-                    effectiveSellerId);
+                _logger.LogWarning("[FULFILLMENT CLIENT] Route 'api/v1/warehouses/initialize' returned {StatusCode} for Seller '{SellerId}'. Retrying via internal route 'api/v1/internal/warehouses'...",
+                    (int)response.StatusCode, effectiveSellerId);
                 response.Dispose();
                 response = null;
                 response = await _httpClient.PostAsJsonAsync("api/v1/internal/warehouses", payload, cancellationToken);

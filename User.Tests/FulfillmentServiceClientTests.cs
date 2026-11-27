@@ -84,6 +84,40 @@ public sealed class FulfillmentServiceClientTests
         Assert.Equal("/api/v1/internal/warehouses", capture.Requests[1].RequestUri!.AbsolutePath);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task CreateWarehouseAsync_falls_back_to_internal_route_when_primary_route_returns_401_or_403(HttpStatusCode primaryStatus)
+    {
+        var responseMap = new Queue<HttpResponseMessage>();
+        responseMap.Enqueue(new HttpResponseMessage(primaryStatus));
+        responseMap.Enqueue(new HttpResponseMessage(HttpStatusCode.Created));
+
+        var capture = new MultiResponseHandler(responseMap);
+        using var httpClient = new HttpClient(capture)
+        {
+            BaseAddress = new Uri("http://fulfillment.local/")
+        };
+
+        var client = new FulfillmentServiceClient(httpClient, NullLogger<FulfillmentServiceClient>.Instance);
+
+        var result = await client.CreateWarehouseAsync(
+            sellerId: Guid.NewGuid(),
+            userId: Guid.NewGuid(),
+            shopName: "Staff Approved Shop",
+            contactName: "Nguyen Van D",
+            contactPhone: "0901112223",
+            pickupAddress: "123 Le Loi",
+            provinceId: 10,
+            districtId: 20,
+            wardCode: "002");
+
+        Assert.True(result);
+        Assert.Equal(2, capture.Requests.Count);
+        Assert.Equal("/api/v1/warehouses/initialize", capture.Requests[0].RequestUri!.AbsolutePath);
+        Assert.Equal("/api/v1/internal/warehouses", capture.Requests[1].RequestUri!.AbsolutePath);
+    }
+
     [Fact]
     public async Task CreateWarehouseAsync_does_not_invoke_fallback_when_primary_route_succeeds()
     {
