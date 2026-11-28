@@ -80,6 +80,7 @@ public sealed class AuthServiceTests
         Assert.Equal("Nguyen Van Event", sentEmail.FullName);
         Assert.Equal(6, sentEmail.OtpCode.Length);
         Assert.Equal(5, sentEmail.ExpiresInMinutes);
+        Assert.Equal("registration", Assert.Single(emailClient.SentPurposes));
     }
 
     [Fact]
@@ -1763,6 +1764,7 @@ public sealed class AuthServiceTests
     private sealed class TestEmailNotificationClient : IEmailNotificationClient
     {
         public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
+        public System.Collections.Generic.List<string?> SentPurposes { get; } = new();
         public System.Collections.Generic.List<(string SourceEventId, Guid UserId, string Email, string FullName, PasswordChangeKind Kind, DateTimeOffset ChangedAt)> SentPasswordChanges { get; } = new();
 
         public Task<bool> SendOtpEmailAsync(
@@ -1775,6 +1777,7 @@ public sealed class AuthServiceTests
             System.Threading.CancellationToken cancellationToken = default)
         {
             SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
+            SentPurposes.Add(purpose);
             return Task.FromResult(true);
         }
 

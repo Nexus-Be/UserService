@@ -161,6 +161,7 @@ public sealed class ReviewService : IReviewService
                     l.UserId == reviewee.Id &&
                     l.TargetRole == targetTrack &&
                     l.PartnerUserId == reviewerId &&
+                    l.Reason == ReputationChangeReason.PositiveReview &&
                     l.ChangeAmount > 0 &&
                     l.CreatedAt >= cutoff,
                     cancellationToken);

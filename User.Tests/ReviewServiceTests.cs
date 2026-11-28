@@ -128,6 +128,75 @@ public sealed class ReviewServiceTests
     }
 
     [Fact]
+    public async Task CreateReviewAsync_FirstPositiveReviewAfterOrderCompletedReward_StillAddsReviewPoints()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var commerce = new FakeCommerceOrderClient();
+        var service = new ReviewService(dbContext, NullLogger<ReviewService>.Instance, commerceClient: commerce);
+
+        var buyerId = Guid.NewGuid();
+        var sellerId = Guid.NewGuid();
+        var orderId = Guid.Parse(TestOrders.Ref("ORD-FIRST-REV"));
+        commerce.Add("Order", orderId, buyerId, sellerId, "Completed", DateTimeOffset.UtcNow.AddMinutes(-10));
+
+        dbContext.Users.AddRange(
+            new User { Id = buyerId, Email = "b1@nexus.local", PasswordHash = "h", FirstName = "Buyer", LastName = "One", Status = UserStatus.Active },
+            new User { Id = sellerId, Email = "s1@nexus.local", PasswordHash = "h", FirstName = "Seller", LastName = "One", Status = UserStatus.Active });
+
+        dbContext.SellerProfiles.Add(new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = sellerId,
+            ShopName = "Shop First Review",
+            PickupAddress = "100 Kim Ma",
+            ProvinceId = 201,
+            DistrictId = 1484,
+            WardCode = "1A0101",
+            Hotline = "0900000001",
+            Status = SellerProfileStatus.Approved
+        });
+
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = sellerId,
+            CurrentScore = 50,
+            SellerScore = 51
+        });
+
+        // OrderCompleted log with PartnerUserId = buyerId must NOT trigger positive-review cooldown
+        dbContext.ReputationLogs.Add(new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = sellerId,
+            TargetRole = TargetRole.Seller,
+            ChangeAmount = 1,
+            ScoreAfter = 51,
+            Reason = ReputationChangeReason.OrderCompleted,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = "SUB-FIRST",
+            PartnerUserId = buyerId,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+            UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-10)
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var created = await service.CreateReviewAsync(buyerId, new CreateReviewRequest
+        {
+            RevieweeId = sellerId,
+            ReviewerRole = ReviewerRole.Buyer,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = orderId.ToString("D"),
+            Rating = 5,
+            Comment = "Great seller!"
+        });
+
+        Assert.Equal(1, created.ScoreImpact);
+        Assert.Equal(52, created.RevieweeNewScore);
+    }
+
+    [Fact]
     public async Task HideReviewAsync_ReversesExactScoreImpactOnTargetTrack_AndCreatesDisputeCompensationLog()
     {
         using var dbContext = CreateInMemoryDbContext();

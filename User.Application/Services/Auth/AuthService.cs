@@ -197,7 +197,7 @@ public class AuthService : IAuthService
                 fullName,
                 otpCode,
                 5,
-                purpose: "email_verification",
+                purpose: "registration",
                 traceId: Activity.Current?.Id,
                 cancellationToken: cancellationToken);
             if (sent)
@@ -462,7 +462,7 @@ public class AuthService : IAuthService
                 fullName,
                 newOtpCode,
                 5,
-                purpose: "email_verification",
+                purpose: "registration",
                 traceId: Activity.Current?.Id,
                 cancellationToken: cancellationToken);
             if (sent)
