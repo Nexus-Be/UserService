@@ -1,15 +1,18 @@
-namespace User.Infrastructure;
+﻿namespace User.Infrastructure;
 
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using User.Application.Interfaces;
-using User.Infrastructure.BackgroundWorkers;
 using User.Infrastructure.Persistence;
+using User.Infrastructure.Services.Auth;
 using User.Infrastructure.Services.Notification;
 using User.Infrastructure.Services.Redis;
+using User.Infrastructure.Services.Storage;
 
 public static class DependencyInjection
 {
@@ -32,6 +35,7 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString));
 
         services.AddScoped<IUserDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+        services.AddMemoryCache();
 
         // Redis
         services.AddSingleton<IConnectionMultiplexer>(_ =>
@@ -49,6 +53,13 @@ public static class DependencyInjection
 
         services.AddSingleton<IRedisOtpService, RedisOtpService>();
         services.AddSingleton<IJwtTokenGenerator, Services.Jwt.JwtTokenGenerator>();
+        services.AddHttpClient<IFirebaseAuthService, FirebaseAuthService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
+        // Identity propagation delegating handler for outgoing inter-service HTTP requests
+        services.AddTransient<Services.Common.IdentityPropagationHandler>();
 
         // REST Email Notification Client
         var notificationBaseUrl = Environment.GetEnvironmentVariable("NOTIFICATION_SERVICE_URL")
@@ -58,16 +69,119 @@ public static class DependencyInjection
             ?? "http://localhost:8007/";
 
         // Internal service key handler is temporarily disabled. Inter-service calls use plain REST routes.
-        // services.AddTransient<Services.Common.InternalServiceAuthHandler>();
-        services.AddHttpClient<EmailNotificationClient>(client =>
+        services.AddTransient<Services.Common.InternalServiceAuthHandler>();
+        services.AddHttpClient<IEmailNotificationClient, EmailNotificationClient>(client =>
         {
             client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("x-user-id", "00000000-0000-0000-0000-000000000001");
+            client.DefaultRequestHeaders.Add("x-user-roles", "service");
+            client.DefaultRequestHeaders.Add("X-Caller-Service", "user-service");
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>()
+          .AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
+
+        services.AddHttpClient(NotificationRetryWorker.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri(notificationBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Add("x-user-id", "00000000-0000-0000-0000-000000000001");
+            client.DefaultRequestHeaders.Add("x-user-roles", "service");
+            client.DefaultRequestHeaders.Add("X-Caller-Service", "user-service");
+        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
+        services.AddHostedService<NotificationRetryWorker>();
+
+        // REST Fulfillment Service Client (Internal sync with 5s timeout)
+        var fulfillmentBaseUrl = Environment.GetEnvironmentVariable("FULFILLMENT_SERVICE_URL")
+            ?? configuration["FULFILLMENT_SERVICE_URL"]
+            ?? configuration["Services:Fulfillment:BaseUrl"]
+            ?? configuration["FulfillmentService:BaseUrl"]
+            ?? "http://localhost:8006/";
+
+        var fulfillmentServiceKey = new[]
+            {
+                Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET"),
+                configuration["INTERNAL_SERVICE_SECRET"],
+                configuration["InternalSecurity:ServiceKey"]
+            }.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+        services.AddHttpClient<IFulfillmentServiceClient, Services.External.FulfillmentServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(fulfillmentBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(8);
+            // The location check is an internal route of Fulfillment.
+            if (!string.IsNullOrWhiteSpace(fulfillmentServiceKey))
+                client.DefaultRequestHeaders.Add("X-Internal-Service-Key", fulfillmentServiceKey);
+        }).AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+
+        // CommerceService: UserService asks it who took part in an order before it accepts a review.
+        var commerceBaseUrl = Environment.GetEnvironmentVariable("COMMERCE_SERVICE_URL")
+            ?? configuration["COMMERCE_SERVICE_URL"]
+            ?? configuration["Services:Commerce:BaseUrl"]
+            ?? configuration["CommerceService:BaseUrl"]
+            ?? "http://localhost:8003/";
+        var internalServiceKey = Environment.GetEnvironmentVariable("INTERNAL_SERVICE_SECRET")
+            ?? configuration["INTERNAL_SERVICE_SECRET"]
+            ?? configuration["InternalSecurity:ServiceKey"];
+
+        services.AddHttpClient<ICommerceOrderClient, Services.External.CommerceOrderClient>(client =>
+        {
+            client.BaseAddress = new Uri(commerceBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+            if (!string.IsNullOrWhiteSpace(internalServiceKey))
+                client.DefaultRequestHeaders.Add("X-Internal-Service-Key", internalServiceKey);
         });
 
-        services.AddSingleton<OtpEmailQueue>();
-        services.AddSingleton<IEmailNotificationClient, QueuedEmailNotificationClient>();
-        services.AddHostedService<OtpEmailDispatchWorker>();
+        services.AddHttpClient<ICommerceServiceClient, Services.External.CommerceServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(commerceBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+        }).AddTypedClient<ICommerceServiceClient>((http, sp) => new Services.External.CommerceServiceClient(
+            http,
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.External.CommerceServiceClient>>(),
+            internalServiceKey))
+          .AddHttpMessageHandler<Services.Common.IdentityPropagationHandler>();
+
+        var walletBaseUrl = Environment.GetEnvironmentVariable("WALLET_SERVICE_URL")
+            ?? configuration["WALLET_SERVICE_URL"]
+            ?? configuration["Services:Wallet:BaseUrl"]
+            ?? configuration["WalletService:BaseUrl"]
+            ?? configuration["ExternalServices:WalletServiceUrl"]
+            ?? "http://localhost:8008/";
+
+        services.AddHttpClient<IWalletServiceClient, Services.External.WalletServiceClient>(client =>
+        {
+            client.BaseAddress = new Uri(walletBaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(5);
+        }).AddHttpMessageHandler<Services.Common.InternalServiceAuthHandler>();
+
+        // Image Moderation (Sightengine / AzureContentSafety when configured; pass-through otherwise)
+        services.AddHttpClient<IImageModerationService, Services.Moderation.ConfiguredImageModerationService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
+        // File Storage (Cloudinary when configured, LocalFileStorageService fallback otherwise)
+        var cloudName = Environment.GetEnvironmentVariable("CLOUDINARY_CLOUD_NAME")
+            ?? configuration["Cloudinary:CloudName"];
+        var cloudApiKey = Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY")
+            ?? configuration["Cloudinary:ApiKey"];
+        var cloudApiSecret = Environment.GetEnvironmentVariable("CLOUDINARY_API_SECRET")
+            ?? configuration["Cloudinary:ApiSecret"];
+
+        if (!string.IsNullOrWhiteSpace(cloudName)
+            && !string.IsNullOrWhiteSpace(cloudApiKey)
+            && !string.IsNullOrWhiteSpace(cloudApiSecret))
+        {
+            services.AddSingleton<IFileStorageService>(sp =>
+                new CloudinaryFileStorageService(
+                    cloudName,
+                    cloudApiKey,
+                    cloudApiSecret,
+                    sp.GetRequiredService<ILogger<CloudinaryFileStorageService>>()));
+        }
+        else
+        {
+            services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+        }
 
         return services;
     }

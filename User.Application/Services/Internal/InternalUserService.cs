@@ -1,0 +1,1354 @@
+﻿namespace User.Application.Services.Internal;
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using User.Application.Common.Extensions;
+using User.Application.Interfaces;
+using User.Domain.Constants;
+using User.Domain.Entities;
+using User.Domain.Enums;
+using User.Domain.Exceptions;
+
+public sealed class InternalUserService : IInternalUserService
+{
+    public async Task<RecordAuctionPaymentResponse> RecordAuctionPaymentAsync(Guid userId,
+        RecordAuctionPaymentRequest request, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || request.AuctionId == Guid.Empty || request.OrderId == Guid.Empty ||
+            request.PaidAt == default || (request.Source != "WINNER" && request.Source != "SECOND_CHANCE"))
+            throw new DomainException("VAL_INVALID_AUCTION_PAYMENT", "Auction payment details are invalid.", 400);
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await _dbContext.LockAuctionPaymentAsync(userId, request.OrderId, cancellationToken);
+        var existing = await _dbContext.UserAuctionPayments.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.OrderId == request.OrderId, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.UserId != userId || existing.AuctionId != request.AuctionId ||
+                existing.Source != request.Source || existing.PaidAt != request.PaidAt)
+                throw new DomainException("AUCTION_PAYMENT_CONFLICT", "Order payment has different recorded details.", 409);
+            return new RecordAuctionPaymentResponse(true, false, existing.PreviousStreak, 0, existing.RestrictionLifted);
+        }
+
+        var user = await _dbContext.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId && u.Status != UserStatus.Deleted, cancellationToken)
+            ?? throw new DomainException("USER_NOT_FOUND", "User account was not found.", 404);
+        var now = DateTimeOffset.UtcNow;
+        var profile = await _dbContext.GetOrCreateAuctionProfileAsync(user.Id, now, cancellationToken);
+        var previous = profile.ViolationStreak;
+        profile.ViolationStreak = 0;
+        var lifted = profile.RestrictionType == AuctionRestrictionType.TempRestricted &&
+            profile.RestrictionReason?.StartsWith("Temporary auction restriction due to repeated non-payment", StringComparison.Ordinal) == true;
+        if (lifted)
+        {
+            profile.RestrictionType = AuctionRestrictionType.None;
+            profile.RestrictionUntil = null;
+            profile.RestrictionReason = null;
+        }
+        profile.UpdatedAt = now;
+        _dbContext.UserAuctionPayments.Add(new UserAuctionPayment
+        {
+            Id = Guid.NewGuid(), UserId = userId, AuctionId = request.AuctionId,
+            OrderId = request.OrderId, Source = request.Source, PaidAt = request.PaidAt,
+            PreviousStreak = previous, RestrictionLifted = lifted,
+            CreatedAt = now, UpdatedAt = now
+        });
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new RecordAuctionPaymentResponse(true, true, previous, 0, lifted);
+    }
+
+    private const string BidMinScoreConfigKey = "AUCTION_MIN_REPUTATION_BID";
+    private const string CreateAuctionMinScoreConfigKey = "AUCTION_MIN_REPUTATION_CREATE";
+
+    private static readonly TimeSpan ConfigCacheDuration = TimeSpan.FromMinutes(5);
+
+    private readonly IUserDbContext _dbContext;
+    private readonly IMemoryCache _cache;
+    private readonly ILogger<InternalUserService> _logger;
+
+    public InternalUserService(
+        IUserDbContext dbContext,
+        IMemoryCache cache,
+        ILogger<InternalUserService> logger)
+    {
+        _dbContext = dbContext;
+        _cache = cache;
+        _logger = logger;
+    }
+
+    public async Task<CheckReputationResponse> CheckReputationAsync(
+        CheckReputationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "[InternalUserService] Checking seller reputation for UserId: '{UserId}', Action: '{Action}'",
+            request.UserId,
+            request.EffectiveAction);
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(u => u.ReputationScore)
+            .Include(u => u.SellerProfile)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+
+        if (user is null)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = "NotFound",
+                CurrentScore = 0,
+                TrustLevel = TrustLevel.Untrusted.ToEnumString(),
+                FailureReason = "USER_NOT_FOUND"
+            };
+        }
+
+        var isDeleted = user.IsDeleted || user.Status == UserStatus.Deleted;
+        var currentScore = user.ReputationScore?.SellerScore ?? ReputationRules.DefaultInitialScore;
+        var trustLevel = (user.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToEnumString();
+        var isApprovedSeller = user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Approved;
+
+        if (isDeleted)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = UserStatus.Deleted.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "USER_DELETED"
+            };
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = UserStatus.Banned.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (user.Status != UserStatus.Active)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_INACTIVE"
+            };
+        }
+
+        if (!isApprovedSeller)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = false,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "SELLER_NOT_APPROVED"
+            };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var activePenalties = await _dbContext.UserPenalties
+            .AsNoTracking()
+            .Where(p => p.UserId == request.UserId
+                        && p.Status == PenaltyStatus.Active
+                        && (p.TargetRole == TargetRole.Account || p.TargetRole == TargetRole.Seller)
+                        && (p.ExpiresAt == null || p.ExpiresAt > now))
+            .ToListAsync(cancellationToken);
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.BanAccount))
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = true,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.Restriction))
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = true,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "ACCOUNT_RESTRICTED"
+            };
+        }
+
+        var minRequiredScore = await GetThresholdScoreAsync(CreateAuctionMinScoreConfigKey, ReputationRules.DefaultMinScoreToSell, cancellationToken);
+        if (currentScore < minRequiredScore)
+        {
+            return new CheckReputationResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                IsApprovedSeller = true,
+                UserStatus = user.Status.ToEnumString(),
+                CurrentScore = currentScore,
+                TrustLevel = trustLevel,
+                FailureReason = "REPUTATION_TOO_LOW"
+            };
+        }
+
+        return new CheckReputationResponse
+        {
+            UserId = request.UserId,
+            Allowed = true,
+            IsApprovedSeller = true,
+            UserStatus = "Active",
+            CurrentScore = currentScore,
+            TrustLevel = trustLevel,
+            FailureReason = null
+        };
+    }
+
+    public async Task<VerifyBidEligibilityResponse> VerifyBidEligibilityAsync(
+        VerifyBidEligibilityRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "[InternalUserService] Verifying buyer bid eligibility for UserId: '{UserId}', AuctionId: '{AuctionId}'",
+            request.UserId,
+            request.AuctionId);
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+
+        if (user is null)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = 0,
+                FailureReason = "USER_NOT_FOUND"
+            };
+        }
+
+        var isDeleted = user.IsDeleted || user.Status == UserStatus.Deleted;
+        var currentScore = user.ReputationScore?.CurrentScore ?? ReputationRules.DefaultInitialScore;
+
+        if (isDeleted)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "USER_DELETED"
+            };
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (user.Status != UserStatus.Active)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_INACTIVE"
+            };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var activePenalties = await _dbContext.UserPenalties
+            .AsNoTracking()
+            .Where(p => p.UserId == request.UserId
+                        && p.Status == PenaltyStatus.Active
+                        && (p.TargetRole == TargetRole.Account || p.TargetRole == TargetRole.Buyer)
+                        && (p.ExpiresAt == null || p.ExpiresAt > now))
+            .ToListAsync(cancellationToken);
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.BanAccount))
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_BANNED"
+            };
+        }
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.Restriction))
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "ACCOUNT_RESTRICTED"
+            };
+        }
+
+        var auctionProfile = await _dbContext.UserAuctionProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == request.UserId, cancellationToken);
+
+        var restriction = auctionProfile.ResolveActiveRestriction(now);
+        if (restriction.IsRestricted)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = restriction.Type == AuctionRestrictionType.Suspended ? "AUCTION_SUSPENDED" : "AUCTION_TEMP_RESTRICTED"
+            };
+        }
+
+        var minRequiredScore = await GetThresholdScoreAsync(BidMinScoreConfigKey, ReputationRules.DefaultMinScoreToBid, cancellationToken);
+        if (currentScore < minRequiredScore)
+        {
+            return new VerifyBidEligibilityResponse
+            {
+                UserId = request.UserId,
+                Allowed = false,
+                CurrentScore = currentScore,
+                FailureReason = "REPUTATION_TOO_LOW"
+            };
+        }
+
+        return new VerifyBidEligibilityResponse
+        {
+            UserId = request.UserId,
+            Allowed = true,
+            CurrentScore = currentScore,
+            FailureReason = null
+        };
+    }
+
+    public async Task<BatchPublicInfoResponse> GetBatchPublicInfoAsync(
+        BatchPublicInfoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.UserIds is null || request.UserIds.Count == 0)
+        {
+            return new BatchPublicInfoResponse { Users = Array.Empty<UserPublicInfoItem>() };
+        }
+
+        if (request.UserIds.Count > 100)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "User IDs list cannot exceed 100 identifiers per batch request.", 400);
+        }
+
+        var distinctIds = request.UserIds.Distinct().ToList();
+
+        var users = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(u => u.ReputationScore)
+            .Include(u => u.SellerProfile)
+            .Where(u => distinctIds.Contains(u.Id))
+            .Select(u => new
+            {
+                u.Id,
+                u.FirstName,
+                u.LastName,
+                u.Username,
+                u.AvatarUrl,
+                u.IsDeleted,
+                u.Status,
+                ShopName = u.SellerProfile != null ? u.SellerProfile.ShopName : null,
+                BuyerScore = u.ReputationScore != null ? u.ReputationScore.CurrentScore : ReputationRules.DefaultInitialScore,
+                SellerScore = u.ReputationScore != null ? u.ReputationScore.SellerScore : ReputationRules.DefaultInitialScore
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = users.Select(u =>
+        {
+            var fullName = $"{u.FirstName} {u.LastName}".Trim();
+            var displayName = !string.IsNullOrWhiteSpace(u.ShopName)
+                ? u.ShopName
+                : !string.IsNullOrWhiteSpace(fullName)
+                    ? fullName
+                    : u.Username ?? "Anonymous";
+
+            var rawForMask = !string.IsNullOrWhiteSpace(fullName)
+                ? fullName
+                : u.Username ?? displayName;
+            var maskedName = rawForMask.Length > 2
+                ? $"{rawForMask[0]}***{rawForMask[^1]}"
+                : "u***r";
+
+            var isDeleted = u.IsDeleted || u.Status == UserStatus.Deleted;
+
+            return new UserPublicInfoItem
+            {
+                UserId = u.Id,
+                DisplayName = displayName,
+                MaskedDisplayName = maskedName,
+                MaskedName = maskedName,
+                IsDeleted = isDeleted,
+                AvatarUrl = u.AvatarUrl,
+                ReputationScore = u.BuyerScore,
+                SellerReputationScore = u.SellerScore
+            };
+        }).ToList();
+
+        return new BatchPublicInfoResponse { Users = items };
+    }
+
+    public async Task<InternalPenaltyResponse> ApplyInternalPenaltyAsync(
+        InternalPenaltyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ReferenceId))
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Reference ID is required for internal penalty processing.", 400);
+        }
+
+        var user = await _dbContext.Users
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var normalizedRefId = request.ReferenceId.Trim();
+        var effectiveTrack = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+        var logReason = request.ViolationType switch
+        {
+            PenaltyViolationType.PaymentTimeout or PenaltyViolationType.AuctionNonPayment => ReputationChangeReason.AuctionPaymentTimeout,
+            PenaltyViolationType.CancellationWithoutReason => ReputationChangeReason.SellerCancellation,
+            _ => ReputationChangeReason.ViolationPenalty
+        };
+
+        var repScore = EnsureReputationScore(user);
+
+        // Idempotency check by (UserId, TargetRole, ReferenceType, ReferenceId, Reason)
+        var existingLog = await _dbContext.ReputationLogs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l =>
+                l.UserId == request.UserId &&
+                l.TargetRole == effectiveTrack &&
+                l.ReferenceType == request.ReferenceType &&
+                l.ReferenceId == normalizedRefId &&
+                l.Reason == logReason,
+                cancellationToken);
+
+        if (existingLog != null)
+        {
+            var currentScore = effectiveTrack == TargetRole.Seller ? repScore.SellerScore : repScore.CurrentScore;
+            var currentTrust = effectiveTrack == TargetRole.Seller ? repScore.SellerTrustLevel.ToEnumString() : repScore.TrustLevel.ToEnumString();
+            return new InternalPenaltyResponse
+            {
+                UserId = request.UserId,
+                TargetRole = effectiveTrack.ToEnumString(),
+                IsDuplicate = true,
+                PenaltyId = null,
+                PreviousScore = currentScore,
+                NewScore = currentScore,
+                AppliedDelta = 0,
+                NewTrustLevel = currentTrust
+            };
+        }
+
+        int rawPenaltyPoints;
+        if (request.CustomScoreDeduction.HasValue && request.CustomScoreDeduction.Value > 0)
+        {
+            rawPenaltyPoints = request.CustomScoreDeduction.Value;
+        }
+        else if (effectiveTrack == TargetRole.Seller)
+        {
+            rawPenaltyPoints = await GetThresholdScoreAsync("SELLER_CANCEL_PENALTY_SCORE", Math.Abs(ReputationRules.SellerCancelPenalty), cancellationToken);
+        }
+        else
+        {
+            rawPenaltyPoints = await GetThresholdScoreAsync("PAYMENT_TIMEOUT_PENALTY_SCORE", Math.Abs(ReputationRules.PaymentTimeoutPenalty), cancellationToken);
+        }
+
+        var (oldScore, newScore, appliedDelta) = repScore.ApplyScoreChange(
+            effectiveTrack,
+            -Math.Abs(rawPenaltyPoints),
+            isPenalty: true);
+
+        var newTrustLevel = effectiveTrack == TargetRole.Seller
+            ? repScore.SellerTrustLevel.ToEnumString()
+            : repScore.TrustLevel.ToEnumString();
+
+        var now = DateTimeOffset.UtcNow;
+
+        var penalty = new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = request.UserId,
+            TargetRole = effectiveTrack,
+            ViolationType = request.ViolationType,
+            Reason = request.Reason.Trim(),
+            PenaltyApplied = PenaltyType.DeductPoints,
+            PointsDeducted = Math.Abs(appliedDelta),
+            Status = PenaltyStatus.Active,
+            PolicyClauseCode = request.PolicyClauseCode,
+            IssuedAt = now,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        _dbContext.UserPenalties.Add(penalty);
+
+        _dbContext.ReputationLogs.Add(new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = request.UserId,
+            TargetRole = effectiveTrack,
+            ChangeAmount = appliedDelta,
+            ScoreAfter = newScore,
+            Reason = logReason,
+            ReferenceType = request.ReferenceType,
+            ReferenceId = normalizedRefId,
+            Note = request.Reason.Trim(),
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
+        {
+            // Another request with the same user, role, reference and reason won the race: nothing is applied a second time.
+            var stored = await _dbContext.ReputationScores.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == request.UserId, cancellationToken);
+            var score = stored == null ? 0 : effectiveTrack == TargetRole.Seller ? stored.SellerScore : stored.CurrentScore;
+            return new InternalPenaltyResponse
+            {
+                UserId = request.UserId,
+                TargetRole = effectiveTrack.ToEnumString(),
+                IsDuplicate = true,
+                PreviousScore = score,
+                NewScore = score,
+                AppliedDelta = 0,
+                NewTrustLevel = stored == null ? string.Empty : effectiveTrack == TargetRole.Seller ? stored.SellerTrustLevel.ToEnumString() : stored.TrustLevel.ToEnumString()
+            };
+        }
+
+        return new InternalPenaltyResponse
+        {
+            UserId = request.UserId,
+            TargetRole = effectiveTrack.ToEnumString(),
+            IsDuplicate = false,
+            PenaltyId = penalty.Id,
+            PreviousScore = oldScore,
+            NewScore = newScore,
+            AppliedDelta = appliedDelta,
+            NewTrustLevel = newTrustLevel
+        };
+    }
+
+    public async Task<InternalReputationAdjustResponse> ApplyInternalReputationAdjustAsync(
+        InternalReputationAdjustRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Reason != ReputationChangeReason.BuyerRefusedDelivery)
+        {
+            return await ApplyReputationAdjustCoreAsync(request, cancellationToken);
+        }
+
+        // A refusal penalty and its withdrawal must not pass each other: both run under the same per-user lock. If the withdrawal came first
+        // (it leaves a marker even when there was nothing to give back), the penalty is not applied.
+        await using var transaction = await BeginRelationalTransactionAsync(cancellationToken);
+        await _dbContext.LockAuctionPaymentAsync(request.UserId, Guid.Empty, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(request.ReferenceId))
+        {
+            var track = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+            var referenceId = request.ReferenceId.Trim();
+            var revoked = await _dbContext.ReputationLogs.AsNoTracking().AnyAsync(l =>
+                l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == request.ReferenceType &&
+                l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusalPenaltyRevoked, cancellationToken);
+            if (revoked)
+            {
+                var stored = await _dbContext.ReputationScores.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == request.UserId, cancellationToken);
+                var score = stored is null ? 0 : track == TargetRole.Seller ? stored.SellerScore : stored.CurrentScore;
+                return new InternalReputationAdjustResponse
+                {
+                    UserId = request.UserId,
+                    TargetRole = track.ToEnumString(),
+                    IsDuplicate = true,
+                    PreviousScore = score,
+                    NewScore = score,
+                    AppliedDelta = 0,
+                    NewTrustLevel = stored is null ? string.Empty : track == TargetRole.Seller ? stored.SellerTrustLevel.ToEnumString() : stored.TrustLevel.ToEnumString()
+                };
+            }
+        }
+
+        var result = await ApplyReputationAdjustCoreAsync(request, cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return result;
+    }
+
+    public async Task<InternalPenaltyRevokeResponse> RevokeBuyerRefusalPenaltyAsync(
+        InternalPenaltyRevokeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ReferenceId))
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Reference ID is required to revoke a penalty.", 400);
+        }
+
+        if (request.ApprovedBy == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "The approving admin is required to revoke a penalty.", 400);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length < 10)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "The reason must be at least 10 characters long.", 400);
+        }
+
+        await using var transaction = await BeginRelationalTransactionAsync(cancellationToken);
+        await _dbContext.LockAuctionPaymentAsync(request.UserId, Guid.Empty, cancellationToken);
+
+        var user = await _dbContext.Users
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken)
+            ?? throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+
+        var track = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+        var referenceId = request.ReferenceId.Trim();
+        var repScore = EnsureReputationScore(user);
+        var current = track == TargetRole.Seller ? repScore.SellerScore : repScore.CurrentScore;
+
+        var already = await _dbContext.ReputationLogs.AsNoTracking().FirstOrDefaultAsync(l =>
+            l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == ReferenceType.Order &&
+            l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusalPenaltyRevoked, cancellationToken);
+        if (already is not null)
+        {
+            return new InternalPenaltyRevokeResponse
+            {
+                UserId = request.UserId,
+                TargetRole = track.ToEnumString(),
+                IsDuplicate = true,
+                Outcome = already.ChangeAmount > 0 ? "Restored" : "NothingToRestore",
+                RestoredPoints = already.ChangeAmount,
+                PreviousScore = current,
+                NewScore = current,
+                NewTrustLevel = track == TargetRole.Seller ? repScore.SellerTrustLevel.ToEnumString() : repScore.TrustLevel.ToEnumString()
+            };
+        }
+
+        // The points really taken are what the penalty log recorded (the amount is limited by the 0 to 100 range, so it can be smaller than
+        // the configured penalty, even zero, in which case no log was written at all).
+        var penalty = await _dbContext.ReputationLogs.AsNoTracking().FirstOrDefaultAsync(l =>
+            l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == ReferenceType.Order &&
+            l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusedDelivery, cancellationToken);
+        var toRestore = penalty is not null && penalty.ChangeAmount < 0 ? -penalty.ChangeAmount : 0;
+
+        var now = DateTimeOffset.UtcNow;
+        var (oldScore, newScore, applied) = toRestore > 0 ? repScore.ApplyScoreChange(track, toRestore) : (current, current, 0);
+        var trust = track == TargetRole.Seller ? repScore.SellerTrustLevel.ToEnumString() : repScore.TrustLevel.ToEnumString();
+
+        _dbContext.ReputationLogs.Add(new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = request.UserId,
+            TargetRole = track,
+            ChangeAmount = applied,
+            ScoreAfter = newScore,
+            Reason = ReputationChangeReason.BuyerRefusalPenaltyRevoked,
+            ReferenceType = ReferenceType.Order,
+            ReferenceId = referenceId,
+            Note = request.Note.Trim(),
+            CreatedBy = request.ApprovedBy,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            var existingRevoke = await _dbContext.ReputationLogs.AsNoTracking().FirstOrDefaultAsync(l =>
+                l.UserId == request.UserId && l.TargetRole == track && l.ReferenceType == ReferenceType.Order &&
+                l.ReferenceId == referenceId && l.Reason == ReputationChangeReason.BuyerRefusalPenaltyRevoked, cancellationToken);
+
+            return new InternalPenaltyRevokeResponse
+            {
+                UserId = request.UserId,
+                TargetRole = track.ToEnumString(),
+                IsDuplicate = true,
+                Outcome = existingRevoke is not null && existingRevoke.ChangeAmount > 0 ? "Restored" : "NothingToRestore",
+                RestoredPoints = existingRevoke?.ChangeAmount ?? 0,
+                PreviousScore = current,
+                NewScore = current,
+                NewTrustLevel = trust
+            };
+        }
+
+        return new InternalPenaltyRevokeResponse
+        {
+            UserId = request.UserId,
+            TargetRole = track.ToEnumString(),
+            IsDuplicate = false,
+            Outcome = applied > 0 ? "Restored" : "NothingToRestore",
+            RestoredPoints = applied,
+            PreviousScore = oldScore,
+            NewScore = newScore,
+            NewTrustLevel = trust
+        };
+    }
+
+    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginRelationalTransactionAsync(CancellationToken cancellationToken) =>
+        !string.Equals(_dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.OrdinalIgnoreCase) ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+
+    private async Task<InternalReputationAdjustResponse> ApplyReputationAdjustCoreAsync(
+        InternalReputationAdjustRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.ReferenceId))
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Reference ID is required for internal reputation adjustment.", 400);
+        }
+
+        var user = await _dbContext.Users
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var normalizedRefId = request.ReferenceId.Trim();
+        var effectiveTrack = request.TargetRole == TargetRole.Seller ? TargetRole.Seller : TargetRole.Buyer;
+        var repScore = EnsureReputationScore(user);
+
+        // 1. Idempotency check by (UserId, TargetRole, ReferenceType, ReferenceId, Reason)
+        var existingLog = await _dbContext.ReputationLogs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l =>
+                l.UserId == request.UserId &&
+                l.TargetRole == effectiveTrack &&
+                l.ReferenceType == request.ReferenceType &&
+                l.ReferenceId == normalizedRefId &&
+                l.Reason == request.Reason,
+                cancellationToken);
+
+        if (existingLog != null)
+        {
+            var currentScore = effectiveTrack == TargetRole.Seller ? repScore.SellerScore : repScore.CurrentScore;
+            var currentTrust = effectiveTrack == TargetRole.Seller ? repScore.SellerTrustLevel.ToEnumString() : repScore.TrustLevel.ToEnumString();
+            return new InternalReputationAdjustResponse
+            {
+                UserId = request.UserId,
+                TargetRole = effectiveTrack.ToEnumString(),
+                IsDuplicate = true,
+                CooldownSuppressed = false,
+                PreviousScore = currentScore,
+                NewScore = currentScore,
+                AppliedDelta = 0,
+                NewTrustLevel = currentTrust
+            };
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var effectiveDelta = request.ScoreDelta;
+        var cooldownSuppressed = false;
+
+        // 2. 7-Day Anti-Farming Cooldown check for positive rewards between the same trading pair
+        if (effectiveDelta > 0 && request.PartnerUserId.HasValue)
+        {
+            var cooldownDays = await GetThresholdScoreAsync("ANTI_FARMING_COOLDOWN_DAYS", ReputationRules.AntiFarmingCooldownDays, cancellationToken);
+            var cutoff = now.AddDays(-cooldownDays);
+
+            var recentlyRewarded = await _dbContext.ReputationLogs
+                .AsNoTracking()
+                .AnyAsync(l =>
+                    l.UserId == request.UserId &&
+                    l.TargetRole == effectiveTrack &&
+                    l.PartnerUserId == request.PartnerUserId.Value &&
+                    l.ChangeAmount > 0 &&
+                    l.CreatedAt >= cutoff,
+                    cancellationToken);
+
+            if (recentlyRewarded)
+            {
+                effectiveDelta = 0;
+                cooldownSuppressed = true;
+            }
+        }
+
+        var (oldScore, newScore, appliedDelta) = repScore.ApplyScoreChange(effectiveTrack, effectiveDelta);
+        var newTrustLevel = effectiveTrack == TargetRole.Seller
+            ? repScore.SellerTrustLevel.ToEnumString()
+            : repScore.TrustLevel.ToEnumString();
+
+        _dbContext.ReputationLogs.Add(new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = request.UserId,
+            TargetRole = effectiveTrack,
+            ChangeAmount = appliedDelta,
+            ScoreAfter = newScore,
+            Reason = request.Reason,
+            ReferenceType = request.ReferenceType,
+            ReferenceId = normalizedRefId,
+            PartnerUserId = request.PartnerUserId,
+            Note = request.Note,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IdempotencyViolation.IsReputationLogDuplicate(ex))
+        {
+            var stored = await _dbContext.ReputationScores.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == request.UserId, cancellationToken);
+            var score = stored == null ? 0 : effectiveTrack == TargetRole.Seller ? stored.SellerScore : stored.CurrentScore;
+            return new InternalReputationAdjustResponse
+            {
+                UserId = request.UserId,
+                TargetRole = effectiveTrack.ToEnumString(),
+                IsDuplicate = true,
+                PreviousScore = score,
+                NewScore = score,
+                AppliedDelta = 0,
+                NewTrustLevel = stored == null ? string.Empty : effectiveTrack == TargetRole.Seller ? stored.SellerTrustLevel.ToEnumString() : stored.TrustLevel.ToEnumString()
+            };
+        }
+
+        return new InternalReputationAdjustResponse
+        {
+            UserId = request.UserId,
+            TargetRole = effectiveTrack.ToEnumString(),
+            IsDuplicate = false,
+            CooldownSuppressed = cooldownSuppressed,
+            PreviousScore = oldScore,
+            NewScore = newScore,
+            AppliedDelta = appliedDelta,
+            NewTrustLevel = newTrustLevel
+        };
+    }
+
+    public async Task<AuctionDepositProfileResponse> GetAuctionDepositProfileAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var userSnapshot = await _dbContext.Users
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                u.Id,
+                u.Status,
+                u.IsDeleted,
+                HasReputationScore = u.ReputationScore != null,
+                BuyerScore = u.ReputationScore != null ? u.ReputationScore.CurrentScore : ReputationRules.DefaultInitialScore,
+                HasBuyerReputationLog = _dbContext.ReputationLogs.Any(l => l.UserId == userId && l.TargetRole == TargetRole.Buyer)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (userSnapshot is null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var profile = await _dbContext.UserAuctionProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        var accountStatus = (userSnapshot.IsDeleted || userSnapshot.Status == UserStatus.Deleted)
+            ? UserStatus.Deleted
+            : userSnapshot.Status;
+
+        var isNewUser = !userSnapshot.HasReputationScore || !userSnapshot.HasBuyerReputationLog;
+        int? reputationScore = isNewUser ? null : userSnapshot.BuyerScore;
+        var restriction = profile.ResolveActiveRestriction(now);
+
+        return new AuctionDepositProfileResponse
+        {
+            UserId = userSnapshot.Id,
+            AccountStatus = accountStatus,
+            ReputationScore = reputationScore,
+            IsNewUser = isNewUser,
+            ViolationStreak = profile?.ViolationStreak ?? 0,
+            AuctionRestriction = new AuctionRestrictionDto
+            {
+                IsRestricted = restriction.IsRestricted,
+                Type = restriction.Type,
+                Until = restriction.Until,
+                Reason = restriction.Reason
+            }
+        };
+    }
+
+    public async Task<RecordAuctionViolationResponse> RecordAuctionViolationAsync(
+        Guid userId,
+        RecordAuctionViolationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ViolationType))
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Violation type is required.", 400);
+        }
+
+        if (!request.ViolationType.TryToEnum<AuctionViolationType>(out var violationType))
+        {
+            throw new DomainException("INVALID_VIOLATION_TYPE", "Auction violation type is invalid.", 422);
+        }
+
+        if (!request.AuctionId.HasValue || request.AuctionId.Value == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Auction ID is required.", 400);
+        }
+
+        if (!request.OrderId.HasValue || request.OrderId.Value == Guid.Empty)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Order ID is required.", 400);
+        }
+
+        if (!request.OccurredAt.HasValue)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Occurred at timestamp is required.", 400);
+        }
+
+        if (request.DepositForfeitedAmount < 0)
+        {
+            throw new DomainException("VAL_INVALID_INPUT", "Deposit forfeited amount must be non-negative.", 400);
+        }
+
+        var auctionId = request.AuctionId.Value;
+        var orderId = request.OrderId.Value;
+        var occurredAt = request.OccurredAt.Value;
+
+        var isRelational = !string.Equals(_dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.OrdinalIgnoreCase);
+        await using var transaction = isRelational ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        await _dbContext.LockAuctionPaymentAsync(userId, auctionId, cancellationToken);
+
+        var user = await _dbContext.Users
+            .Include(u => u.ReputationScore)
+            .FirstOrDefaultAsync(u => u.Id == userId && u.Status != UserStatus.Deleted, cancellationToken);
+
+        if (user is null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User account was not found for the specified identifier.", 404);
+        }
+
+        var existingViolation = await FindSystemViolationAsync(userId, auctionId, violationType, cancellationToken);
+
+        if (existingViolation is not null)
+        {
+            return MapRecordViolationResponse(existingViolation, created: false);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var profile = await _dbContext.GetOrCreateAuctionProfileAsync(userId, now, cancellationToken);
+
+        var previousStreak = profile.ViolationStreak;
+        var newStreak = previousStreak + 1;
+        profile.ViolationStreak = newStreak;
+        profile.UpdatedAt = now;
+
+        var repScore = EnsureReputationScore(user);
+        var delta = AuctionRules.GetStreakReputationDelta(newStreak);
+        var (repBefore, repAfter, appliedDelta) = repScore.ApplyScoreChange(TargetRole.Buyer, delta, isPenalty: true);
+        var (sanctionType, sanctionUntil) = AuctionRules.GetStreakSanction(newStreak, now);
+
+        if (sanctionType == AuctionSanctionType.TempRestricted && profile.RestrictionType != AuctionRestrictionType.Suspended)
+        {
+            var effectiveUntil = profile.RestrictionType == AuctionRestrictionType.TempRestricted &&
+                                 profile.RestrictionUntil.HasValue &&
+                                 profile.RestrictionUntil.Value > sanctionUntil
+                ? profile.RestrictionUntil
+                : sanctionUntil;
+
+            profile.RestrictionType = AuctionRestrictionType.TempRestricted;
+            profile.RestrictionUntil = effectiveUntil;
+            profile.RestrictionReason = $"Temporary auction restriction due to repeated non-payment violations (streak {newStreak}).";
+        }
+        else if (sanctionType == AuctionSanctionType.Suspended)
+        {
+            profile.RestrictionType = AuctionRestrictionType.Suspended;
+            profile.RestrictionUntil = null;
+            profile.RestrictionReason = $"Auction privileges suspended due to repeated non-payment violations (streak {newStreak}).";
+        }
+
+        if (appliedDelta != 0)
+        {
+            _dbContext.ReputationLogs.Add(new ReputationLog
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TargetRole = TargetRole.Buyer,
+                ChangeAmount = appliedDelta,
+                ScoreAfter = repAfter,
+                Reason = ReputationChangeReason.AuctionPaymentTimeout,
+                ReferenceType = ReferenceType.Auction,
+                ReferenceId = auctionId.ToString(),
+                Note = $"Auction non-payment violation ({violationType}, streak {newStreak}).",
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+
+        var violation = new AuctionViolation
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ViolationType = violationType,
+            AuctionId = auctionId,
+            OrderId = orderId,
+            OccurredAt = occurredAt,
+            DepositForfeitedAmount = request.DepositForfeitedAmount,
+            Source = AuctionViolationSource.System,
+            PreviousStreak = previousStreak,
+            NewStreak = newStreak,
+            ReputationBefore = repBefore,
+            ReputationAfter = repAfter,
+            SanctionType = sanctionType,
+            SanctionUntil = sanctionUntil,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        _dbContext.AuctionViolations.Add(violation);
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+            return MapRecordViolationResponse(violation, created: true);
+        }
+        catch (DbUpdateException)
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            var duplicate = await FindSystemViolationAsync(userId, auctionId, violationType, cancellationToken);
+
+            if (duplicate is not null)
+            {
+                return MapRecordViolationResponse(duplicate, created: false);
+            }
+
+            throw;
+        }
+    }
+
+    private Task<AuctionViolation?> FindSystemViolationAsync(
+        Guid userId,
+        Guid auctionId,
+        AuctionViolationType violationType,
+        CancellationToken cancellationToken)
+    {
+        return _dbContext.AuctionViolations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(v =>
+                v.UserId == userId &&
+                v.AuctionId == auctionId &&
+                v.ViolationType == violationType &&
+                v.Source == AuctionViolationSource.System,
+                cancellationToken);
+    }
+
+    private static RecordAuctionViolationResponse MapRecordViolationResponse(AuctionViolation violation, bool created)
+    {
+        return new RecordAuctionViolationResponse
+        {
+            ViolationId = violation.Id,
+            Created = created,
+            PreviousStreak = violation.PreviousStreak,
+            NewStreak = violation.NewStreak,
+            ReputationBefore = violation.ReputationBefore,
+            ReputationAfter = violation.ReputationAfter,
+            Sanction = new AuctionSanctionDto
+            {
+                Type = violation.SanctionType,
+                Until = violation.SanctionUntil
+            }
+        };
+    }
+
+    private ReputationScore EnsureReputationScore(User user)
+    {
+        if (user.ReputationScore != null)
+        {
+            return user.ReputationScore;
+        }
+
+        var repScore = ReputationScore.CreateDefault(user.Id);
+        _dbContext.ReputationScores.Add(repScore);
+        return repScore;
+    }
+
+    private async Task<(bool IsEligible, int CurrentScore, string TrustLevel, string? FailureReason)> EvaluateUserEligibilityAsync(
+        Guid userId,
+        TargetRole targetRole,
+        string configKey,
+        int defaultMinScore,
+        CancellationToken cancellationToken)
+    {
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.ReputationScore)
+            .Include(u => u.SellerProfile)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        if (user is null)
+        {
+            return (false, 0, TrustLevel.Untrusted.ToEnumString(), "ERR_USER_NOT_FOUND");
+        }
+
+        // Select the isolated track score: SellerScore for Seller actions, CurrentScore for Buyer actions
+        var currentScore = targetRole == TargetRole.Seller
+            ? (user.ReputationScore?.SellerScore ?? ReputationRules.DefaultInitialScore)
+            : (user.ReputationScore?.CurrentScore ?? ReputationRules.DefaultInitialScore);
+
+        var trustLevel = targetRole == TargetRole.Seller
+            ? (user.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToEnumString()
+            : (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToEnumString();
+
+        if (user.Status == UserStatus.Banned || user.Status == UserStatus.Deleted)
+        {
+            return (false, currentScore, trustLevel, "ERR_ACCOUNT_BANNED");
+        }
+
+        if (user.Status != UserStatus.Active)
+        {
+            return (false, currentScore, trustLevel, "ERR_ACCOUNT_RESTRICTED");
+        }
+
+        if (targetRole == TargetRole.Seller &&
+            user.SellerProfile is not null &&
+            user.SellerProfile.Status != SellerProfileStatus.Approved)
+        {
+            return (false, currentScore, trustLevel, "ERR_ACCOUNT_RESTRICTED");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+
+        var activePenalties = await _dbContext.UserPenalties
+            .AsNoTracking()
+            .Where(p => p.UserId == userId
+                        && p.Status == PenaltyStatus.Active
+                        && (p.TargetRole == TargetRole.Account || p.TargetRole == targetRole)
+                        && (p.ExpiresAt == null || p.ExpiresAt > now))
+            .ToListAsync(cancellationToken);
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.BanAccount))
+        {
+            return (false, currentScore, trustLevel, "ERR_ACCOUNT_BANNED");
+        }
+
+        if (activePenalties.Any(p => p.PenaltyApplied == PenaltyType.Restriction))
+        {
+            return (false, currentScore, trustLevel, "ERR_ACCOUNT_RESTRICTED");
+        }
+
+        var minRequiredScore = await GetThresholdScoreAsync(configKey, defaultMinScore, cancellationToken);
+
+        if (currentScore < minRequiredScore)
+        {
+            return (false, currentScore, trustLevel, "ERR_REPUTATION_TOO_LOW");
+        }
+
+        return (true, currentScore, trustLevel, null);
+    }
+
+    private async Task<int> GetThresholdScoreAsync(string configKey, int defaultValue, CancellationToken cancellationToken)
+    {
+        var cacheKey = $"sys_config:{configKey}";
+        if (_cache.TryGetValue(cacheKey, out int cachedThreshold))
+        {
+            return cachedThreshold;
+        }
+
+        var config = await _dbContext.SystemConfigs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ConfigKey == configKey, cancellationToken);
+
+        var resolvedValue = defaultValue;
+        if (config is not null && int.TryParse(config.ConfigValue, out var parsed))
+        {
+            resolvedValue = parsed;
+        }
+
+        _cache.Set(cacheKey, resolvedValue, ConfigCacheDuration);
+        return resolvedValue;
+    }
+
+    public async Task<InternalShopResponse?> GetShopAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var profile = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Where(p => p.UserId == userId && !p.IsDeleted)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return profile is null
+            ? null
+            : new InternalShopResponse(
+                profile.Id,
+                profile.UserId,
+                profile.ShopName,
+                profile.Status.ToString(),
+                profile.PickupAddress,
+                profile.ProvinceId,
+                profile.DistrictId,
+                profile.WardCode,
+                profile.Hotline);
+    }
+
+    public async Task<InternalContactResponse?> GetContactAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user is null || string.IsNullOrWhiteSpace(user.Email))
+        {
+            return null;
+        }
+
+        return new InternalContactResponse(user.Id, user.Email, $"{user.FirstName} {user.LastName}".Trim());
+    }
+
+    public async Task<InternalUserAddressResponse?> GetUserDefaultAddressAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var address = await _dbContext.UserAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.IsDefault && !a.IsDeleted, cancellationToken);
+
+        return address is null ? null : MapInternalAddress(address);
+    }
+
+    public async Task<InternalUserAddressResponse?> GetUserAddressByIdAsync(Guid userId, Guid addressId, CancellationToken cancellationToken = default)
+    {
+        var address = await _dbContext.UserAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == addressId && a.UserId == userId && !a.IsDeleted, cancellationToken);
+
+        return address is null ? null : MapInternalAddress(address);
+    }
+
+    private static InternalUserAddressResponse MapInternalAddress(UserAddress a) => new(
+        a.Id, a.UserId, a.RecipientName, a.Phone, a.Label,
+        a.ProvinceId, a.ProvinceName, a.DistrictId, a.DistrictName,
+        a.WardCode, a.WardName, a.AddressLine, a.IsDefault);
+
+    public async Task<InternalUserDetailResponse?> GetUserByIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
+
+        if (user is null) return null;
+
+        return new InternalUserDetailResponse(
+            user.Id,
+            user.Email,
+            $"{user.FirstName} {user.LastName}".Trim(),
+            user.PhoneNumber,
+            user.Status.ToString(),
+            user.Role?.RoleCode.ToString());
+    }
+
+    public async Task<BatchSellerInfoResponse> GetBatchSellerInfoAsync(BatchSellerInfoRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request is null)
+        {
+            return new BatchSellerInfoResponse(Array.Empty<InternalSellerBatchItemDto>());
+        }
+
+        var userIds = (request.UserIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
+        var sellerIds = (request.SellerIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
+        if (userIds.Count + sellerIds.Count > 100)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Batch seller lookup supports at most 100 identifiers per request.");
+        }
+
+        if (userIds.Count == 0 && sellerIds.Count == 0)
+        {
+            return new BatchSellerInfoResponse(Array.Empty<InternalSellerBatchItemDto>());
+        }
+
+        var sellers = await _dbContext.SellerProfiles
+            .AsNoTracking()
+            .Where(s => !s.IsDeleted && (userIds.Contains(s.UserId) || sellerIds.Contains(s.Id)))
+            .Select(s => new InternalSellerBatchItemDto(
+                s.Id,
+                s.UserId,
+                s.ShopName,
+                s.AvatarUrl,
+                s.Status.ToString(),
+                s.ProvinceId,
+                s.DistrictId))
+            .ToListAsync(cancellationToken);
+
+        return new BatchSellerInfoResponse(sellers);
+    }
+}

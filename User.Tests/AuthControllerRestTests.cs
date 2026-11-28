@@ -1,4 +1,4 @@
-namespace User.Tests;
+﻿namespace User.Tests;
 
 using System;
 using System.Collections.Concurrent;
@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using User.Api.Controllers;
 using User.Application.Interfaces;
@@ -54,6 +56,53 @@ public sealed class AuthControllerRestTests
         Assert.Equal("newrestuser@nexus.local", resp.Email);
         Assert.Equal(300, resp.OtpExpiresIn);
         Assert.False(string.IsNullOrWhiteSpace(resp.UserId));
+    }
+
+    [Fact]
+    public async Task RegisterTest_Returns_Created_With_Pending_Buyer_And_Otp_Dispatched()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance, new TestHostEnvironment(Environments.Development));
+
+        var request = new RegisterTestApiRequest(
+            Email: "quicktest@nexus.local",
+            Password: "Password123!"
+        );
+
+        var result = await controller.RegisterTest(request, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, objectResult.StatusCode);
+        var resp = Assert.IsType<RegisterTestApiResponse>(objectResult.Value);
+        Assert.True(resp.Success);
+        Assert.Equal("quicktest@nexus.local", resp.Email);
+        Assert.Equal("PendingVerification", resp.Status);
+        Assert.Equal("Buyer", resp.Role);
+        Assert.True(resp.OtpSent);
+        Assert.Equal(300, resp.OtpExpiresIn);
+        Assert.False(string.IsNullOrWhiteSpace(resp.UserId));
+    }
+
+    [Fact]
+    public async Task RegisterTest_Returns_NotFound_When_Not_Development()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var emailClient = new TestEmailNotificationClient();
+        var authService = new AuthService(dbContext, otpService, NullLogger<AuthService>.Instance, null, emailClient);
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance, new TestHostEnvironment(Environments.Production));
+
+        var request = new RegisterTestApiRequest(
+            Email: "prodtest@nexus.local",
+            Password: "Password123!"
+        );
+
+        var result = await controller.RegisterTest(request, CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result);
     }
 
     [Fact]
@@ -451,5 +500,141 @@ public sealed class AuthControllerRestTests
             _lockouts.TryRemove(identifier, out _);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class TestEmailNotificationClient : IEmailNotificationClient
+    {
+        public System.Collections.Generic.List<(string Email, string FullName, string OtpCode, int ExpiresInMinutes)> SentEmails { get; } = new();
+
+        public Task<bool> SendOtpEmailAsync(
+            string email,
+            string fullName,
+            string otpCode,
+            int expiresInMinutes = 5,
+            string? purpose = null,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            SentEmails.Add((email, fullName, otpCode, expiresInMinutes));
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendSellerDecisionEmailAsync(
+            string sourceEventId,
+            Guid registrationId,
+            Guid userId,
+            string email,
+            string fullName,
+            string shopName,
+            bool isApproved,
+            string? reason,
+            DateTimeOffset decidedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<bool> SendAccountStatusChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
+            string email,
+            string fullName,
+            bool isBanned,
+            string? reason,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<bool> SendPasswordChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
+            string email,
+            string fullName,
+            global::User.Domain.Enums.PasswordChangeKind kind,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public TestHostEnvironment(string environmentName) => EnvironmentName = environmentName;
+        public string EnvironmentName { get; set; }
+        public string ApplicationName { get; set; } = "User.Api";
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class TestFirebaseAuthService : IFirebaseAuthService
+    {
+        private readonly Func<string, FirebaseUserClaims> _handler;
+
+        public TestFirebaseAuthService(Func<string, FirebaseUserClaims> handler) => _handler = handler;
+
+        public Task<FirebaseUserClaims> VerifyIdTokenAsync(string idToken, CancellationToken cancellationToken = default)
+            => Task.FromResult(_handler(idToken));
+    }
+
+    [Fact]
+    public async Task GoogleLogin_Returns_Ok_With_LoginApiResponse_When_Token_Is_Valid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ => new FirebaseUserClaims(
+            Uid: "ctrl-firebase-uid-1",
+            Email: "google.controller@nexus.local",
+            EmailVerified: true,
+            DisplayName: "Controller User",
+            GivenName: "Controller",
+            FamilyName: "User",
+            PictureUrl: "https://example.com/avatar.png"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var result = await controller.GoogleLogin(
+            new GoogleLoginApiRequest("valid-id-token", "UnitTestAgent/1.0"),
+            CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var resp = Assert.IsType<LoginApiResponse>(okResult.Value);
+        Assert.False(string.IsNullOrWhiteSpace(resp.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(resp.RefreshToken));
+        Assert.Equal("Bearer", resp.TokenType);
+        Assert.Equal("google.controller@nexus.local", resp.Email);
+        Assert.Equal("Controller", resp.User.FirstName);
+        Assert.Equal("User", resp.User.LastName);
+    }
+
+    [Fact]
+    public async Task GoogleLogin_Throws_Unauthorized_When_Token_Is_Invalid()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var otpService = new TestRedisOtpService();
+        var jwtGenerator = new TestJwtTokenGenerator();
+        var firebaseService = new TestFirebaseAuthService(_ =>
+            throw new Microsoft.IdentityModel.Tokens.SecurityTokenException("Invalid token"));
+
+        var authService = new AuthService(
+            dbContext,
+            otpService,
+            NullLogger<AuthService>.Instance,
+            jwtGenerator,
+            null,
+            firebaseService);
+
+        var controller = new AuthController(authService, NullLogger<AuthController>.Instance);
+
+        var ex = await Assert.ThrowsAsync<global::User.Domain.Exceptions.DomainException>(() =>
+            controller.GoogleLogin(new GoogleLoginApiRequest("bad-id-token"), CancellationToken.None));
+
+        Assert.Equal("INVALID_FIREBASE_TOKEN", ex.ErrorCode);
+        Assert.Equal(401, ex.StatusCode);
     }
 }

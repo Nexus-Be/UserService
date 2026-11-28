@@ -1,0 +1,45 @@
+namespace User.Application.Services.Review;
+
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using User.Application.Common.Models;
+using User.Domain.Enums;
+
+public interface IReviewService
+{
+    Task<CreateReviewResponse> CreateReviewAsync(
+        Guid reviewerId,
+        CreateReviewRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the caller may review an order, and who they would be reviewing. Reasons: ALREADY_REVIEWED, ORDER_NOT_COMPLETED,
+    /// PERIOD_EXPIRED, NOT_PARTICIPANT, ORDER_NOT_FOUND. Says nothing about product reviews, which belong to CatalogService.
+    /// </summary>
+    Task<ReviewEligibilityResponse> GetEligibilityAsync(
+        Guid reviewerId,
+        ReferenceType referenceType,
+        string referenceId,
+        CancellationToken cancellationToken = default);
+
+    Task<PagedData<UserReviewItemDto>> GetUserReviewsAsync(
+        Guid userId,
+        int page = 1,
+        int pageSize = 20,
+        int? rating = null,
+        ReviewerRole? reviewerRole = null,
+        CancellationToken cancellationToken = default);
+
+    Task<HideReviewResponse> HideReviewAsync(
+        Guid reviewId,
+        HideReviewRequest request,
+        Guid actorId,
+        CancellationToken cancellationToken = default);
+
+    Task<UploadMediaFilesResponse> UploadReviewFilesAsync(
+        Guid userId,
+        IReadOnlyList<UploadMediaFileInput> files,
+        CancellationToken cancellationToken = default);
+}

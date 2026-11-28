@@ -25,6 +25,7 @@ public sealed class EnumConversionTests
     [Theory]
     [InlineData(typeof(UserStatus))]
     [InlineData(typeof(RoleType))]
+    [InlineData(typeof(TargetRole))]
     [InlineData(typeof(SellerProfileStatus))]
     [InlineData(typeof(Gender))]
     [InlineData(typeof(TrustLevel))]

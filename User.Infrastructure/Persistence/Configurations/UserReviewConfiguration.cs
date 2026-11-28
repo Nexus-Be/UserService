@@ -11,7 +11,10 @@ public class UserReviewConfiguration : IEntityTypeConfiguration<UserReview>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.ReferenceId).HasMaxLength(100);
         builder.Property(x => x.Comment).HasMaxLength(2000);
+        builder.Property(x => x.HiddenReason).HasMaxLength(500);
         builder.Property(x => x.MediaUrls).HasColumnType("text[]");
+
+        builder.HasIndex(x => new { x.ReviewerId, x.ReferenceType, x.ReferenceId }).IsUnique();
 
         builder.HasOne(r => r.Reviewer)
             .WithMany(u => u.ReviewsGiven)

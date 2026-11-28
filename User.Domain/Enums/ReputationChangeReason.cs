@@ -1,4 +1,4 @@
-namespace User.Domain.Enums;
+﻿namespace User.Domain.Enums;
 
 public enum ReputationChangeReason
 {
@@ -8,5 +8,11 @@ public enum ReputationChangeReason
     AuctionPaymentTimeout = 3,
     DisputeCompensation = 4,
     ManualAdjustment = 5,
-    ViolationPenalty = 6
+    ViolationPenalty = 6,
+    SellerCancellation = 7,
+    ReportPenalty = 8,
+    /// <summary>The buyer refused to receive a delivery and the parcel came back. Only a carrier reason code the project owner has approved as a refusal counts; "could not be reached", a wrong address or an unknown reason never does. Commerce decides and sends it once per sub-order, and only while its approved table is configured.</summary>
+    BuyerRefusedDelivery = 9,
+    /// <summary>An admin withdrew the penalty of a refused delivery. Written once per sub-order; it either gives back the points that were really taken or, when none were taken yet, only marks the sub-order so a penalty that arrives later is not applied.</summary>
+    BuyerRefusalPenaltyRevoked = 10
 }

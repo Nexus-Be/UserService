@@ -80,10 +80,11 @@ public sealed class AdminUserServiceTests
         Assert.NotEqual("StaffPassword123!", user.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify("StaffPassword123!", user.PasswordHash));
 
-        // Verify UserRole
-        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.Single(userRoles);
-        Assert.Equal(adminId, userRoles[0].AssignedBy);
+        // Verify User.RoleId
+        var createdUser = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(createdUser);
+        var staffRole = await dbContext.Roles.FirstAsync(r => r.RoleCode == RoleType.SupportStaff);
+        Assert.Equal(staffRole.Id, createdUser.RoleId);
 
         // Verify ReputationScore initialized
         var repScore = await dbContext.ReputationScores.FirstOrDefaultAsync(r => r.UserId == userId);
@@ -201,7 +202,7 @@ public sealed class AdminUserServiceTests
     }
 
     [Fact]
-    public async Task CreateUserAsync_MultipleRoles_AssignsAllRoles()
+    public async Task CreateUserAsync_WhenBothAdminAndStaffRequested_ThrowsSodViolationException()
     {
         using var dbContext = CreateInMemoryDbContext();
         await SeedSystemRolesAsync(dbContext);
@@ -216,14 +217,34 @@ public sealed class AdminUserServiceTests
             RoleCodes = new List<string> { "staff", "admin" }
         };
 
-        var response = await service.CreateUserAsync(dto, Guid.NewGuid(), CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.CreateUserAsync(dto, Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Contains("support staff", response.Roles);
-        Assert.Contains("administrator", response.Roles);
+        Assert.Equal("SOD_VIOLATION", ex.ErrorCode);
+    }
 
-        var userId = Guid.Parse(response.UserId);
-        var userRoles = await dbContext.UserRoles.Where(ur => ur.UserId == userId).ToListAsync();
-        Assert.Equal(2, userRoles.Count);
+    [Fact]
+    public async Task CreateUserAsync_WhenSellerRoleRequested_ThrowsCannotCreateSellerException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        await SeedSystemRolesAsync(dbContext);
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new CreateAdminUserDto
+        {
+            Email = "seller.attempt@nexus.local",
+            Password = "Password123!",
+            FirstName = "Shop",
+            LastName = "Owner",
+            RoleCodes = new List<string> { "seller" }
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.CreateUserAsync(dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("CANNOT_CREATE_SELLER", ex.ErrorCode);
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Contains("Seller accounts cannot be created directly by administrator", ex.Message);
     }
 
     [Fact]
@@ -334,10 +355,10 @@ public sealed class AdminUserServiceTests
         };
 
         dbContext.Users.AddRange(staffUser, buyerUser);
-        dbContext.UserRoles.AddRange(
-            new UserRole { Id = Guid.NewGuid(), UserId = staffUser.Id, RoleId = staffRole.Id },
-            new UserRole { Id = Guid.NewGuid(), UserId = buyerUser.Id, RoleId = buyerRole.Id }
-        );
+        staffUser.RoleId = staffRole.Id;
+        staffUser.Role = staffRole;
+        buyerUser.RoleId = buyerRole.Id;
+        buyerUser.Role = buyerRole;
         await dbContext.SaveChangesAsync();
 
         var staffList = await service.GetUsersAsync(role: "staff", cancellationToken: CancellationToken.None);
@@ -418,15 +439,17 @@ public sealed class AdminUserServiceTests
         };
         dbContext.Users.Add(user);
 
-        var userRole = new UserRole { Id = Guid.NewGuid(), UserId = userId, RoleId = role.Id };
-        dbContext.UserRoles.Add(userRole);
+        user.RoleId = role.Id;
+        user.Role = role;
 
         var repScore = new ReputationScore
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             CurrentScore = 80,
-            TrustLevel = TrustLevel.Good
+            TrustLevel = TrustLevel.Good,
+            SellerScore = 75,
+            SellerTrustLevel = TrustLevel.Good
         };
         dbContext.ReputationScores.Add(repScore);
 
@@ -434,8 +457,11 @@ public sealed class AdminUserServiceTests
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            TargetRole = TargetRole.Seller,
             ChangeAmount = 5,
+            ScoreAfter = 75,
             Reason = ReputationChangeReason.OrderCompleted,
+            Note = "Delivered on time",
             CreatedAt = DateTimeOffset.UtcNow
         };
         dbContext.ReputationLogs.Add(repLog);
@@ -453,12 +479,17 @@ public sealed class AdminUserServiceTests
         Assert.Equal("079200000001", detail.IdentifyNumber);
         Assert.Equal("Male", detail.Gender);
         Assert.Equal(80, detail.ReputationScore);
-        Assert.Equal("GOOD", detail.TrustLevel);
+        Assert.Equal("Good", detail.TrustLevel);
+        Assert.Equal(75, detail.SellerReputationScore);
+        Assert.Equal("Good", detail.SellerTrustLevel);
         Assert.Contains("support staff", detail.Roles);
         Assert.Contains("user.view", detail.Permissions);
         Assert.Contains("order.create", detail.Permissions);
         Assert.Single(detail.ReputationLogs);
+        Assert.Equal("Seller", detail.ReputationLogs[0].TargetRole);
         Assert.Equal(5, detail.ReputationLogs[0].ChangeAmount);
+        Assert.Equal(75, detail.ReputationLogs[0].ScoreAfter);
+        Assert.Equal("Delivered on time", detail.ReputationLogs[0].Note);
     }
 
     [Fact]
@@ -503,7 +534,7 @@ public sealed class AdminUserServiceTests
         Assert.True(detail.IsSeller);
         Assert.NotNull(detail.SellerProfile);
         Assert.Equal("Nexus Official Tech Store", detail.SellerProfile.ShopName);
-        Assert.Equal("APPROVED", detail.SellerProfile.Status);
+        Assert.Equal("Approved", detail.SellerProfile.Status);
         Assert.Equal("19001234", detail.SellerProfile.Hotline);
     }
 
@@ -581,28 +612,28 @@ public sealed class AdminUserServiceTests
         var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
 
         var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
-        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
-        dbContext.Roles.AddRange(rBuyer, rSeller);
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
 
         var targetUserId = Guid.NewGuid();
         var user = new User
         {
             Id = targetUserId,
-            Email = "promote.seller@nexus.local",
+            Email = "promote.staff@nexus.local",
             PasswordHash = "hash",
             FirstName = "Target",
             LastName = "User",
             Status = UserStatus.Active
         };
         dbContext.Users.Add(user);
-        var testUr = new UserRole { Id = Guid.NewGuid(), UserId = targetUserId, RoleId = rBuyer.Id };
-        dbContext.UserRoles.Add(testUr);
+        user.RoleId = rBuyer.Id;
+        user.Role = rBuyer;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
         {
-            RoleCodes = new List<string> { "seller" },
-            Reason = "Approved seller registration"
+            RoleCodes = new List<string> { "staff" },
+            Reason = "Promoted to support staff"
         };
         var adminId = Guid.NewGuid();
 
@@ -610,11 +641,347 @@ public sealed class AdminUserServiceTests
 
         Assert.NotNull(result);
         Assert.Equal(targetUserId.ToString(), result.UserId);
-        Assert.Contains("seller", result.Roles);
+        Assert.Contains("supportstaff", result.Roles);
 
         var auditLog = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == targetUserId.ToString());
         Assert.NotNull(auditLog);
         Assert.Equal(AuditAction.RoleAssign, auditLog.Action);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenAttemptingToAssignSellerDirectly_ThrowsCannotAssignSellerRoleDirectlyException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.AddRange(rBuyer, rSeller);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "seller.direct@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        user.RoleId = rBuyer.Id;
+        user.Role = rBuyer;
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "seller" },
+            Reason = "Attempt direct seller assignment"
+        };
+        var adminId = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_ASSIGN_SELLER_ROLE_DIRECTLY", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenAttemptingToRevokeSellerDirectly_ThrowsCannotRevokeSellerRoleDirectlyException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.AddRange(rBuyer, rSeller);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "seller.revoke@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Seller",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        user.RoleId = rSeller.Id;
+        user.Role = rSeller;
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer" },
+            Reason = "Attempt direct seller role revocation"
+        };
+        var adminId = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_REVOKE_SELLER_ROLE_DIRECTLY", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenSellerShopIsAlreadySuspended_AllowsRevokingSellerRoleWithoutDeadlock()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rSeller = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.AddRange(rBuyer, rSeller);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "suspended.seller@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Suspended",
+            LastName = "Seller",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        user.RoleId = rSeller.Id;
+        user.Role = rSeller;
+
+        var sellerProfile = new SellerProfile
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            ShopName = "Suspended Shop",
+            PickupAddress = "Address 1",
+            ProvinceId = 1,
+            DistrictId = 1,
+            WardCode = "W1",
+            Hotline = "0911111111",
+            Status = SellerProfileStatus.Suspended
+        };
+        dbContext.SellerProfiles.Add(sellerProfile);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "buyer" },
+            Reason = "User shop is suspended, admin revokes seller role"
+        };
+        var adminId = Guid.NewGuid();
+
+        // When shop is already suspended, admin SHOULD be able to revoke seller role without deadlock
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.DoesNotContain("seller", result.Roles);
+        Assert.Contains("buyer", result.Roles);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenRoleCodeIsWhitespace_ThrowsInvalidRoleException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        dbContext.Roles.Add(rBuyer);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "whitespace.role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "   " },
+            Reason = "Whitespace role test"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_ROLE", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenPassingGuidRoleIds_ResolvesRolesCorrectly()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "guid.roles@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        user.RoleId = rBuyer.Id; user.Role = rBuyer;
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleIds = new List<string> { rStaff.Id.ToString() },
+            Reason = "Assign SupportStaff via GUID RoleId"
+        };
+        var adminId = Guid.NewGuid();
+
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains("supportstaff", result.Roles);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenInvalidRoleCodePassed_ThrowsInvalidRoleException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        dbContext.Roles.Add(rBuyer);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "invalid.role@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "super_manager_xyz" },
+            Reason = "Assign bogus role"
+        };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_ROLE", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenRolesUpdated_RevokesActiveRefreshTokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "token.revoke@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active
+        };
+        dbContext.Users.Add(user);
+        user.RoleId = rBuyer.Id; user.Role = rBuyer;
+
+        var token1 = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            TokenHash = "token_hash_1",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var token2 = new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            TokenHash = "token_hash_2",
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+            IsRevoked = false,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.RefreshTokens.AddRange(token1, token2);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "staff" },
+            Reason = "Promote to staff, revoke existing tokens"
+        };
+
+        await service.AssignUserRolesAsync(targetUserId, dto, Guid.NewGuid(), CancellationToken.None);
+
+        var refreshedTokens = await dbContext.RefreshTokens.Where(t => t.UserId == targetUserId).ToListAsync();
+        Assert.All(refreshedTokens, t => Assert.True(t.IsRevoked));
+    }
+
+    [Fact]
+    public async Task AssignUserRolesAsync_WhenUpdatingRole_UpdatesUsersRoleIdDirectly()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rBuyer = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Buyer, RoleName = "Buyer" };
+        var rStaff = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.SupportStaff, RoleName = "Support Staff" };
+        dbContext.Roles.AddRange(rBuyer, rStaff);
+
+        var targetUserId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = targetUserId,
+            Email = "reactivate.staff@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Reactivate",
+            LastName = "User",
+            Status = UserStatus.Active,
+            RoleId = rBuyer.Id,
+            Role = rBuyer
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new AssignAdminUserRolesDto
+        {
+            RoleCodes = new List<string> { "staff" },
+            Reason = "Re-granting staff role"
+        };
+        var adminId = Guid.NewGuid();
+
+        var result = await service.AssignUserRolesAsync(targetUserId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Single(result.Roles);
+        Assert.Contains("supportstaff", result.Roles);
+
+        var updatedUser = await dbContext.Users.FindAsync(targetUserId);
+        Assert.NotNull(updatedUser);
+        Assert.Equal(rStaff.Id, updatedUser.RoleId);
     }
 
     [Fact]
@@ -669,7 +1036,7 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(soleAdmin);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = soleAdminId, RoleId = rAdmin.Id });
+        soleAdmin.RoleId = rAdmin.Id; soleAdmin.Role = rAdmin;
         await dbContext.SaveChangesAsync();
 
         var dto = new AssignAdminUserRolesDto
@@ -740,7 +1107,7 @@ public sealed class AdminUserServiceTests
         Assert.Equal("NewFirst", response.FirstName);
         Assert.Equal("NewLast", response.LastName);
         Assert.Equal("0911111111", response.PhoneNumber);
-        Assert.Equal("BANNED", response.Status);
+        Assert.Equal("Banned", response.Status);
         Assert.Equal(adminId.ToString(), response.UpdatedBy);
         Assert.Equal("User updated successfully.", response.Message);
 
@@ -804,7 +1171,7 @@ public sealed class AdminUserServiceTests
 
         var response = await service.UpdateUserAsync(userId, dto, adminId, CancellationToken.None);
 
-        Assert.Equal("ACTIVE", response.Status);
+        Assert.Equal("Active", response.Status);
 
         var updatedDbUser = await dbContext.Users.FirstAsync(u => u.Id == userId);
         Assert.Equal(UserStatus.Active, updatedDbUser.Status);
@@ -1018,7 +1385,7 @@ public sealed class AdminUserServiceTests
             Status = UserStatus.Active
         };
         dbContext.Users.Add(soleAdmin);
-        dbContext.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = soleAdminId, RoleId = rAdmin.Id });
+        soleAdmin.RoleId = rAdmin.Id; soleAdmin.Role = rAdmin;
         await dbContext.SaveChangesAsync();
 
         var dto = new DeleteAdminUserDto
@@ -1097,5 +1464,600 @@ public sealed class AdminUserServiceTests
             service.DeleteUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
 
         Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    // ---------------------------------------------------------
+    // ADMIN-05: BanUserAsync Tests
+    // ---------------------------------------------------------
+
+    [Fact]
+    public async Task BanUserAsync_ValidRequest_BansUserAndRevokesTokens()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            Email = "violator@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Bad",
+            LastName = "Actor",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        dbContext.RefreshTokens.AddRange(
+            new RefreshToken { Id = Guid.NewGuid(), UserId = userId, TokenHash = "token1", ExpiresAt = DateTimeOffset.UtcNow.AddDays(7), IsRevoked = false },
+            new RefreshToken { Id = Guid.NewGuid(), UserId = userId, TokenHash = "token2", ExpiresAt = DateTimeOffset.UtcNow.AddDays(7), IsRevoked = false }
+        );
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto
+        {
+            Reason = "Multiple fraudulent bids placed on auction #4582."
+        };
+
+        var response = await service.BanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Banned", response.Status);
+        Assert.Equal(dto.Reason, response.BanReason);
+        Assert.Equal(adminId.ToString(), response.BannedBy);
+        Assert.Equal(2, response.RevokedTokensCount);
+
+        // Verify DB state
+        var dbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.Equal(UserStatus.Banned, dbUser.Status);
+        Assert.NotNull(dbUser.BannedAt);
+        Assert.Equal(adminId, dbUser.BannedBy);
+        Assert.Equal(dto.Reason, dbUser.BanReason);
+
+        var dbTokens = await dbContext.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
+        Assert.All(dbTokens, t => Assert.True(t.IsRevoked));
+
+        var auditLog = await dbContext.AuditLogs.FirstAsync(a => a.EntityId == userId.ToString() && a.Action == AuditAction.UserBan);
+        Assert.NotNull(auditLog);
+        Assert.Equal(adminId.ToString(), auditLog.UserId);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenSelfBan_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var dto = new BanAdminUserDto { Reason = "Attempt to ban self" };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(adminId, dto, adminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_BAN_SELF", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenLastAdmin_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var rAdmin = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Admin, RoleName = "Administrator" };
+        dbContext.Roles.Add(rAdmin);
+
+        var adminId = Guid.NewGuid();
+        var callerAdminId = Guid.NewGuid();
+
+        var adminUser = new User
+        {
+            Id = adminId,
+            Email = "sole.admin@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Sole",
+            LastName = "Admin",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(adminUser);
+
+        adminUser.RoleId = rAdmin.Id;
+        adminUser.Role = rAdmin;
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Banning the last admin" };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(adminId, dto, callerAdminId, CancellationToken.None));
+
+        Assert.Equal("CANNOT_BAN_LAST_ADMIN", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenAlreadyBanned_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "already.banned@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Already",
+            LastName = "Banned",
+            Status = UserStatus.Banned,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Ban again" };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.BanUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_BANNED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenUserNotFound_ThrowsDomainException_404()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new BanAdminUserDto { Reason = "Non existent" };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.BanUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenUserAlreadyDeleted_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "deleted.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Deleted",
+            LastName = "User",
+            Status = UserStatus.Deleted,
+            IsDeleted = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Ban deleted" };
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.BanUserAsync(userId, dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_DELETED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenReasonIsMissing_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new BanAdminUserDto { Reason = "   " };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_WhenReasonExceeds1000Chars_ThrowsBusinessRuleValidationException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var dto = new BanAdminUserDto { Reason = new string('A', 1001) };
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() =>
+            service.BanUserAsync(Guid.NewGuid(), dto, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("VAL_INVALID_INPUT", ex.ErrorCode);
+    }
+
+    // ---------------------------------------------------------
+    // ADMIN-06: UnbanUserAsync Tests
+    // ---------------------------------------------------------
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserIsBannedAndVerified_RestoresActiveStatus()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+
+        var user = new User
+        {
+            Id = userId,
+            Email = "reformed@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Reformed",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow.AddDays(-10),
+            BannedAt = DateTimeOffset.UtcNow.AddDays(-2),
+            BannedBy = adminId,
+            BanReason = "Previous violation",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var dto = new UnbanAdminUserDto { Reason = "Appeal granted after investigation." };
+
+        var response = await service.UnbanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Active", response.Status);
+        Assert.Equal(adminId.ToString(), response.UnbannedBy);
+
+        var dbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.Equal(UserStatus.Active, dbUser.Status);
+        Assert.Null(dbUser.BannedAt);
+        Assert.Null(dbUser.BannedBy);
+        Assert.Null(dbUser.BanReason);
+
+        var auditLog = await dbContext.AuditLogs.FirstAsync(a => a.EntityId == userId.ToString() && a.Action == AuditAction.UserUnban);
+        Assert.NotNull(auditLog);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserIsBannedAndNotVerified_RestoresPendingVerificationStatus()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "unverified.banned@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Unverified",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = null,
+            BannedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            BanReason = "Suspicious unverified activity",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var response = await service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("PendingVerification", response.Status);
+
+        var dbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
+        Assert.Equal(UserStatus.PendingVerification, dbUser.Status);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserNotBanned_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "active.user@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Active",
+            LastName = "User",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_BANNED", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserNotFound_ThrowsDomainException_404()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UnbanUserAsync(Guid.NewGuid(), null, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_NOT_FOUND", ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_WhenUserAlreadyDeleted_ThrowsDomainException()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "deleted.user2@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Deleted",
+            LastName = "User",
+            Status = UserStatus.Deleted,
+            IsDeleted = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() =>
+            service.UnbanUserAsync(userId, null, Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("USER_ALREADY_DELETED", ex.ErrorCode);
+    }
+
+    private sealed class AdminFakeEmailNotificationClient : global::User.Application.Interfaces.IEmailNotificationClient
+    {
+        public List<(string Email, string FullName, string Reason)> BannedEmails { get; } = new();
+        public List<(string Email, string FullName, string? Reason)> UnbannedEmails { get; } = new();
+
+        public Task<bool> SendOtpEmailAsync(
+            string email,
+            string fullName,
+            string otpCode,
+            int expiresInMinutes = 5,
+            string? purpose = null,
+            string? traceId = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<bool> SendSellerDecisionEmailAsync(
+            string sourceEventId,
+            Guid registrationId,
+            Guid userId,
+            string email,
+            string fullName,
+            string shopName,
+            bool isApproved,
+            string? reason,
+            DateTimeOffset decidedAt,
+            string? traceId = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<bool> SendAccountStatusChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
+            string email,
+            string fullName,
+            bool isBanned,
+            string? reason,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (isBanned)
+            {
+                BannedEmails.Add((email, fullName, reason ?? string.Empty));
+            }
+            else
+            {
+                UnbannedEmails.Add((email, fullName, reason));
+            }
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> SendPasswordChangedEmailAsync(
+            string sourceEventId,
+            Guid userId,
+            string email,
+            string fullName,
+            global::User.Domain.Enums.PasswordChangeKind kind,
+            DateTimeOffset changedAt,
+            string? traceId = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
+    [Fact]
+    public async Task BanUserAsync_Dispatches_UserBannedEmail()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var emailClient = new AdminFakeEmailNotificationClient();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance, emailNotificationClient: emailClient);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "violation@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "John",
+            LastName = "Doe",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new BanAdminUserDto { Reason = "Terms of Service violation" };
+        var response = await service.BanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.Equal("Banned", response.Status);
+        Assert.Single(emailClient.BannedEmails);
+        Assert.Equal("violation@nexus.local", emailClient.BannedEmails[0].Email);
+        Assert.Equal("John Doe", emailClient.BannedEmails[0].FullName);
+        Assert.Equal("Terms of Service violation", emailClient.BannedEmails[0].Reason);
+    }
+
+    [Fact]
+    public async Task UnbanUserAsync_Dispatches_UserUnbannedEmail()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var emailClient = new AdminFakeEmailNotificationClient();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance, emailNotificationClient: emailClient);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "appealed@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Jane",
+            LastName = "Smith",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var dto = new UnbanAdminUserDto { Reason = "Appeal accepted after investigation" };
+        var response = await service.UnbanUserAsync(userId, dto, adminId, CancellationToken.None);
+
+        Assert.Equal("Active", response.Status);
+        Assert.Single(emailClient.UnbannedEmails);
+        Assert.Equal("appealed@nexus.local", emailClient.UnbannedEmails[0].Email);
+        Assert.Equal("Jane Smith", emailClient.UnbannedEmails[0].FullName);
+        Assert.Equal("Appeal accepted after investigation", emailClient.UnbannedEmails[0].Reason);
+    }
+
+    [Fact]
+    public async Task GetUsersAsync_And_GetUserDetailAsync_WhenSellerReputationAdjusted_ReturnsSellerReputationFields()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var sellerRole = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.Add(sellerRole);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "seller.rep@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Minh",
+            LastName = "Tran",
+            Status = UserStatus.Active,
+            RoleId = sellerRole.Id,
+            Role = sellerRole,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        var repScore = new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 50,
+            TrustLevel = TrustLevel.Standard,
+            SellerScore = 85,
+            SellerTrustLevel = TrustLevel.Excellent
+        };
+        dbContext.ReputationScores.Add(repScore);
+
+        var repLog = new ReputationLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TargetRole = TargetRole.Seller,
+            ChangeAmount = 35,
+            ScoreAfter = 85,
+            Reason = ReputationChangeReason.ManualAdjustment,
+            Note = "Manual reputation boost by Admin",
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.ReputationLogs.Add(repLog);
+
+        await dbContext.SaveChangesAsync();
+
+        // 1. Verify GetUsersAsync list
+        var listResult = await service.GetUsersAsync(keyword: "seller.rep", cancellationToken: CancellationToken.None);
+        Assert.Single(listResult.Items);
+        var listItem = listResult.Items[0];
+        Assert.Equal(50, listItem.ReputationScore);
+        Assert.Equal("Standard", listItem.TrustLevel);
+        Assert.Equal(85, listItem.SellerReputationScore);
+        Assert.Equal("Excellent", listItem.SellerTrustLevel);
+        Assert.True(listItem.IsSeller);
+
+        // 2. Verify GetUserDetailAsync
+        var detailResult = await service.GetUserDetailAsync(userId, CancellationToken.None);
+        Assert.Equal(50, detailResult.ReputationScore);
+        Assert.Equal("Standard", detailResult.TrustLevel);
+        Assert.Equal(85, detailResult.SellerReputationScore);
+        Assert.Equal("Excellent", detailResult.SellerTrustLevel);
+        Assert.True(detailResult.IsSeller);
+        Assert.Single(detailResult.ReputationLogs);
+        Assert.Equal("Seller", detailResult.ReputationLogs[0].TargetRole);
+        Assert.Equal(35, detailResult.ReputationLogs[0].ChangeAmount);
+        Assert.Equal(85, detailResult.ReputationLogs[0].ScoreAfter);
+        Assert.Equal("Manual reputation boost by Admin", detailResult.ReputationLogs[0].Note);
+    }
+
+    [Fact]
+    public async Task RemoveUserAvatarAsync_ClearsAvatarAndWritesAuditLog()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var service = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "bad.avatar@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Bad",
+            LastName = "Avatar",
+            AvatarUrl = "https://cdn.nexus.local/avatars/weapon.png",
+            Status = UserStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var result = await service.RemoveUserAvatarAsync(
+            userId,
+            new RemoveAdminUserAvatarDto { Reason = "Violating avatar", ApplyPenalty = true },
+            adminId,
+            CancellationToken.None);
+
+        var updated = await dbContext.Users.FindAsync(userId);
+        Assert.NotNull(updated);
+        Assert.Null(updated!.AvatarUrl);
+        Assert.True(result.PenaltyApplied);
+        Assert.Equal("Violating avatar", result.Reason);
+        Assert.Single(dbContext.AuditLogs);
+        Assert.Equal(1, dbContext.UserPenalties.Count());
     }
 }

@@ -13,9 +13,11 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.Property(x => x.Description).HasMaxLength(500);
         builder.Property(x => x.IsSystemRole).HasDefaultValue(false);
 
-        builder.HasMany(r => r.UserRoles)
-            .WithOne(ur => ur.Role)
-            .HasForeignKey(ur => ur.RoleId);
+        // Self-referencing Role Hierarchy
+        builder.HasOne(r => r.ParentRole)
+            .WithMany(r => r.SubRoles)
+            .HasForeignKey(r => r.ParentRoleId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(r => r.RolePermissions)
             .WithOne(rp => rp.Role)

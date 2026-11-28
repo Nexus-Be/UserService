@@ -1,19 +1,27 @@
 namespace User.Infrastructure.Persistence;
 
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 
 public class AppDbContext : DbContext, IUserDbContext
 {
+    private static readonly SemaphoreSlim InMemoryTokenLock = new(1, 1);
+    private readonly DbContextOptions<AppDbContext> _options;
+
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
+        _options = options;
     }
 
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Role> Roles => Set<Role>();
-    public DbSet<UserRole> UserRoles => Set<UserRole>();
+
     public DbSet<Permission> Permissions => Set<Permission>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<SellerProfile> SellerProfiles => Set<SellerProfile>();
@@ -24,11 +32,104 @@ public class AppDbContext : DbContext, IUserDbContext
     public DbSet<UserPenalty> UserPenalties => Set<UserPenalty>();
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<UserAuctionProfile> UserAuctionProfiles => Set<UserAuctionProfile>();
+    public DbSet<AuctionViolation> AuctionViolations => Set<AuctionViolation>();
+    public DbSet<UserAuctionPayment> UserAuctionPayments => Set<UserAuctionPayment>();
+    public DbSet<UserAddress> UserAddresses => Set<UserAddress>();
+    public DbSet<NotificationDispatchLog> NotificationDispatchLogs => Set<NotificationDispatchLog>();
+
+    public async Task LockAuctionPaymentAsync(Guid userId, Guid orderId, CancellationToken cancellationToken)
+    {
+        if (!Database.IsRelational()) return;
+        await Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({userId.ToString("D")}, 0))", cancellationToken);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
         Seeds.UserSeedData.SeedRolesAndConfigs(modelBuilder);
+    }
+
+    public async Task<bool> TryRevokeRefreshTokenAtomicAsync(Guid tokenId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        if (Database.IsRelational())
+        {
+            var affected = await RefreshTokens
+                .Where(t => t.Id == tokenId && !t.IsRevoked)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.IsRevoked, true)
+                    .SetProperty(t => t.RevokedAt, now)
+                    .SetProperty(t => t.UpdatedAt, now), cancellationToken);
+
+            return affected == 1;
+        }
+
+        await InMemoryTokenLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var isolatedContext = new AppDbContext(_options);
+            var token = await isolatedContext.RefreshTokens
+                .FirstOrDefaultAsync(t => t.Id == tokenId, cancellationToken);
+            if (token == null || token.IsRevoked)
+            {
+                return false;
+            }
+
+            token.IsRevoked = true;
+            token.RevokedAt = now;
+            token.UpdatedAt = now;
+
+            await isolatedContext.SaveChangesAsync(cancellationToken);
+
+            var tracked = RefreshTokens.Local.FirstOrDefault(t => t.Id == tokenId);
+            if (tracked != null)
+            {
+                await Entry(tracked).ReloadAsync(cancellationToken);
+            }
+
+            return true;
+        }
+        finally
+        {
+            InMemoryTokenLock.Release();
+        }
+    }
+
+    public async Task<int> RevokeSessionTokensAsync(Guid sessionId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        if (sessionId == Guid.Empty)
+        {
+            return 0;
+        }
+
+        if (Database.IsRelational())
+        {
+            return await RefreshTokens
+                .Where(t => t.SessionId == sessionId && !t.IsRevoked)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.IsRevoked, true)
+                    .SetProperty(t => t.RevokedAt, now)
+                    .SetProperty(t => t.UpdatedAt, now), cancellationToken);
+        }
+
+        var activeTokens = await RefreshTokens
+            .Where(t => t.SessionId == sessionId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        foreach (var token in activeTokens)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = now;
+            token.UpdatedAt = now;
+        }
+
+        if (activeTokens.Count > 0)
+        {
+            await SaveChangesAsync(cancellationToken);
+        }
+
+        return activeTokens.Count;
     }
 }

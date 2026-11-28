@@ -11,7 +11,7 @@ public static class UserSeedData
         var seedDate = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         const string defaultPasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG"; // "Password123!"
 
-        // 1. Roles (4 System Roles)
+        // 1. Roles (4 System Roles - Seed GUIDs local to Infrastructure)
         var buyerRoleId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var sellerRoleId = Guid.Parse("22222222-2222-2222-2222-222222222222");
         var supportRoleId = Guid.Parse("33333333-3333-3333-3333-333333333333");
@@ -25,6 +25,7 @@ public static class UserSeedData
                 RoleName = "Buyer",
                 Description = "Khách mua hàng và tham gia đấu giá",
                 IsActive = true,
+                ParentRoleId = null,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -36,6 +37,7 @@ public static class UserSeedData
                 RoleName = "Seller",
                 Description = "Người bán hàng và mở phiên đấu giá",
                 IsActive = true,
+                ParentRoleId = buyerRoleId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -47,6 +49,7 @@ public static class UserSeedData
                 RoleName = "Support Staff",
                 Description = "Nhân viên hỗ trợ thẩm định và chăm sóc khách hàng",
                 IsActive = true,
+                ParentRoleId = null,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -58,6 +61,7 @@ public static class UserSeedData
                 RoleName = "Administrator",
                 Description = "Quản trị viên tối cao sàn",
                 IsActive = true,
+                ParentRoleId = supportRoleId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -80,6 +84,7 @@ public static class UserSeedData
                 FirstName = "Admin",
                 LastName = "System",
                 PhoneNumber = "0900000001",
+                RoleId = adminRoleId,
                 Status = UserStatus.Active,
                 Gender = Gender.Unspecified,
                 EmailVerifiedAt = seedDate,
@@ -96,6 +101,7 @@ public static class UserSeedData
                 FirstName = "Staff",
                 LastName = "Support",
                 PhoneNumber = "0900000002",
+                RoleId = supportRoleId,
                 Status = UserStatus.Active,
                 Gender = Gender.Unspecified,
                 EmailVerifiedAt = seedDate,
@@ -112,6 +118,7 @@ public static class UserSeedData
                 FirstName = "Official",
                 LastName = "Seller",
                 PhoneNumber = "0900000003",
+                RoleId = sellerRoleId,
                 Status = UserStatus.Active,
                 Gender = Gender.Unspecified,
                 EmailVerifiedAt = seedDate,
@@ -129,6 +136,7 @@ public static class UserSeedData
                 LastName = "Buyer",
                 PhoneNumber = "0900000004",
                 Address = "123 Nguyen Trai, Thanh Xuan, Ha Noi",
+                RoleId = buyerRoleId,
                 Status = UserStatus.Active,
                 Gender = Gender.Unspecified,
                 EmailVerifiedAt = seedDate,
@@ -138,49 +146,6 @@ public static class UserSeedData
             }
         );
 
-        // 3. User Roles (Mapping 4 Users to 4 Roles)
-        modelBuilder.Entity<UserRole>().HasData(
-            new UserRole
-            {
-                Id = Guid.Parse("faaaaaaa-1111-1111-1111-111111111111"),
-                UserId = adminUserId,
-                RoleId = adminRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            },
-            new UserRole
-            {
-                Id = Guid.Parse("fbbbbbbb-2222-2222-2222-222222222222"),
-                UserId = staffUserId,
-                RoleId = supportRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            },
-            new UserRole
-            {
-                Id = Guid.Parse("fccccccc-3333-3333-3333-333333333333"),
-                UserId = sellerUserId,
-                RoleId = sellerRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            },
-            new UserRole
-            {
-                Id = Guid.Parse("fddddddd-4444-4444-4444-444444444444"),
-                UserId = buyerUserId,
-                RoleId = buyerRoleId,
-                AssignedAt = seedDate,
-                CreatedAt = seedDate,
-                UpdatedAt = seedDate,
-                IsDeleted = false
-            }
-        );
 
         // 4. SellerProfile for Seller User
         modelBuilder.Entity<SellerProfile>().HasData(
@@ -241,6 +206,11 @@ public static class UserSeedData
                 TotalPositiveReviews = 50,
                 TotalNegativeReviews = 0,
                 PenaltyCount = 0,
+                SellerScore = 85,
+                SellerTrustLevel = TrustLevel.Good,
+                SellerPositiveReviews = 50,
+                SellerNegativeReviews = 0,
+                SellerPenaltyCount = 0,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -280,6 +250,83 @@ public static class UserSeedData
                 ConfigValue = "true",
                 DataType = ConfigDataType.Boolean,
                 Description = "Tự động kích hoạt tài khoản buyer sau xác thực email",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555553"),
+                ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+                ConfigValue = "40",
+                DataType = ConfigDataType.Int,
+                Description = "Minimum buyer reputation score required to place a bid in an auction.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555554"),
+                ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+                ConfigValue = "50",
+                DataType = ConfigDataType.Int,
+                Description = "Minimum seller reputation score required to create and open an auction.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555555"),
+                ConfigKey = "FEATURE_REPUTATION_ENFORCEMENT",
+                ConfigValue = "true",
+                DataType = ConfigDataType.Boolean,
+                Description = "Toggle strict reputation score enforcement across auctions and commerce.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555556"),
+                ConfigKey = "PAYMENT_TIMEOUT_PENALTY_SCORE",
+                ConfigValue = "10",
+                DataType = ConfigDataType.Int,
+                Description = "Reputation score points deducted when a buyer defaults on auction payment.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555557"),
+                ConfigKey = "SELLER_CANCEL_PENALTY_SCORE",
+                ConfigValue = "5",
+                DataType = ConfigDataType.Int,
+                Description = "Reputation score points deducted when a seller cancels an order or auction.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555558"),
+                ConfigKey = "ANTI_FARMING_COOLDOWN_DAYS",
+                ConfigValue = "7",
+                DataType = ConfigDataType.Int,
+                Description = "Minimum days between positive reputation rewards for the same trading pair.",
+                CreatedAt = seedDate,
+                UpdatedAt = seedDate,
+                IsDeleted = false
+            },
+            new SystemConfig
+            {
+                Id = Guid.Parse("11111111-2222-3333-4444-555555555559"),
+                ConfigKey = "ORDER_COMPLETED_REWARD_SCORE",
+                ConfigValue = "1",
+                DataType = ConfigDataType.Int,
+                Description = "Reputation score points rewarded upon completing an order.",
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
                 IsDeleted = false
@@ -415,10 +462,13 @@ public static class UserSeedData
             {
                 Id = Guid.Parse("30000000-aaaa-bbbb-cccc-000000000001"),
                 UserId = sellerUserId,
-                ChangeAmount = 50,
+                TargetRole = TargetRole.Seller,
+                ChangeAmount = 35,
+                ScoreAfter = 85,
                 Reason = ReputationChangeReason.OrderCompleted,
                 ReferenceType = ReferenceType.Order,
                 ReferenceId = "02000000-0000-0000-0000-000000000001",
+                PartnerUserId = buyerUserId,
                 CreatedBy = adminUserId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
@@ -428,10 +478,13 @@ public static class UserSeedData
             {
                 Id = Guid.Parse("30000000-aaaa-bbbb-cccc-000000000002"),
                 UserId = buyerUserId,
+                TargetRole = TargetRole.Buyer,
                 ChangeAmount = 10,
+                ScoreAfter = 80,
                 Reason = ReputationChangeReason.PositiveReview,
                 ReferenceType = ReferenceType.Order,
                 ReferenceId = "02000000-0000-0000-0000-000000000001",
+                PartnerUserId = sellerUserId,
                 CreatedBy = sellerUserId,
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
@@ -452,6 +505,7 @@ public static class UserSeedData
                 Rating = 5,
                 Comment = "Người bán phản hồi nhanh, hàng chuẩn chính hãng đóng gói kỹ lưỡng.",
                 MediaUrls = new List<string> { "https://images.nexus.local/reviews/user-review-01.png" },
+                ScoreImpact = 1,
                 IsDisputed = false,
                 IsDisabled = false,
                 CreatedAt = seedDate,
@@ -467,11 +521,13 @@ public static class UserSeedData
                 Id = Guid.Parse("50000000-aaaa-bbbb-cccc-000000000001"),
                 ReporterId = buyerUserId,
                 ReportedUserId = sellerUserId,
+                TargetRole = TargetRole.Seller,
                 ViolationType = ReportViolationType.Other,
                 Description = "Yêu cầu cung cấp thêm hoá đơn VAT cho đơn hàng",
                 EvidenceUrls = new List<string> { "https://images.nexus.local/reports/invoice-request.png" },
                 Status = ReportStatus.Resolved,
                 ResolvedBy = staffUserId,
+                ResolvedAt = seedDate,
                 ResolutionNote = "Người bán đã xuất hoá đơn điện tử gửi qua email.",
                 CreatedAt = seedDate,
                 UpdatedAt = seedDate,
@@ -485,6 +541,7 @@ public static class UserSeedData
             {
                 Id = Guid.Parse("60000000-aaaa-bbbb-cccc-000000000001"),
                 UserId = buyerUserId,
+                TargetRole = TargetRole.Buyer,
                 ViolationType = PenaltyViolationType.PaymentTimeout,
                 Reason = "Quá hạn thanh toán thử nghiệm trong môi trường sandbox",
                 PenaltyApplied = PenaltyType.Warning,

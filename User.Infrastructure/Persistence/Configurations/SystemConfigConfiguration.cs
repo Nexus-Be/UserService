@@ -13,5 +13,6 @@ public class SystemConfigConfiguration : IEntityTypeConfiguration<SystemConfig>
         builder.HasIndex(x => x.ConfigKey).IsUnique();
         builder.Property(x => x.ConfigValue).HasMaxLength(1000).IsRequired();
         builder.Property(x => x.Description).HasMaxLength(500);
+        builder.HasQueryFilter(x => !x.IsDeleted);
     }
 }

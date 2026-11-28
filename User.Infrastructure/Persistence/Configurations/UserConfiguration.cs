@@ -13,7 +13,9 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(x => x.Username).IsUnique().HasFilter("\"Username\" IS NOT NULL");
         builder.Property(x => x.Email).HasMaxLength(255).IsRequired();
         builder.HasIndex(x => x.Email).IsUnique();
-        builder.Property(x => x.PasswordHash).HasMaxLength(500).IsRequired();
+        builder.Property(x => x.PasswordHash).HasMaxLength(500).IsRequired(false);
+        builder.Property(x => x.FirebaseUid).HasMaxLength(128);
+        builder.HasIndex(x => x.FirebaseUid).IsUnique().HasFilter("\"FirebaseUid\" IS NOT NULL");
         builder.Property(x => x.FirstName).HasMaxLength(150).IsRequired();
         builder.Property(x => x.LastName).HasMaxLength(150).IsRequired();
         builder.Property(x => x.PhoneNumber).HasMaxLength(50);
@@ -21,6 +23,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.AvatarUrl).HasMaxLength(500);
         builder.Property(x => x.Address).HasMaxLength(1000);
         builder.Property(x => x.BanReason).HasMaxLength(1000);
+
+        builder.HasOne(u => u.Role)
+            .WithMany(r => r.Users)
+            .HasForeignKey(u => u.RoleId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(u => u.BannedByUser)
             .WithMany()

@@ -13,8 +13,12 @@ public class UserReview : BaseEntity<Guid>
     public int Rating { get; set; }
     public string? Comment { get; set; }
     public List<string> MediaUrls { get; set; } = new();
+    public int ScoreImpact { get; set; }
     public bool IsDisputed { get; set; }
     public bool IsDisabled { get; set; }
+    public Guid? HiddenBy { get; set; }
+    public DateTimeOffset? HiddenAt { get; set; }
+    public string? HiddenReason { get; set; }
 
     // Navigation
     public User? Reviewer { get; set; }

@@ -90,7 +90,9 @@ public static class HttpContextExtensions
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         var roles = context.GetUserRoles();
-        return roles.Contains(role.Trim().ToLowerInvariant(), StringComparer.OrdinalIgnoreCase);
+        var normalized = role.Trim().ToLowerInvariant();
+
+        return roles.Contains(normalized, StringComparer.OrdinalIgnoreCase);
     }
 
     public static bool HasPermission(this HttpContext context, string permission)
@@ -102,7 +104,7 @@ public static class HttpContextExtensions
 
     public static bool IsAdmin(this HttpContext context)
     {
-        return context.HasRole("admin") || context.HasRole("administrator");
+        return context.HasRole("admin");
     }
 
     public static string? GetTraceId(this HttpContext context)

@@ -19,7 +19,9 @@ public record ResendOtpDto(
 
 public record LoginDto(
     string UsernameOrEmail,
-    string Password);
+    string Password,
+    string? DeviceInfo = null,
+    string? IpAddress = null);
 
 public record LoginResultDto(
     string AccessToken,
@@ -81,3 +83,8 @@ public record ChangePasswordDto(
 public record ChangePasswordResultDto(
     bool Success,
     string Message);
+
+public record GoogleLoginDto(
+    string IdToken,
+    string? DeviceInfo = null,
+    string? IpAddress = null);

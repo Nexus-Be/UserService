@@ -1,17 +1,45 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **UserService** (618 symbols, 971 relationships, 16 execution flows).
+This project is indexed by GitNexus as **UserService** (5261 symbols, 14935 relationships, 311 execution flows).
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root.
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
 ## Always Do
 
-- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` or `node .gitnexus/run.cjs detect-changes --scope all --repo .`.
-- **MUST warn on HIGH/CRITICAL `risk` pre-edit.**
-- **MUST treat `risk: UNKNOWN` as unresolved, not low.**
-- **NEVER** edit before impact analysis · **NEVER** rename with find-and-replace · **NEVER** commit before detect_changes.
+- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
+
+## Resources
+
+| Resource | Use for |
+| --- | --- |
+| `gitnexus://repo/UserService/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/UserService/clusters` | All functional areas |
+| `gitnexus://repo/UserService/processes` | All execution flows |
+| `gitnexus://repo/UserService/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 
@@ -62,6 +90,7 @@ Khi bắt đầu làm việc tại UserService, AI Agent **BẮT BUỘC PHẢI �
 4. `specs/03_EVENT_MESSAGING.md`: Trạng thái bãi bỏ RabbitMQ / MassTransit; gửi email qua `IEmailNotificationClient`.
 5. `specs/04_DATA_PERSISTENCE.md`: Schema PostgreSQL (`Users`, `Roles`, `Permissions`, `SellerRegistrations`...).
 6. `specs/05_DEV_VERIFICATION_CHECKLIST.md`: Lệnh build & test kiểm chứng service.
+7. `specs/06_BUSINESS_RULES_AND_FLOWS.md`: Nghiệp vụ, luồng xử lý, máy trạng thái & quy tắc Được làm / Không được làm (SoD, Auth/RTR, Seller onboarding, Dual-track Reputation, Auction streak, Reviews/Reports).
 
 ---
 
@@ -131,3 +160,13 @@ Một task tại UserService chỉ hoàn tất khi:
 * `dotnet build User.sln -c Release` thành công 100% (0 error).
 * `dotnet test User.sln -c Release` vượt qua 100% các bài test.
 * Trạng thái Git sạch, không commit file rác (`bin/`, `obj/`, `.vs/`, `.idea/`, `.env`).
+
+---
+
+## 📝 NGUYÊN TẮC 7: QUY CHUẨN LƯU TRỮ KẾ HOẠCH, GHI CHÚ, XÁC NHẬN & TÀI LIỆU (WORKSPACE ARTIFACTS)
+
+Tuân thủ quy chuẩn tại `.agents/rules/workspace-artifacts.md` cho đúng 4 loại artifact nội bộ (100% Inward-Only):
+1. **Lưu trữ Kế hoạch (`plan`)**: Bắt buộc ghi tại `.agents/plans/YYYY-MM-DD_HHmm-plan-<slug>.md` (kèm thời gian lập/cập nhật; CẤM dùng `.agents/plan/` số ít). Phôi mẫu: `.agents/plans/plan-template.md`. Chi tiết: `.agents/rules/plan-management.md`.
+2. **Ghi chú theo Chủ đề (`note`)**: Ghi nhận thao tác, vấn đề gặp & cách xử lý, hoặc lưu ý để đọc lại sau tại `.agents/notes/YYYY-MM-DD_HHmm-<topic-slug>.md`. **1 chủ đề = 1 file duy nhất**; khi chuyển sang chủ đề khác phải tạo file note mới. Phôi mẫu: `.agents/notes/note-master.template.md`. Chi tiết: `.agents/rules/note-management.md`.
+3. **Xác nhận & Quyết định (`decision`)**: Mọi vấn đề Agent hỏi người dùng để xác nhận / chốt phương án phải lưu tại `.agents/decisions/YYYY-MM-DD_HHmm-<decision-slug>.md` kèm mốc thời gian. Phôi mẫu: `.agents/decisions/decision-template.md`. Chi tiết: `.agents/rules/decision-management.md`.
+4. **Tài liệu cho Con người (`doc`)**: Khi người dùng yêu cầu viết tài liệu cho người đọc, bắt buộc áp dụng skill `humanizer` và lưu tại `.agents/docs/<slug>.md`. Chi tiết: `.agents/rules/doc-management.md`.

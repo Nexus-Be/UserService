@@ -1,3 +1,4 @@
+using System;
 using User.Domain.Base;
 using User.Domain.Enums;
 
@@ -22,7 +23,28 @@ public class SellerProfile : BaseEntity<Guid>
     public Guid? ReviewedBy { get; set; }
     public DateTimeOffset? ReviewedAt { get; set; }
 
+    /// <summary>
+    /// False when the warehouse could not be created in Fulfillment while the seller was approved. The seller is still approved, but cannot ship
+    /// until the warehouse exists; the retry worker and the admin retry action set it back to true.
+    /// </summary>
+    public bool WarehouseReady { get; set; } = true;
+
     // Navigation
     public User? User { get; set; }
     public User? ReviewedByUser { get; set; }
+
+    public void Suspend(string reason, Guid? adminId = null)
+    {
+        Status = SellerProfileStatus.Suspended;
+        RejectionReason = reason;
+        ReviewedBy = adminId;
+        ReviewedAt = DateTimeOffset.UtcNow;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    public void Reactivate()
+    {
+        Status = SellerProfileStatus.Approved;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
 }

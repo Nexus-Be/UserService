@@ -25,6 +25,8 @@ public sealed record AdminUserListItemDto(
     [property: JsonPropertyName("address")] string? Address,
     [property: JsonPropertyName("reputationScore")] int ReputationScore,
     [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("sellerReputationScore")] int? SellerReputationScore,
+    [property: JsonPropertyName("sellerTrustLevel")] string? SellerTrustLevel,
     [property: JsonPropertyName("isSeller")] bool IsSeller,
     [property: JsonPropertyName("roles")] List<string> Roles,
     [property: JsonPropertyName("status")] string Status,
@@ -50,10 +52,13 @@ public sealed record AdminSellerProfileDetailDto(
 
 public sealed record AdminUserReputationLogDto(
     [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("targetRole")] string TargetRole,
     [property: JsonPropertyName("changeAmount")] int ChangeAmount,
+    [property: JsonPropertyName("scoreAfter")] int ScoreAfter,
     [property: JsonPropertyName("reason")] string Reason,
     [property: JsonPropertyName("referenceType")] string? ReferenceType,
     [property: JsonPropertyName("referenceId")] string? ReferenceId,
+    [property: JsonPropertyName("note")] string? Note,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt
 );
 
@@ -75,6 +80,8 @@ public sealed record AdminUserDetailDto(
     [property: JsonPropertyName("isSeller")] bool IsSeller,
     [property: JsonPropertyName("reputationScore")] int ReputationScore,
     [property: JsonPropertyName("trustLevel")] string TrustLevel,
+    [property: JsonPropertyName("sellerReputationScore")] int? SellerReputationScore,
+    [property: JsonPropertyName("sellerTrustLevel")] string? SellerTrustLevel,
     [property: JsonPropertyName("roles")] List<string> Roles,
     [property: JsonPropertyName("permissions")] List<string> Permissions,
     [property: JsonPropertyName("sellerProfile")] AdminSellerProfileDetailDto? SellerProfile,
@@ -113,23 +120,11 @@ public sealed class UpdateAdminUserDto
     [JsonPropertyName("firstName")]
     public string? FirstName { get; set; }
 
-    [JsonPropertyName("first_name")]
-    public string? FirstNameSnake { set => FirstName ??= value; }
-
     [JsonPropertyName("lastName")]
     public string? LastName { get; set; }
 
-    [JsonPropertyName("last_name")]
-    public string? LastNameSnake { set => LastName ??= value; }
-
     [JsonPropertyName("phoneNumber")]
     public string? PhoneNumber { get; set; }
-
-    [JsonPropertyName("phone_number")]
-    public string? PhoneNumberSnake { set => PhoneNumber ??= value; }
-
-    [JsonPropertyName("phone")]
-    public string? PhoneShort { set => PhoneNumber ??= value; }
 
     [JsonPropertyName("status")]
     public string? Status { get; set; }
@@ -156,3 +151,29 @@ public sealed class DeleteAdminUserDto
     public string? Reason { get; set; }
 }
 
+public sealed record AdminUserBannedResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("banReason")] string BanReason,
+    [property: JsonPropertyName("bannedAt")] DateTimeOffset BannedAt,
+    [property: JsonPropertyName("bannedBy")] string BannedBy,
+    [property: JsonPropertyName("revokedTokensCount")] int RevokedTokensCount,
+    [property: JsonPropertyName("message")] string Message
+);
+
+public sealed record AdminUserUnbannedResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("unbannedAt")] DateTimeOffset UnbannedAt,
+    [property: JsonPropertyName("unbannedBy")] string UnbannedBy,
+    [property: JsonPropertyName("message")] string Message
+);
+
+public sealed record AdminUserAvatarRemovedResponseDto(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("removedBy")] string RemovedBy,
+    [property: JsonPropertyName("removedAt")] DateTimeOffset RemovedAt,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("penaltyApplied")] bool PenaltyApplied,
+    [property: JsonPropertyName("message")] string Message
+);

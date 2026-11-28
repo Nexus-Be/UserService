@@ -1,5 +1,7 @@
 namespace User.Application.Services.Seller;
 
+using System;
+using System.IO;
 using System.Text.Json.Serialization;
 
 public sealed class CreateSellerRegistrationDto
@@ -15,6 +17,18 @@ public sealed class CreateSellerRegistrationDto
 
     [JsonPropertyName("identityCardNumber")]
     public string? IdentityCardNumber { get; set; }
+
+    [JsonPropertyName("idCardFrontUrl")]
+    public string? IdCardFrontUrl { get; set; }
+
+    [JsonPropertyName("idCardBackUrl")]
+    public string? IdCardBackUrl { get; set; }
+
+    [JsonPropertyName("businessLicenseUrl")]
+    public string? BusinessLicenseUrl { get; set; }
+
+    [JsonPropertyName("avatarUrl")]
+    public string? AvatarUrl { get; set; }
 
     [JsonPropertyName("warehouseAddress")]
     public WarehouseAddressDto? WarehouseAddress { get; set; }
@@ -50,6 +64,21 @@ public sealed class WarehouseAddressDto
     public string? StreetAddress { get; set; }
 }
 
+public sealed class VerifySellerOtpDto
+{
+    [JsonPropertyName("businessEmail")]
+    public string BusinessEmail { get; set; } = string.Empty;
+
+    [JsonPropertyName("otpCode")]
+    public string OtpCode { get; set; } = string.Empty;
+}
+
+public sealed class ResendSellerOtpDto
+{
+    [JsonPropertyName("businessEmail")]
+    public string BusinessEmail { get; set; } = string.Empty;
+}
+
 public sealed class ApproveSellerRegistrationDto
 {
     [JsonPropertyName("note")]
@@ -58,9 +87,49 @@ public sealed class ApproveSellerRegistrationDto
 
 public sealed class RejectSellerRegistrationDto
 {
-    [JsonPropertyName("rejection_reason")]
-    public string? RejectionReasonSnake { set => RejectionReason ??= value; }
-
     [JsonPropertyName("rejectionReason")]
     public string? RejectionReason { get; set; }
 }
+
+public sealed record SellerRegistrationDraft(
+    Guid UserId,
+    string ShopName,
+    string BusinessEmail,
+    string Hotline,
+    string IdentityCardNumber,
+    string PickupAddress,
+    int ProvinceId,
+    int DistrictId,
+    string WardCode,
+    string? IdCardFrontUrl,
+    string? IdCardBackUrl,
+    string? BusinessLicenseUrl,
+    string? AvatarUrl
+);
+
+public sealed class SuspendSellerDto
+{
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = string.Empty;
+
+    [JsonPropertyName("durationDays")]
+    public int? DurationDays { get; set; }
+
+    [JsonPropertyName("policyClauseCode")]
+    public string? PolicyClauseCode { get; set; }
+
+    [JsonPropertyName("evidenceUrls")]
+    public System.Collections.Generic.List<string>? EvidenceUrls { get; set; }
+}
+
+public sealed class ReactivateSellerDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}
+
+public sealed record SellerDocumentFileInput(
+    Stream Content,
+    string FileName,
+    string ContentType,
+    long SizeBytes);

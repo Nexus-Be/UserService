@@ -23,6 +23,87 @@ namespace User.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("User.Domain.Entities.AuctionViolation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AuctionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("DepositForfeitedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("NewStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PreviousStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("ReputationAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ReputationBefore")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SanctionType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("SanctionUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ViolationType")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("IX_AuctionViolations_UserId_CreatedAt");
+
+                    b.HasIndex("UserId", "AuctionId", "ViolationType")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AuctionViolations_System_Idempotency")
+                        .HasFilter("\"Source\" = 0 AND \"AuctionId\" IS NOT NULL AND \"ViolationType\" IS NOT NULL");
+
+                    b.ToTable("AuctionViolations");
+                });
+
             modelBuilder.Entity("User.Domain.Entities.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -105,6 +186,80 @@ namespace User.Infrastructure.Persistence.Migrations
                             UserId = "aaaaaaaa-1111-1111-1111-111111111111",
                             UserName = "admin@nexus.com"
                         });
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.NotificationDispatchLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("LastHttpStatusCode")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxRetries")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("NextRetryAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NotificationId")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceEventId")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceEventId");
+
+                    b.HasIndex("Status", "NextRetryAt");
+
+                    b.ToTable("NotificationDispatchLogs");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.Permission", b =>
@@ -243,6 +398,9 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -255,6 +413,8 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SessionId");
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
@@ -285,6 +445,13 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("PartnerUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Reason")
                         .HasColumnType("integer");
 
@@ -293,6 +460,12 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<int?>("ReferenceType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ScoreAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetRole")
                         .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -305,7 +478,12 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedBy");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "TargetRole", "PartnerUserId", "CreatedAt");
+
+                    b.HasIndex("UserId", "TargetRole", "ReferenceType", "ReferenceId", "Reason")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ReputationLogs_Idempotency")
+                        .HasFilter("\"ReferenceId\" IS NOT NULL");
 
                     b.ToTable("ReputationLogs");
 
@@ -313,13 +491,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("30000000-aaaa-bbbb-cccc-000000000001"),
-                            ChangeAmount = 50,
+                            ChangeAmount = 35,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
                             IsDeleted = false,
+                            PartnerUserId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             Reason = 2,
                             ReferenceId = "02000000-0000-0000-0000-000000000001",
                             ReferenceType = 0,
+                            ScoreAfter = 85,
+                            TargetRole = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("cccccccc-3333-3333-3333-333333333333")
                         },
@@ -330,9 +511,12 @@ namespace User.Infrastructure.Persistence.Migrations
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             IsDeleted = false,
+                            PartnerUserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             Reason = 0,
                             ReferenceId = "02000000-0000-0000-0000-000000000001",
                             ReferenceType = 0,
+                            ScoreAfter = 80,
+                            TargetRole = 0,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
                         });
@@ -357,6 +541,21 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<int>("PenaltyCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerNegativeReviews")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerPenaltyCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerPositiveReviews")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerScore")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SellerTrustLevel")
                         .HasColumnType("integer");
 
                     b.Property<int>("TotalNegativeReviews")
@@ -389,6 +588,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 100,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 0,
+                            SellerScore = 50,
+                            SellerTrustLevel = 2,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 0,
                             TrustLevel = 4,
@@ -402,6 +606,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 100,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 0,
+                            SellerScore = 50,
+                            SellerTrustLevel = 2,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 0,
                             TrustLevel = 4,
@@ -415,6 +624,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 100,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 50,
+                            SellerScore = 85,
+                            SellerTrustLevel = 3,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 50,
                             TrustLevel = 3,
@@ -428,6 +642,11 @@ namespace User.Infrastructure.Persistence.Migrations
                             CurrentScore = 80,
                             IsDeleted = false,
                             PenaltyCount = 0,
+                            SellerNegativeReviews = 0,
+                            SellerPenaltyCount = 0,
+                            SellerPositiveReviews = 0,
+                            SellerScore = 50,
+                            SellerTrustLevel = 2,
                             TotalNegativeReviews = 0,
                             TotalPositiveReviews = 10,
                             TrustLevel = 2,
@@ -466,6 +685,9 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<Guid?>("ParentRoleId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("RoleCode")
                         .HasColumnType("integer");
 
@@ -481,6 +703,8 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ParentRoleId");
 
                     b.ToTable("Roles");
 
@@ -508,6 +732,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
+                            ParentRoleId = new Guid("11111111-1111-1111-1111-111111111111"),
                             RoleCode = 1,
                             RoleName = "Seller",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -536,6 +761,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             IsActive = true,
                             IsDeleted = false,
                             IsSystemRole = false,
+                            ParentRoleId = new Guid("33333333-3333-3333-3333-333333333333"),
                             RoleCode = 3,
                             RoleName = "Administrator",
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -731,6 +957,11 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<bool>("WarehouseReady")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.HasKey("Id");
 
                     b.HasIndex("ReviewedBy");
@@ -760,7 +991,8 @@ namespace User.Infrastructure.Persistence.Migrations
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
-                            WardCode = "00001"
+                            WardCode = "00001",
+                            WarehouseReady = true
                         });
                 });
 
@@ -796,6 +1028,12 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<decimal?>("MaxValue")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("MinValue")
+                        .HasColumnType("numeric");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -829,6 +1067,83 @@ namespace User.Infrastructure.Persistence.Migrations
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             DataType = 3,
                             Description = "Tự động kích hoạt tài khoản buyer sau xác thực email",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555553"),
+                            ConfigKey = "AUCTION_MIN_REPUTATION_BID",
+                            ConfigValue = "40",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Minimum buyer reputation score required to place a bid in an auction.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555554"),
+                            ConfigKey = "AUCTION_MIN_REPUTATION_CREATE",
+                            ConfigValue = "50",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Minimum seller reputation score required to create and open an auction.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555555"),
+                            ConfigKey = "FEATURE_REPUTATION_ENFORCEMENT",
+                            ConfigValue = "true",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 3,
+                            Description = "Toggle strict reputation score enforcement across auctions and commerce.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555556"),
+                            ConfigKey = "PAYMENT_TIMEOUT_PENALTY_SCORE",
+                            ConfigValue = "10",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Reputation score points deducted when a buyer defaults on auction payment.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555557"),
+                            ConfigKey = "SELLER_CANCEL_PENALTY_SCORE",
+                            ConfigValue = "5",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Reputation score points deducted when a seller cancels an order or auction.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555558"),
+                            ConfigKey = "ANTI_FARMING_COOLDOWN_DAYS",
+                            ConfigValue = "7",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Minimum days between positive reputation rewards for the same trading pair.",
+                            IsDeleted = false,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        },
+                        new
+                        {
+                            Id = new Guid("11111111-2222-3333-4444-555555555559"),
+                            ConfigKey = "ORDER_COMPLETED_REWARD_SCORE",
+                            ConfigValue = "1",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DataType = 1,
+                            Description = "Reputation score points rewarded upon completing an order.",
                             IsDeleted = false,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         });
@@ -878,6 +1193,10 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("EmailVerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("FirebaseUid")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -899,13 +1218,15 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)");
 
                     b.Property<string>("PasswordHash")
-                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
                     b.Property<string>("PhoneNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -927,6 +1248,12 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
+                    b.HasIndex("FirebaseUid")
+                        .IsUnique()
+                        .HasFilter("\"FirebaseUid\" IS NOT NULL");
+
+                    b.HasIndex("RoleId");
+
                     b.HasIndex("Username")
                         .IsUnique()
                         .HasFilter("\"Username\" IS NOT NULL");
@@ -947,6 +1274,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "System",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000001",
+                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -965,6 +1293,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Support",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000002",
+                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -983,6 +1312,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Seller",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000003",
+                            RoleId = new Guid("22222222-2222-2222-2222-222222222222"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
@@ -1002,11 +1332,200 @@ namespace User.Infrastructure.Persistence.Migrations
                             LastName = "Buyer",
                             PasswordHash = "$2a$11$BbBEMUrvmyRMgcL9IgBuzugG2R8p/9h0GXmTMGwy1iiBy/Yl6hsuG",
                             PhoneNumber = "0900000004",
+                            RoleId = new Guid("11111111-1111-1111-1111-111111111111"),
                             Status = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UpdatedBy = new Guid("00000000-0000-0000-0000-000000000000"),
                             Username = "buyer"
                         });
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.UserAddress", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AddressLine")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DistrictId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DistrictName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int>("ProvinceId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProvinceName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("RecipientName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("WardName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_UserAddresses_UserId_Default")
+                        .HasFilter("\"IsDefault\" = true AND \"IsDeleted\" = false");
+
+                    b.ToTable("UserAddresses");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.UserAuctionPayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuctionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PreviousStreak")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("RestrictionLifted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("UserAuctionPayments");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.UserAuctionProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RestrictionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("RestrictionType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("RestrictionUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ViolationStreak")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserAuctionProfiles");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserPenalty", b =>
@@ -1024,6 +1543,10 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<List<string>>("EvidenceUrls")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
                     b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1039,13 +1562,35 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<int>("PointsDeducted")
                         .HasColumnType("integer");
 
+                    b.Property<string>("PolicyClauseCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RevokeReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RevokedBy")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<int>("TargetRole")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2);
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1060,7 +1605,13 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedBy");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("ReportId");
+
+                    b.HasIndex("RevokedBy");
+
+                    b.HasIndex("UserId", "TargetRole", "PenaltyApplied", "ExpiresAt")
+                        .HasDatabaseName("IX_UserPenalties_Active_Evaluation")
+                        .HasFilter("\"Status\" = 0");
 
                     b.ToTable("UserPenalties");
 
@@ -1070,6 +1621,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             Id = new Guid("60000000-aaaa-bbbb-cccc-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = new Guid("aaaaaaaa-1111-1111-1111-111111111111"),
+                            EvidenceUrls = new List<string>(),
                             ExpiresAt = new DateTimeOffset(new DateTime(2026, 1, 31, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             IsDeleted = false,
                             IssuedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -1077,6 +1629,7 @@ namespace User.Infrastructure.Persistence.Migrations
                             PointsDeducted = 5,
                             Reason = "Quá hạn thanh toán thử nghiệm trong môi trường sandbox",
                             Status = 1,
+                            TargetRole = 0,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             UserId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ViolationType = 0
@@ -1106,6 +1659,24 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("ReferenceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("ReferenceType")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("RefundAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("RefundMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("RefundStatus")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ReportedUserId")
                         .HasColumnType("uuid");
 
@@ -1116,10 +1687,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("ResolvedBy")
                         .HasColumnType("uuid");
 
                     b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TargetRole")
                         .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -1129,6 +1706,9 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("RefundStatus")
+                        .HasDatabaseName("IX_UserReports_RefundStatus");
 
                     b.HasIndex("ReportedUserId");
 
@@ -1146,11 +1726,14 @@ namespace User.Infrastructure.Persistence.Migrations
                             Description = "Yêu cầu cung cấp thêm hoá đơn VAT cho đơn hàng",
                             EvidenceUrls = new List<string> { "https://images.nexus.local/reports/invoice-request.png" },
                             IsDeleted = false,
+                            RefundStatus = 0,
                             ReportedUserId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             ReporterId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ResolutionNote = "Người bán đã xuất hoá đơn điện tử gửi qua email.",
+                            ResolvedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             ResolvedBy = new Guid("bbbbbbbb-2222-2222-2222-222222222222"),
                             Status = 2,
+                            TargetRole = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             ViolationType = 4
                         });
@@ -1171,6 +1754,16 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HiddenBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HiddenReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -1205,6 +1798,9 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Property<int>("ReviewerRole")
                         .HasColumnType("integer");
 
+                    b.Property<int>("ScoreImpact")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1212,7 +1808,8 @@ namespace User.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("RevieweeId");
 
-                    b.HasIndex("ReviewerId");
+                    b.HasIndex("ReviewerId", "ReferenceType", "ReferenceId")
+                        .IsUnique();
 
                     b.ToTable("UserReviews");
 
@@ -1232,90 +1829,20 @@ namespace User.Infrastructure.Persistence.Migrations
                             RevieweeId = new Guid("cccccccc-3333-3333-3333-333333333333"),
                             ReviewerId = new Guid("dddddddd-4444-4444-4444-444444444444"),
                             ReviewerRole = 0,
+                            ScoreImpact = 1,
                             UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         });
                 });
 
-            modelBuilder.Entity("User.Domain.Entities.UserRole", b =>
+            modelBuilder.Entity("User.Domain.Entities.AuctionViolation", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                    b.HasOne("User.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
-                    b.Property<DateTimeOffset>("AssignedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("AssignedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RoleId");
-
-                    b.HasIndex("UserId", "RoleId")
-                        .IsUnique();
-
-                    b.ToTable("UserRoles");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("faaaaaaa-1111-1111-1111-111111111111"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("44444444-4444-4444-4444-444444444444"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("aaaaaaaa-1111-1111-1111-111111111111")
-                        },
-                        new
-                        {
-                            Id = new Guid("fbbbbbbb-2222-2222-2222-222222222222"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("33333333-3333-3333-3333-333333333333"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("bbbbbbbb-2222-2222-2222-222222222222")
-                        },
-                        new
-                        {
-                            Id = new Guid("fccccccc-3333-3333-3333-333333333333"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("22222222-2222-2222-2222-222222222222"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("cccccccc-3333-3333-3333-333333333333")
-                        },
-                        new
-                        {
-                            Id = new Guid("fddddddd-4444-4444-4444-444444444444"),
-                            AssignedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            IsDeleted = false,
-                            RoleId = new Guid("11111111-1111-1111-1111-111111111111"),
-                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            UserId = new Guid("dddddddd-4444-4444-4444-444444444444")
-                        });
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.RefreshToken", b =>
@@ -1356,6 +1883,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.Role", b =>
+                {
+                    b.HasOne("User.Domain.Entities.Role", "ParentRole")
+                        .WithMany("SubRoles")
+                        .HasForeignKey("ParentRoleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ParentRole");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.RolePermission", b =>
@@ -1402,7 +1939,36 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasForeignKey("BannedBy")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("User.Domain.Entities.Role", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("BannedByUser");
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.UserAddress", b =>
+                {
+                    b.HasOne("User.Domain.Entities.User", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("User.Domain.Entities.UserAuctionProfile", b =>
+                {
+                    b.HasOne("User.Domain.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("User.Domain.Entities.UserAuctionProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.UserPenalty", b =>
@@ -1412,6 +1978,16 @@ namespace User.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CreatedBy")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("User.Domain.Entities.UserReport", "Report")
+                        .WithMany()
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("User.Domain.Entities.User", "RevokedByUser")
+                        .WithMany("PenaltiesRevoked")
+                        .HasForeignKey("RevokedBy")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("User.Domain.Entities.User", "User")
                         .WithMany("PenaltiesReceived")
                         .HasForeignKey("UserId")
@@ -1419,6 +1995,10 @@ namespace User.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("CreatedByUser");
+
+                    b.Navigation("Report");
+
+                    b.Navigation("RevokedByUser");
 
                     b.Navigation("User");
                 });
@@ -1468,25 +2048,6 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("Reviewer");
                 });
 
-            modelBuilder.Entity("User.Domain.Entities.UserRole", b =>
-                {
-                    b.HasOne("User.Domain.Entities.Role", "Role")
-                        .WithMany("UserRoles")
-                        .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("User.Domain.Entities.User", "User")
-                        .WithMany("UserRoles")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Role");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("User.Domain.Entities.Permission", b =>
                 {
                     b.Navigation("RolePermissions");
@@ -1496,14 +2057,20 @@ namespace User.Infrastructure.Persistence.Migrations
                 {
                     b.Navigation("RolePermissions");
 
-                    b.Navigation("UserRoles");
+                    b.Navigation("SubRoles");
+
+                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("User.Domain.Entities.User", b =>
                 {
+                    b.Navigation("Addresses");
+
                     b.Navigation("PenaltiesIssued");
 
                     b.Navigation("PenaltiesReceived");
+
+                    b.Navigation("PenaltiesRevoked");
 
                     b.Navigation("RefreshTokens");
 
@@ -1522,8 +2089,6 @@ namespace User.Infrastructure.Persistence.Migrations
                     b.Navigation("ReviewsReceived");
 
                     b.Navigation("SellerProfile");
-
-                    b.Navigation("UserRoles");
                 });
 #pragma warning restore 612, 618
         }

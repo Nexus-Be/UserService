@@ -2,6 +2,7 @@ namespace User.Application.Services.Admin;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -10,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using User.Application.Common;
 using User.Application.Common.Extensions;
+using User.Application.Common.Helpers;
 using User.Application.Interfaces;
 using User.Domain.Entities;
 using User.Domain.Enums;
@@ -19,13 +21,34 @@ public sealed class AdminUserService : IAdminUserService
 {
     private readonly IUserDbContext _dbContext;
     private readonly ILogger<AdminUserService> _logger;
+    private readonly IRedisOtpService? _redisOtpService;
+    private readonly IEmailNotificationClient? _emailNotificationClient;
 
-    public AdminUserService(IUserDbContext dbContext, ILogger<AdminUserService> logger)
+    public AdminUserService(
+        IUserDbContext dbContext,
+        ILogger<AdminUserService> logger,
+        IRedisOtpService? redisOtpService = null,
+        IEmailNotificationClient? emailNotificationClient = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _redisOtpService = redisOtpService;
+        _emailNotificationClient = emailNotificationClient;
     }
 
+    // =========================================================================================
+    // SECTION 1: CẤP PHÁT VÀ QUẢN LÝ THÔNG TIN NGƯỜI DÙNG (USER PROVISIONING & PROFILE UPDATING)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin] Tạo mới tài khoản người dùng bởi Quản trị viên.
+    /// Kiểm tra email duy nhất, băm mật khẩu bằng BCrypt có salt, kiểm tra SoD và ép buộc quy tắc 1-User 1-Role.
+    /// Tự động ghi AuditLog tập trung sau khi hoàn tất.
+    /// </summary>
+    /// <param name="dto">Dữ liệu tạo tài khoản: Email, Mật khẩu, Họ tên, Username, Số điện thoại, Vai trò khởi tạo.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Thông tin người dùng mới được tạo.</returns>
     public async Task<AdminUserCreatedResponseDto> CreateUserAsync(
         CreateAdminUserDto dto,
         Guid? adminId = null,
@@ -49,12 +72,13 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         var emailTaken = await _dbContext.Users
+            .IgnoreQueryFilters()
             .AnyAsync(u => u.Email == normalizedEmail, cancellationToken);
 
         if (emailTaken)
         {
             _logger.LogWarning("[ADMIN USER CREATE] Email '{Email}' is already registered.", normalizedEmail);
-            throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.");
+            throw new DomainException("EMAIL_ALREADY_EXISTS", "Email is already registered in the system.", 409);
         }
 
         // 2. Validate password (8 - 72 characters for BCrypt)
@@ -91,12 +115,13 @@ public sealed class AdminUserService : IAdminUserService
 
             var usernameLower = username.ToLowerInvariant();
             var usernameTaken = await _dbContext.Users
+                .IgnoreQueryFilters()
                 .AnyAsync(u => u.Username != null && u.Username.ToLower() == usernameLower, cancellationToken);
 
             if (usernameTaken)
             {
                 _logger.LogWarning("[ADMIN USER CREATE] Username '{Username}' is already taken.", username);
-                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.");
+                throw new DomainException("USERNAME_ALREADY_EXISTS", "Username is already registered in the system.", 409);
             }
         }
 
@@ -121,8 +146,10 @@ public sealed class AdminUserService : IAdminUserService
                         requestedRoles.Add(RoleType.Admin);
                         break;
                     case "seller":
-                        requestedRoles.Add(RoleType.Seller);
-                        break;
+                        _logger.LogWarning("[ADMIN USER CREATE] Attempt to create seller account directly by Admin '{AdminId}' rejected.", adminId);
+                        throw new BusinessRuleValidationException(
+                            "CANNOT_CREATE_SELLER",
+                            "Seller accounts cannot be created directly by administrator. Sellers must register through the seller onboarding process.");
                     case "buyer":
                     default:
                         requestedRoles.Add(RoleType.Buyer);
@@ -135,6 +162,21 @@ public sealed class AdminUserService : IAdminUserService
         if (requestedRoles.Count == 0)
         {
             requestedRoles.Add(RoleType.SupportStaff);
+        }
+
+        // Segregation of Duties (SoD): Cannot combine Admin and SupportStaff
+        if (requestedRoles.Contains(RoleType.Admin) && requestedRoles.Contains(RoleType.SupportStaff))
+        {
+            throw new BusinessRuleValidationException("SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
+        }
+
+        if (requestedRoles.Count > 1)
+        {
+            _logger.LogWarning("[ADMIN USER CREATE] Attempt to assign multiple roles [{Roles}] to new user by Admin '{AdminId}' rejected.",
+                string.Join(", ", requestedRoles), adminId);
+            throw new BusinessRuleValidationException(
+                "MULTIPLE_ROLES_NOT_ALLOWED",
+                "A user can only be assigned exactly one primary role.");
         }
 
         // 6. Hash password with BCrypt
@@ -159,40 +201,29 @@ public sealed class AdminUserService : IAdminUserService
 
         _dbContext.Users.Add(newUser);
 
-        // 8. Assign roles in UserRoles table
-        var assignedRoleNames = new List<string>();
-        foreach (var roleType in requestedRoles)
+        // 8. Assign role in Users table (1 User 1 Role principle)
+        var primaryRoleType = requestedRoles.First();
+        var roleEntity = await _dbContext.Roles
+            .FirstOrDefaultAsync(r => r.RoleCode == primaryRoleType, cancellationToken);
+
+        if (roleEntity == null)
         {
-            var roleEntity = await _dbContext.Roles
-                .FirstOrDefaultAsync(r => r.RoleCode == roleType, cancellationToken);
-
-            if (roleEntity == null)
-            {
-                // Fallback if role is not seeded in DB
-                roleEntity = new Role
-                {
-                    Id = Guid.NewGuid(),
-                    RoleCode = roleType,
-                    RoleName = roleType.ToString(),
-                    Description = $"System {roleType} role",
-                    IsActive = true,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                };
-                _dbContext.Roles.Add(roleEntity);
-            }
-
-            _dbContext.UserRoles.Add(new UserRole
+            roleEntity = new Role
             {
                 Id = Guid.NewGuid(),
-                UserId = newUser.Id,
-                RoleId = roleEntity.Id,
-                AssignedAt = DateTimeOffset.UtcNow,
-                AssignedBy = adminId
-            });
-
-            assignedRoleNames.Add(roleEntity.RoleName.ToLowerInvariant());
+                RoleCode = primaryRoleType,
+                RoleName = primaryRoleType.ToString(),
+                Description = $"System {primaryRoleType} role",
+                IsActive = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            _dbContext.Roles.Add(roleEntity);
         }
+
+        newUser.RoleId = roleEntity.Id;
+        newUser.Role = roleEntity;
+        var assignedRoleNames = new List<string> { roleEntity.RoleName.ToLowerInvariant() };
 
         // 9. Initialize default reputation score (50 - Standard)
         _dbContext.ReputationScores.Add(new ReputationScore
@@ -241,6 +272,23 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    // =========================================================================================
+    // SECTION 2: TRA CỨU DANH BẠ VÀ CHI TIẾT HỒ SƠ NGƯỜI DÙNG (USER DIRECTORY & QUERIES)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin / Staff] Tra cứu danh sách người dùng trong hệ thống có phân trang và bộ lọc.
+    /// Hỗ trợ tìm kiếm theo từ khóa (Email, Username, Họ tên, Phone) và lọc theo Role/Status.
+    /// </summary>
+    /// <param name="page">Số trang hiện tại (bắt đầu từ 1).</param>
+    /// <param name="limit">Số bản ghi mỗi trang (tối đa 100).</param>
+    /// <param name="keyword">Từ khóa tìm kiếm (Email, Username, Phone, FullName).</param>
+    /// <param name="role">Lọc theo vai trò (Buyer, Seller, Staff, Admin).</param>
+    /// <param name="status">Lọc theo trạng thái tài khoản (Active, Banned, PendingVerification).</param>
+    /// <param name="sortBy">Trường cần sắp xếp (CreatedAt, Email, FullName).</param>
+    /// <param name="sortOrder">Thứ tự sắp xếp (asc, desc).</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Danh sách người dùng phân trang kèm siêu dữ liệu.</returns>
     public async Task<PagedData<AdminUserListItemDto>> GetUsersAsync(
         int page = 1,
         int limit = 20,
@@ -252,9 +300,10 @@ public sealed class AdminUserService : IAdminUserService
         var (safePage, safeLimit) = PaginationConstants.Normalize(page, limit);
 
         var query = _dbContext.Users
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
+                .ThenInclude(r => r!.ParentRole)
             .Include(u => u.ReputationScore)
             .Include(u => u.SellerProfile)
             .AsQueryable();
@@ -276,12 +325,22 @@ public sealed class AdminUserService : IAdminUserService
         {
             if (status.TryToEnum<UserStatus>(out var parsedStatus))
             {
-                query = query.Where(u => u.Status == parsedStatus);
+                query = parsedStatus == UserStatus.Deleted
+                    ? query.Where(u => u.Status == UserStatus.Deleted || u.IsDeleted)
+                    : query.Where(u => !u.IsDeleted && u.Status == parsedStatus);
             }
             else if (string.Equals(status.Trim(), "pending", StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(u => u.Status == UserStatus.PendingVerification);
+                query = query.Where(u => !u.IsDeleted && u.Status == UserStatus.PendingVerification);
             }
+            else
+            {
+                throw new BusinessRuleValidationException("VAL_INVALID_INPUT", $"Invalid status filter '{status.Trim()}'.");
+            }
+        }
+        else
+        {
+            query = query.Where(u => !u.IsDeleted);
         }
 
         // 3. Role filter
@@ -299,7 +358,7 @@ public sealed class AdminUserService : IAdminUserService
 
             if (targetRoleType.HasValue)
             {
-                query = query.Where(u => u.UserRoles.Any(ur => ur.Role != null && ur.Role.RoleCode == targetRoleType.Value));
+                query = query.Where(u => u.Role != null && u.Role.RoleCode == targetRoleType.Value);
             }
         }
 
@@ -316,10 +375,7 @@ public sealed class AdminUserService : IAdminUserService
         // 6. Map to DTOs
         var items = users.Select(u =>
         {
-            var roles = u.UserRoles?
-                .Where(ur => ur.Role != null)
-                .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
-                .ToList() ?? new List<string>();
+            var roles = u.GetInheritedRoleClaims();
 
             if (roles.Count == 0)
             {
@@ -328,8 +384,10 @@ public sealed class AdminUserService : IAdminUserService
 
             var displayName = $"{u.FirstName} {u.LastName}".Trim();
             var repScore = u.ReputationScore?.CurrentScore ?? 50;
-            var trustLevel = (u.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString().ToUpperInvariant();
-            var isSeller = roles.Contains("seller") || u.SellerProfile != null;
+            var trustLevel = (u.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString();
+            var sellerRepScore = u.ReputationScore?.SellerScore ?? 50;
+            var sellerTrustLevel = (u.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToString();
+            var isSeller = roles.Contains("seller") || (u.SellerProfile != null && (u.SellerProfile.Status == SellerProfileStatus.Approved || u.SellerProfile.Status == SellerProfileStatus.Suspended));
 
             return new AdminUserListItemDto(
                 Id: u.Id.ToString(),
@@ -344,9 +402,11 @@ public sealed class AdminUserService : IAdminUserService
                 Address: u.Address,
                 ReputationScore: repScore,
                 TrustLevel: trustLevel,
+                SellerReputationScore: sellerRepScore,
+                SellerTrustLevel: sellerTrustLevel,
                 IsSeller: isSeller,
                 Roles: roles,
-                Status: u.Status.ToString().ToUpperInvariant(),
+                Status: u.Status.ToString(),
                 CreatedAt: u.CreatedAt
             );
         }).ToList();
@@ -354,6 +414,13 @@ public sealed class AdminUserService : IAdminUserService
         return PagedData<AdminUserListItemDto>.From(items, safePage, safeLimit, total);
     }
 
+    /// <summary>
+    /// [Admin / Staff] Xem thông tin chi tiết hồ sơ tài khoản người dùng theo ID.
+    /// Tự động loại bỏ các vai trò đã xóa mềm (IsDeleted = true) để trả về đúng vai trò đơn nhất đang hoạt động.
+    /// </summary>
+    /// <param name="userId">ID người dùng cần tra cứu.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Chi tiết toàn bộ hồ sơ người dùng, vai trò, gian hàng và điểm uy tín.</returns>
     public async Task<AdminUserDetailDto> GetUserDetailAsync(
         Guid userId,
         CancellationToken cancellationToken = default)
@@ -361,11 +428,13 @@ public sealed class AdminUserService : IAdminUserService
         _logger.LogInformation("[AdminUserService.GetUserDetailAsync] Fetching user profile detail for UserId: {UserId}", userId);
 
         var user = await _dbContext.Users
+            .IgnoreQueryFilters()
             .AsNoTracking()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role!)
-                    .ThenInclude(r => r.RolePermissions)
-                        .ThenInclude(rp => rp.Permission)
+            .Include(u => u.Role!)
+                .ThenInclude(r => r.ParentRole)
+            .Include(u => u.Role!)
+                .ThenInclude(r => r.RolePermissions)
+                    .ThenInclude(rp => rp.Permission)
             .Include(u => u.SellerProfile)
             .Include(u => u.ReputationScore)
             .Include(u => u.ReputationLogs)
@@ -378,21 +447,10 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // Roles
-        var roles = user.UserRoles?
-            .Where(ur => ur.Role != null)
-            .Select(ur => ur.Role!.RoleName.ToLowerInvariant())
-            .Distinct()
-            .ToList() ?? new List<string>();
-
-        if (roles.Count == 0)
-        {
-            roles.Add("buyer");
-        }
+        var roles = user.GetInheritedRoleClaims();
 
         // Permissions
-        var permissions = user.UserRoles?
-            .Where(ur => ur.Role != null && ur.Role.RolePermissions != null)
-            .SelectMany(ur => ur.Role!.RolePermissions)
+        var permissions = user.Role?.RolePermissions?
             .Where(rp => rp.Permission != null)
             .Select(rp => rp.Permission!.PermissionCode.ToLowerInvariant())
             .Distinct()
@@ -401,18 +459,20 @@ public sealed class AdminUserService : IAdminUserService
 
         // Reputation
         var repScore = user.ReputationScore?.CurrentScore ?? 50;
-        var trustLevel = (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString().ToUpperInvariant();
+        var trustLevel = (user.ReputationScore?.TrustLevel ?? TrustLevel.Standard).ToString();
+        var sellerRepScore = user.ReputationScore?.SellerScore ?? 50;
+        var sellerTrustLevel = (user.ReputationScore?.SellerTrustLevel ?? TrustLevel.Standard).ToString();
 
         // Seller Profile
         AdminSellerProfileDetailDto? sellerProfileDto = null;
-        var isSeller = roles.Contains("seller") || (user.SellerProfile != null && user.SellerProfile.Status == SellerProfileStatus.Approved);
+        var isSeller = roles.Contains("seller") || (user.SellerProfile != null && (user.SellerProfile.Status == SellerProfileStatus.Approved || user.SellerProfile.Status == SellerProfileStatus.Suspended));
 
         if (user.SellerProfile != null)
         {
             var sp = user.SellerProfile;
             sellerProfileDto = new AdminSellerProfileDetailDto(
                 ShopName: sp.ShopName,
-                Status: sp.Status.ToString().ToUpperInvariant(),
+                Status: sp.Status.ToString(),
                 Hotline: sp.Hotline,
                 BusinessEmail: sp.BusinessEmail,
                 PickupAddress: sp.PickupAddress,
@@ -434,10 +494,13 @@ public sealed class AdminUserService : IAdminUserService
             .Take(10)
             .Select(l => new AdminUserReputationLogDto(
                 Id: l.Id.ToString(),
+                TargetRole: l.TargetRole.ToString(),
                 ChangeAmount: l.ChangeAmount,
+                ScoreAfter: l.ScoreAfter,
                 Reason: l.Reason.ToString(),
                 ReferenceType: l.ReferenceType?.ToString(),
                 ReferenceId: l.ReferenceId,
+                Note: l.Note,
                 CreatedAt: l.CreatedAt
             ))
             .ToList() ?? new List<AdminUserReputationLogDto>();
@@ -458,10 +521,12 @@ public sealed class AdminUserService : IAdminUserService
             Gender: user.Gender.ToString(),
             DateOfBirth: user.DateOfBirth,
             Address: user.Address,
-            Status: user.Status.ToString().ToUpperInvariant(),
+            Status: user.Status.ToString(),
             IsSeller: isSeller,
             ReputationScore: repScore,
             TrustLevel: trustLevel,
+            SellerReputationScore: sellerRepScore,
+            SellerTrustLevel: sellerTrustLevel,
             Roles: roles,
             Permissions: permissions,
             SellerProfile: sellerProfileDto,
@@ -474,6 +539,11 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    /// <summary>
+    /// [Admin] Lấy danh mục tất cả vai trò khả dụng trong hệ thống.
+    /// </summary>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Danh sách vai trò và quyền hạn.</returns>
     public async Task<AdminRoleListResponseDto> GetRolesAsync(CancellationToken cancellationToken = default)
     {
         var roles = await _dbContext.Roles
@@ -498,6 +568,22 @@ public sealed class AdminUserService : IAdminUserService
         return new AdminRoleListResponseDto(dtoList);
     }
 
+    // =========================================================================================
+    // SECTION 3: QUẢN TRỊ PHÂN QUYỀN VÀ RÀO CHẮN SOD (ROLE ASSIGNMENT & SECURITY GOVERNANCE)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin] Phân quyền và gán vai trò người dùng.
+    /// Áp dụng 3 tầng chốt chặn bảo mật bất biến:
+    /// 1. Phân tách trách nhiệm (SoD): Cấm gán đồng thời vai trò Admin và SupportStaff.
+    /// 2. Nguyên tắc 1-User 1-Primary-Role: Cấm truyền nhiều hơn 1 vai trò (requestedRoles.Count > 1).
+    /// 3. Bảo vệ an toàn gian hàng: Chặn tước vai trò Seller nếu Shop đang Active (chưa bị đình chỉ).
+    /// </summary>
+    /// <param name="userId">ID người dùng cần phân quyền.</param>
+    /// <param name="dto">Danh sách mã vai trò (RoleCodes) yêu cầu.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận vai trò mới đã được gán thành công.</returns>
     public async Task<AdminUserRolesResponseDto> AssignUserRolesAsync(
         Guid targetUserId,
         AssignAdminUserRolesDto dto,
@@ -521,8 +607,8 @@ public sealed class AdminUserService : IAdminUserService
 
         // 1. Validate user exists
         var targetUser = await _dbContext.Users
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId && !u.IsDeleted, cancellationToken);
 
         if (targetUser == null)
@@ -530,13 +616,21 @@ public sealed class AdminUserService : IAdminUserService
             throw new DomainException("USER_NOT_FOUND", "User was not found in the system.");
         }
 
+        var allDbRoles = await _dbContext.Roles
+            .Where(r => !r.IsDeleted)
+            .ToListAsync(cancellationToken);
+
         // 2. Resolve requested role list
         var requestedRoles = new HashSet<RoleType>();
         if (dto.RoleCodes != null && dto.RoleCodes.Count > 0)
         {
             foreach (var code in dto.RoleCodes)
             {
-                if (string.IsNullOrWhiteSpace(code)) continue;
+                if (string.IsNullOrWhiteSpace(code))
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_ROLE", "Role code cannot be empty or whitespace.");
+                }
+
                 var normalizedCode = code.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
                 switch (normalizedCode)
                 {
@@ -555,18 +649,40 @@ public sealed class AdminUserService : IAdminUserService
                     case "buyer":
                         requestedRoles.Add(RoleType.Buyer);
                         break;
+                    default:
+                        throw new BusinessRuleValidationException("VAL_INVALID_ROLE", $"Role code '{code}' is not recognized.");
                 }
             }
         }
 
-        // Handle RoleIds if passed as int or string
+        // Handle RoleIds if passed as GUID or integer string
         if (dto.RoleIds != null && dto.RoleIds.Count > 0)
         {
             foreach (var rId in dto.RoleIds)
             {
-                if (int.TryParse(rId, out var parsedInt) && Enum.IsDefined(typeof(RoleType), parsedInt))
+                if (string.IsNullOrWhiteSpace(rId))
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_ROLE", "Role identifier cannot be empty or whitespace.");
+                }
+
+                var trimmedId = rId.Trim();
+
+                if (Guid.TryParse(trimmedId, out var parsedGuid))
+                {
+                    var matchedRole = allDbRoles.FirstOrDefault(r => r.Id == parsedGuid);
+                    if (matchedRole == null)
+                    {
+                        throw new BusinessRuleValidationException("VAL_INVALID_ROLE", $"Role with ID '{trimmedId}' was not found.");
+                    }
+                    requestedRoles.Add(matchedRole.RoleCode);
+                }
+                else if (int.TryParse(trimmedId, out var parsedInt) && Enum.IsDefined(typeof(RoleType), parsedInt))
                 {
                     requestedRoles.Add((RoleType)parsedInt);
+                }
+                else
+                {
+                    throw new BusinessRuleValidationException("VAL_INVALID_ROLE", $"Role identifier '{trimmedId}' is invalid.");
                 }
             }
         }
@@ -583,20 +699,24 @@ public sealed class AdminUserService : IAdminUserService
             throw new BusinessRuleValidationException("SOD_VIOLATION", "A user cannot be assigned both Admin and SupportStaff roles simultaneously.");
         }
 
-        // 4. Demotion Guard: Cannot demote the last active Administrator
-        var currentRoles = targetUser.UserRoles
-            .Where(ur => !ur.IsDeleted && ur.Role != null)
-            .Select(ur => ur.Role!.RoleCode)
-            .ToHashSet();
-
-        if (currentRoles.Contains(RoleType.Admin) && !requestedRoles.Contains(RoleType.Admin))
+        // 4. Single Primary Role Guard: Exactly 1 primary role allowed
+        if (requestedRoles.Count > 1)
         {
-            var activeAdminCount = await _dbContext.UserRoles
-                .Include(ur => ur.User)
-                .Include(ur => ur.Role)
-                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
-                .Select(ur => ur.UserId)
-                .Distinct()
+            _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to assign multiple roles [{Roles}] to User '{UserId}' by Admin '{AdminId}' rejected.",
+                string.Join(", ", requestedRoles), targetUserId, adminId);
+            throw new BusinessRuleValidationException(
+                "MULTIPLE_ROLES_NOT_ALLOWED",
+                "A user can only be assigned exactly one primary role.");
+        }
+
+        // 4. Demotion Guard: Cannot demote the last active Administrator
+        var currentRole = targetUser.Role?.RoleCode;
+
+        if (currentRole == RoleType.Admin && !requestedRoles.Contains(RoleType.Admin))
+        {
+            var activeAdminCount = await _dbContext.Users
+                .Include(u => u.Role)
+                .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
                 .CountAsync(cancellationToken);
 
             if (activeAdminCount <= 1)
@@ -605,62 +725,53 @@ public sealed class AdminUserService : IAdminUserService
             }
         }
 
-        // 5. Update UserRoles
-        var allDbRoles = await _dbContext.Roles
-            .Where(r => !r.IsDeleted)
-            .ToListAsync(cancellationToken);
-
-        var oldRoleNames = targetUser.UserRoles
-            .Where(ur => !ur.IsDeleted && ur.Role != null)
-            .Select(ur => ur.Role!.RoleCode.ToString())
-            .ToList();
-
-        // Mark removed roles as deleted
-        foreach (var existingUr in targetUser.UserRoles.Where(ur => !ur.IsDeleted).ToList())
+        // 5. Seller Role Guards
+        if (currentRole != RoleType.Seller && requestedRoles.Contains(RoleType.Seller))
         {
-            if (existingUr.Role == null || !requestedRoles.Contains(existingUr.Role.RoleCode))
+            _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to assign seller role directly to User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
+            throw new BusinessRuleValidationException(
+                "CANNOT_ASSIGN_SELLER_ROLE_DIRECTLY",
+                "Seller role cannot be assigned directly. It must be granted through the seller registration approval workflow.");
+        }
+
+        if (currentRole == RoleType.Seller && !requestedRoles.Contains(RoleType.Seller))
+        {
+            var isShopSuspended = targetUser.SellerProfile != null && targetUser.SellerProfile.Status == SellerProfileStatus.Suspended;
+            if (!isShopSuspended)
             {
-                existingUr.IsDeleted = true;
-                existingUr.DeletedAt = DateTimeOffset.UtcNow;
-                existingUr.UpdatedAt = DateTimeOffset.UtcNow;
+                _logger.LogWarning("[ADMIN ASSIGN ROLES] Attempt to revoke seller role directly from User '{UserId}' by Admin '{AdminId}' rejected.", targetUserId, adminId);
+                throw new BusinessRuleValidationException(
+                    "CANNOT_REVOKE_SELLER_ROLE_DIRECTLY",
+                    "Seller role cannot be removed directly from this endpoint. Please use the dedicated seller suspension endpoint: PUT /api/v1/admin/sellers/{sellerId}/suspend.");
             }
         }
 
-        // Add new roles
-        foreach (var reqRole in requestedRoles)
+        // 6. Update RoleId (1 User 1 Role principle)
+        var oldRoleNames = currentRole.HasValue ? new List<string> { currentRole.Value.ToString() } : new List<string>();
+        var newRoleType = requestedRoles.First();
+        var targetDbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == newRoleType);
+        if (targetDbRole == null)
         {
-            var alreadyHas = targetUser.UserRoles.Any(ur => !ur.IsDeleted && ur.Role?.RoleCode == reqRole);
-            if (!alreadyHas)
-            {
-                var dbRole = allDbRoles.FirstOrDefault(r => r.RoleCode == reqRole);
-                if (dbRole != null)
-                {
-                    _dbContext.UserRoles.Add(new UserRole
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = targetUser.Id,
-                        RoleId = dbRole.Id,
-                        AssignedAt = DateTimeOffset.UtcNow,
-                        AssignedBy = adminId ?? Guid.Empty,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow,
-                        IsDeleted = false
-                    });
-                }
-            }
+            throw new DomainException("ROLE_NOT_FOUND", $"Role '{newRoleType}' was not found in the system.");
         }
+
+        targetUser.RoleId = targetDbRole.Id;
+        targetUser.Role = targetDbRole;
 
         var newRoleNames = requestedRoles.Select(r => r.ToString().ToLowerInvariant()).ToList();
 
-        // 6. Ghi AuditLog
+        // 7. Revoke active refresh tokens to force session refresh with updated roles
+        await RevokeActiveRefreshTokensAsync(targetUserId, DateTimeOffset.UtcNow, cancellationToken);
+
+        // 8. Ghi AuditLog
         _dbContext.AddAuditLog(
             action: AuditAction.RoleAssign,
-            entityName: "UserRoles",
+            entityName: "Users",
             entityId: targetUserId.ToString(),
             oldValues: oldRoleNames,
             newValues: newRoleNames,
             userId: adminId?.ToString(),
-            changedColumns: new[] { "UserRoles" });
+            changedColumns: new[] { "RoleId" });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -674,6 +785,15 @@ public sealed class AdminUserService : IAdminUserService
         );
     }
 
+    /// <summary>
+    /// [Admin] Cập nhật thông tin tài khoản người dùng (Họ tên, Số điện thoại, Trạng thái).
+    /// Tự động ghi nhật ký AuditLog chi tiết các cột đã thay đổi (OldValues vs NewValues).
+    /// </summary>
+    /// <param name="userId">ID người dùng cần cập nhật.</param>
+    /// <param name="dto">Dữ liệu cập nhật hồ sơ.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Hồ sơ người dùng sau khi cập nhật.</returns>
     public async Task<AdminUserUpdatedResponseDto> UpdateUserAsync(
         Guid targetUserId,
         UpdateAdminUserDto dto,
@@ -698,6 +818,8 @@ public sealed class AdminUserService : IAdminUserService
         // 1. Find user in DB (including soft-deleted for restoration)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
+            .Include(u => u.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
@@ -712,7 +834,7 @@ public sealed class AdminUserService : IAdminUserService
             ["FirstName"] = user.FirstName,
             ["LastName"] = user.LastName,
             ["PhoneNumber"] = user.PhoneNumber,
-            ["Status"] = user.Status.ToString().ToUpperInvariant()
+            ["Status"] = user.Status.ToString()
         };
 
         var changedColumns = new List<string>();
@@ -790,18 +912,84 @@ public sealed class AdminUserService : IAdminUserService
             if (parsedStatus != user.Status)
             {
                 var previousStatus = user.Status;
+                var now = DateTimeOffset.UtcNow;
+
+                // Guards before transitioning to Banned or Deleted
+                if (parsedStatus == UserStatus.Banned)
+                {
+                    if (adminId.HasValue && adminId.Value == targetUserId)
+                    {
+                        throw new BusinessRuleValidationException("CANNOT_BAN_SELF", "Administrators cannot ban their own account.");
+                    }
+
+                    if (user.Role != null && user.Role.RoleCode == RoleType.Admin)
+                    {
+                        var activeAdminCount = await _dbContext.Users
+                            .Include(u => u.Role)
+                            .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
+                            .CountAsync(cancellationToken);
+
+                        if (activeAdminCount <= 1)
+                        {
+                            throw new BusinessRuleValidationException("CANNOT_BAN_LAST_ADMIN", "Cannot ban the last active Administrator in the system.");
+                        }
+                    }
+                }
+                else if (parsedStatus == UserStatus.Deleted)
+                {
+                    if (user.Role != null && user.Role.RoleCode == RoleType.Admin)
+                    {
+                        var activeAdminCount = await _dbContext.Users
+                            .Include(u => u.Role)
+                            .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
+                            .CountAsync(cancellationToken);
+
+                        if (activeAdminCount <= 1)
+                        {
+                            throw new BusinessRuleValidationException("CANNOT_DELETE_LAST_ADMIN", "Cannot delete the last active Administrator in the system.");
+                        }
+                    }
+                }
+
                 user.Status = parsedStatus;
                 changedColumns.Add("Status");
 
                 // If transitioning to Banned
                 if (parsedStatus == UserStatus.Banned)
                 {
-                    user.BannedAt = DateTimeOffset.UtcNow;
+                    user.BannedAt = now;
                     user.BannedBy = adminId;
                     user.BanReason = dto.Reason.Trim();
                     changedColumns.Add("BannedAt");
                     changedColumns.Add("BannedBy");
                     changedColumns.Add("BanReason");
+
+                    if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Approved)
+                    {
+                        user.SellerProfile.Suspend(dto.Reason.Trim(), adminId);
+                    }
+
+                    _dbContext.UserPenalties.Add(new UserPenalty
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = targetUserId,
+                        TargetRole = TargetRole.Account,
+                        ViolationType = PenaltyViolationType.Fraud,
+                        Reason = dto.Reason.Trim(),
+                        PenaltyApplied = PenaltyType.BanAccount,
+                        PointsDeducted = 0,
+                        Status = PenaltyStatus.Active,
+                        IssuedAt = now,
+                        ExpiresAt = null,
+                        CreatedBy = adminId,
+                        PolicyClauseCode = "ACCOUNT_TERMS_VIOLATION",
+                        EvidenceUrls = new List<string>(),
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                        IsDeleted = false
+                    });
+
+                    await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
                 }
                 // If unbanning
                 else if (previousStatus == UserStatus.Banned)
@@ -812,15 +1000,39 @@ public sealed class AdminUserService : IAdminUserService
                     changedColumns.Add("BannedAt");
                     changedColumns.Add("BannedBy");
                     changedColumns.Add("BanReason");
+
+                    if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+                    {
+                        var hasActiveSellerPenalties = await _dbContext.UserPenalties
+                            .AnyAsync(p => p.UserId == targetUserId &&
+                                           p.TargetRole == TargetRole.Seller &&
+                                           p.Status == PenaltyStatus.Active &&
+                                           (p.ExpiresAt == null || p.ExpiresAt > now), cancellationToken);
+
+                        if (!hasActiveSellerPenalties)
+                        {
+                            user.SellerProfile.Reactivate();
+                        }
+                    }
+
+                    var activeAccountPenalties = await _dbContext.UserPenalties
+                        .Where(p => p.UserId == targetUserId && p.TargetRole == TargetRole.Account && p.Status == PenaltyStatus.Active)
+                        .ToListAsync(cancellationToken);
+
+                    foreach (var penalty in activeAccountPenalties)
+                    {
+                        penalty.Revoke(adminId ?? Guid.Empty, dto.Reason.Trim());
+                    }
                 }
 
                 // If transitioning to Deleted
                 if (parsedStatus == UserStatus.Deleted)
                 {
                     user.IsDeleted = true;
-                    user.DeletedAt = DateTimeOffset.UtcNow;
+                    user.DeletedAt = now;
                     changedColumns.Add("IsDeleted");
                     changedColumns.Add("DeletedAt");
+                    await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
                 }
                 else if (previousStatus == UserStatus.Deleted)
                 {
@@ -845,7 +1057,7 @@ public sealed class AdminUserService : IAdminUserService
             ["FirstName"] = user.FirstName,
             ["LastName"] = user.LastName,
             ["PhoneNumber"] = user.PhoneNumber,
-            ["Status"] = user.Status.ToString().ToUpperInvariant(),
+            ["Status"] = user.Status.ToString(),
             ["Reason"] = dto.Reason.Trim()
         };
 
@@ -861,6 +1073,40 @@ public sealed class AdminUserService : IAdminUserService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        if (_redisOtpService != null && oldValues["Status"]?.ToString() != user.Status.ToString())
+        {
+            try
+            {
+                if (user.Status == UserStatus.Banned)
+                {
+                    await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+                    await _redisOtpService.LockAccountAsync(user.Email, TimeSpan.FromDays(30));
+                    await _redisOtpService.LockAccountAsync(targetUserId.ToString(), TimeSpan.FromDays(30));
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_registration");
+                }
+                else if (user.Status == UserStatus.Deleted)
+                {
+                    await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
+                    await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_registration");
+                }
+                else if (string.Equals(oldValues["Status"]?.ToString(), nameof(UserStatus.Banned), StringComparison.Ordinal)
+                         || string.Equals(oldValues["Status"]?.ToString(), nameof(UserStatus.Deleted), StringComparison.Ordinal))
+                {
+                    await _redisOtpService.UnbanUserAsync(targetUserId);
+                    await _redisOtpService.ResetLoginAttemptsAsync(user.Email);
+                    await _redisOtpService.ResetLoginAttemptsAsync(targetUserId.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN USER UPDATE] Error syncing Redis session state for User '{UserId}'.", targetUserId);
+            }
+        }
+
         _logger.LogInformation("[ADMIN USER UPDATE] Successfully updated user '{UserId}'. Changed columns: {ChangedCols}",
             targetUserId, string.Join(", ", changedColumns));
 
@@ -870,13 +1116,24 @@ public sealed class AdminUserService : IAdminUserService
             FirstName: user.FirstName,
             LastName: user.LastName,
             PhoneNumber: user.PhoneNumber,
-            Status: user.Status.ToString().ToUpperInvariant(),
+            Status: user.Status.ToString(),
             UpdatedBy: adminId?.ToString() ?? "system",
             UpdatedAt: user.UpdatedAt,
             Message: "User updated successfully."
         );
     }
 
+    // =========================================================================================
+    // SECTION 4: KỶ LUẬT, XỬ PHẠT VÀ VÒNG ĐỜI TÀI KHOẢN (SANCTIONS & ACCOUNT LIFECYCLE)
+    // =========================================================================================
+
+    /// <summary>
+    /// [Admin] Xóa mềm tài khoản người dùng (Soft Delete: IsDeleted = true).
+    /// Đồng thời vô hiệu hóa tất cả UserRoles và thu hồi toàn bộ Refresh Tokens.
+    /// </summary>
+    /// <param name="userId">ID người dùng cần xóa.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
     public async Task DeleteUserAsync(
         Guid targetUserId,
         DeleteAdminUserDto? dto,
@@ -896,8 +1153,8 @@ public sealed class AdminUserService : IAdminUserService
         // 1. Find user in DB (including query filter scope)
         var user = await _dbContext.Users
             .IgnoreQueryFilters()
-            .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
+            .Include(u => u.Role)
+            .Include(u => u.SellerProfile)
             .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
 
         if (user == null)
@@ -913,17 +1170,13 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 2. Demotion/Delete Guard for last active Admin
-        var isTargetAdmin = user.UserRoles
-            .Any(ur => !ur.IsDeleted && ur.Role != null && ur.Role.RoleCode == RoleType.Admin);
+        var isTargetAdmin = user.Role != null && user.Role.RoleCode == RoleType.Admin;
 
         if (isTargetAdmin)
         {
-            var activeAdminCount = await _dbContext.UserRoles
-                .Include(ur => ur.User)
-                .Include(ur => ur.Role)
-                .Where(ur => !ur.IsDeleted && ur.User != null && !ur.User.IsDeleted && ur.User.Status == UserStatus.Active && ur.Role != null && ur.Role.RoleCode == RoleType.Admin)
-                .Select(ur => ur.UserId)
-                .Distinct()
+            var activeAdminCount = await _dbContext.Users
+                .Include(u => u.Role)
+                .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
                 .CountAsync(cancellationToken);
 
             if (activeAdminCount <= 1)
@@ -936,7 +1189,7 @@ public sealed class AdminUserService : IAdminUserService
         var oldValues = new Dictionary<string, object?>
         {
             ["IsDeleted"] = user.IsDeleted,
-            ["Status"] = user.Status.ToString().ToUpperInvariant()
+            ["Status"] = user.Status.ToString()
         };
 
         // 3. Perform soft delete
@@ -950,19 +1203,7 @@ public sealed class AdminUserService : IAdminUserService
         }
 
         // 4. Revoke all active refresh tokens
-        var activeTokens = await _dbContext.RefreshTokens
-            .Where(t => t.UserId == targetUserId && !t.IsRevoked)
-            .ToListAsync(cancellationToken);
-
-        if (activeTokens.Count > 0)
-        {
-            foreach (var token in activeTokens)
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = now;
-                token.UpdatedAt = now;
-            }
-        }
+        var revokedTokensCount = await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
 
         // 5. Record audit log
         var newValues = new Dictionary<string, object?>
@@ -971,7 +1212,7 @@ public sealed class AdminUserService : IAdminUserService
             ["DeletedAt"] = now,
             ["Status"] = UserStatus.Deleted.ToString().ToUpperInvariant(),
             ["Reason"] = dto.Reason.Trim(),
-            ["RevokedTokensCount"] = activeTokens.Count
+            ["RevokedTokensCount"] = revokedTokensCount
         };
 
         _dbContext.AddAuditLog(
@@ -986,6 +1227,483 @@ public sealed class AdminUserService : IAdminUserService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("[ADMIN USER DELETE] Successfully soft-deleted user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
-            targetUserId, activeTokens.Count, dto.Reason.Trim());
+            targetUserId, revokedTokensCount, dto.Reason.Trim());
+    }
+
+    /// <summary>
+    /// [Admin] Cấm (khóa) tài khoản người dùng do vi phạm chính sách nghiêm trọng.
+    /// Tự động tạo bản ghi biên bản UserPenalty, hủy toàn bộ phiên làm việc trên Redis và DB, ghi AuditLog.
+    /// </summary>
+    /// <param name="userId">ID người dùng bị khóa.</param>
+    /// <param name="dto">Lý do khóa và thời hạn khóa tài khoản.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận khóa tài khoản thành công.</returns>
+    public async Task<AdminUserBannedResponseDto> BanUserAsync(
+        Guid targetUserId,
+        BanAdminUserDto dto,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Reason for banning user is required.");
+        }
+
+        var trimmedReason = dto.Reason.Trim();
+        if (trimmedReason.Length > 1000)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Ban reason cannot exceed 1000 characters.");
+        }
+
+        if (adminId.HasValue && adminId.Value == targetUserId)
+        {
+            throw new BusinessRuleValidationException("CANNOT_BAN_SELF", "Administrators cannot ban their own account.");
+        }
+
+        // 1. Find user in DB (including soft-deleted for correct error status)
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .Include(u => u.Role)
+            .Include(u => u.SellerProfile)
+            .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[ADMIN USER BAN] User '{UserId}' not found.", targetUserId);
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.", 404);
+        }
+
+        if (user.IsDeleted)
+        {
+            _logger.LogWarning("[ADMIN USER BAN] User '{UserId}' has already been deleted.", targetUserId);
+            throw new DomainException("USER_ALREADY_DELETED", "User has already been deleted.", 400);
+        }
+
+        if (user.Status == UserStatus.Banned)
+        {
+            _logger.LogWarning("[ADMIN USER BAN] User '{UserId}' is already banned.", targetUserId);
+            throw new DomainException("USER_ALREADY_BANNED", "User account is already banned.", 400);
+        }
+
+        // 2. Guard against banning the last active Administrator
+        var isTargetAdmin = user.Role != null && user.Role.RoleCode == RoleType.Admin;
+
+        if (isTargetAdmin)
+        {
+            var activeAdminCount = await _dbContext.Users
+                .Include(u => u.Role)
+                .Where(u => !u.IsDeleted && u.Status == UserStatus.Active && u.Role != null && u.Role.RoleCode == RoleType.Admin)
+                .CountAsync(cancellationToken);
+
+            if (activeAdminCount <= 1)
+            {
+                throw new BusinessRuleValidationException("CANNOT_BAN_LAST_ADMIN", "Cannot ban the last active Administrator in the system.");
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var oldValues = new Dictionary<string, object?>
+        {
+            ["Status"] = user.Status.ToString(),
+            ["BannedAt"] = user.BannedAt,
+            ["BannedBy"] = user.BannedBy?.ToString(),
+            ["BanReason"] = user.BanReason
+        };
+
+        // 3. Update User Entity via encapsulated domain method
+        user.ApplyAccountBan(trimmedReason, adminId);
+
+        // 3.1. Suspend associated seller profile if present and approved
+        if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Approved)
+        {
+            user.SellerProfile.Suspend(trimmedReason, adminId);
+        }
+
+        // 3.2. Record account-level sanction in UserPenalties ledger
+        var accountPenalty = new UserPenalty
+        {
+            Id = Guid.NewGuid(),
+            UserId = targetUserId,
+            TargetRole = TargetRole.Account,
+            ViolationType = PenaltyViolationType.Fraud,
+            Reason = trimmedReason,
+            PenaltyApplied = PenaltyType.BanAccount,
+            PointsDeducted = 0,
+            Status = PenaltyStatus.Active,
+            IssuedAt = now,
+            ExpiresAt = null,
+            CreatedBy = adminId,
+            PolicyClauseCode = dto?.PolicyClauseCode ?? "ACCOUNT_TERMS_VIOLATION",
+            EvidenceUrls = dto?.EvidenceUrls ?? new List<string>(),
+            CreatedAt = now,
+            UpdatedAt = now,
+            IsDeleted = false
+        };
+        _dbContext.UserPenalties.Add(accountPenalty);
+
+        // 4. Revoke active refresh tokens in PostgreSQL
+        var revokedTokensCount = await RevokeActiveRefreshTokensAsync(targetUserId, now, cancellationToken);
+
+        // 5. Audit Log
+        var newValues = new Dictionary<string, object?>
+        {
+            ["Status"] = UserStatus.Banned.ToString(),
+            ["BannedAt"] = now,
+            ["BannedBy"] = adminId?.ToString(),
+            ["BanReason"] = trimmedReason,
+            ["RevokedTokensCount"] = revokedTokensCount
+        };
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserBan,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: oldValues,
+            newValues: newValues,
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status", "BannedAt", "BannedBy", "BanReason" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // 6. Redis Invalidation
+        if (_redisOtpService != null)
+        {
+            try
+            {
+                await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+                await _redisOtpService.LockAccountAsync(user.Email, TimeSpan.FromDays(30));
+                await _redisOtpService.LockAccountAsync(targetUserId.ToString(), TimeSpan.FromDays(30));
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "registration");
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "password_reset");
+                await _redisOtpService.InvalidateExistingOtpsAsync(user.Email, "seller_registration");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ADMIN USER BAN] Error invalidating Redis session/tokens for User '{UserId}'.", targetUserId);
+            }
+        }
+
+        _logger.LogInformation("[ADMIN USER BAN] Successfully banned user '{UserId}'. Revoked {TokenCount} active token(s). Reason: '{Reason}'",
+            targetUserId, revokedTokensCount, trimmedReason);
+
+        // Dispatch ban notification email via Notification Service
+        if (_emailNotificationClient != null && !string.IsNullOrWhiteSpace(user.Email))
+        {
+            var recipientEmail = user.Email.Trim();
+            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                fullName = recipientEmail;
+            }
+
+            try
+            {
+                var sourceEventId = $"account-status:{user.Id}:banned:{Guid.NewGuid():N}";
+                await _emailNotificationClient.SendAccountStatusChangedEmailAsync(
+                    sourceEventId,
+                    user.Id,
+                    recipientEmail,
+                    fullName,
+                    isBanned: true,
+                    reason: trimmedReason,
+                    changedAt: now,
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN USER BAN] Failed to dispatch ban notification email to '{Email}'.", recipientEmail);
+            }
+        }
+
+        return new AdminUserBannedResponseDto(
+            UserId: user.Id.ToString(),
+            Status: user.Status.ToString(),
+            BanReason: trimmedReason,
+            BannedAt: now,
+            BannedBy: adminId?.ToString() ?? "system",
+            RevokedTokensCount: revokedTokensCount,
+            Message: "User account banned successfully."
+        );
+    }
+
+    /// <summary>
+    /// [Admin] Gỡ cấm (mở khóa) cho tài khoản người dùng sau khi hết hạn hoặc khắc phục vi phạm.
+    /// Thu hồi bản ghi UserPenalty tương ứng, khôi phục trạng thái UserStatus = Active, ghi AuditLog.
+    /// </summary>
+    /// <param name="userId">ID người dùng được mở khóa.</param>
+    /// <param name="dto">Lý do mở khóa.</param>
+    /// <param name="adminId">ID quản trị viên thực hiện.</param>
+    /// <param name="cancellationToken">Token hủy yêu cầu.</param>
+    /// <returns>Xác nhận mở khóa tài khoản thành công.</returns>
+    public async Task<AdminUserUnbannedResponseDto> UnbanUserAsync(
+        Guid targetUserId,
+        UnbanAdminUserDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "Target user ID is required.");
+        }
+
+        // 1. Find user in DB
+        var user = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .Include(u => u.SellerProfile)
+            .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
+
+        if (user == null)
+        {
+            _logger.LogWarning("[ADMIN USER UNBAN] User '{UserId}' not found.", targetUserId);
+            throw new DomainException("USER_NOT_FOUND", "User was not found in the system.", 404);
+        }
+
+        if (user.IsDeleted)
+        {
+            _logger.LogWarning("[ADMIN USER UNBAN] User '{UserId}' has already been deleted.", targetUserId);
+            throw new DomainException("USER_ALREADY_DELETED", "User has already been deleted.", 400);
+        }
+
+        if (user.Status != UserStatus.Banned)
+        {
+            _logger.LogWarning("[ADMIN USER UNBAN] User '{UserId}' is not currently banned. Current status: {Status}", targetUserId, user.Status);
+            throw new DomainException("USER_NOT_BANNED", "User account is not currently banned.", 400);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var oldValues = new Dictionary<string, object?>
+        {
+            ["Status"] = user.Status.ToString(),
+            ["BannedAt"] = user.BannedAt,
+            ["BannedBy"] = user.BannedBy?.ToString(),
+            ["BanReason"] = user.BanReason
+        };
+
+        // 2. Restore Status: Active if email verified, otherwise PendingVerification
+        var restoredStatus = user.EmailVerifiedAt.HasValue ? UserStatus.Active : UserStatus.PendingVerification;
+        user.Status = restoredStatus;
+        user.BannedAt = null;
+        user.BannedBy = null;
+        user.BanReason = null;
+        user.UpdatedAt = now;
+        if (adminId.HasValue)
+        {
+            user.UpdatedBy = adminId.Value;
+        }
+
+        var reason = !string.IsNullOrWhiteSpace(dto?.Reason) ? dto.Reason.Trim() : "Account unbanned by administrator.";
+
+        // Reactivate seller profile if it was suspended due to ban AND no independent seller penalties remain active
+        if (user.SellerProfile != null && !user.SellerProfile.IsDeleted && user.SellerProfile.Status == SellerProfileStatus.Suspended)
+        {
+            var hasActiveSellerPenalties = await _dbContext.UserPenalties
+                .AnyAsync(p => p.UserId == targetUserId &&
+                               p.TargetRole == TargetRole.Seller &&
+                               p.Status == PenaltyStatus.Active &&
+                               (p.ExpiresAt == null || p.ExpiresAt > now), cancellationToken);
+
+            if (!hasActiveSellerPenalties)
+            {
+                user.SellerProfile.Reactivate();
+            }
+        }
+
+        // Revoke active account penalties
+        var activeAccountPenalties = await _dbContext.UserPenalties
+            .Where(p => p.UserId == targetUserId && p.TargetRole == TargetRole.Account && p.Status == PenaltyStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        foreach (var penalty in activeAccountPenalties)
+        {
+            penalty.Revoke(adminId ?? Guid.Empty, reason);
+        }
+
+        var newValues = new Dictionary<string, object?>
+        {
+            ["Status"] = restoredStatus.ToString().ToUpperInvariant(),
+            ["BannedAt"] = null,
+            ["BannedBy"] = null,
+            ["BanReason"] = null,
+            ["Reason"] = reason
+        };
+
+        // 3. Audit Log
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserUnban,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: oldValues,
+            newValues: newValues,
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "Status", "BannedAt", "BannedBy", "BanReason" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // 4. Redis Cleanup
+        if (_redisOtpService != null)
+        {
+            try
+            {
+                await _redisOtpService.UnbanUserAsync(targetUserId);
+                await _redisOtpService.ResetLoginAttemptsAsync(user.Email);
+                await _redisOtpService.ResetLoginAttemptsAsync(targetUserId.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ADMIN USER UNBAN] Error clearing Redis ban/lockout for User '{UserId}'.", targetUserId);
+            }
+        }
+
+        _logger.LogInformation("[ADMIN USER UNBAN] Successfully unbanned user '{UserId}'. Restored status to '{Status}'.",
+            targetUserId, restoredStatus);
+
+        // Dispatch unban notification email via Notification Service
+        if (_emailNotificationClient != null && !string.IsNullOrWhiteSpace(user.Email))
+        {
+            var recipientEmail = user.Email.Trim();
+            var fullName = $"{user.FirstName} {user.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                fullName = recipientEmail;
+            }
+
+            try
+            {
+                var sourceEventId = $"account-status:{user.Id}:unbanned:{Guid.NewGuid():N}";
+                await _emailNotificationClient.SendAccountStatusChangedEmailAsync(
+                    sourceEventId,
+                    user.Id,
+                    recipientEmail,
+                    fullName,
+                    isBanned: false,
+                    reason: reason,
+                    changedAt: now,
+                    traceId: Activity.Current?.Id,
+                    cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN USER UNBAN] Failed to dispatch unban notification email to '{Email}'.", recipientEmail);
+            }
+        }
+
+        return new AdminUserUnbannedResponseDto(
+            UserId: user.Id.ToString(),
+            Status: restoredStatus.ToString(),
+            UnbannedAt: now,
+            UnbannedBy: adminId?.ToString() ?? "system",
+            Message: "User account unbanned successfully."
+        );
+    }
+
+    public async Task<AdminUserAvatarRemovedResponseDto> RemoveUserAvatarAsync(
+        Guid targetUserId,
+        RemoveAdminUserAvatarDto? dto = null,
+        Guid? adminId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetUserId == Guid.Empty)
+        {
+            throw new BusinessRuleValidationException("VAL_INVALID_INPUT", "User identifier is required.");
+        }
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == targetUserId && !u.IsDeleted, cancellationToken);
+
+        if (user == null)
+        {
+            throw new DomainException("USER_NOT_FOUND", "User not found with the specified ID.", 404);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var reason = string.IsNullOrWhiteSpace(dto?.Reason)
+            ? "Removed by administrator for policy violation."
+            : dto.Reason.Trim();
+        var oldAvatarUrl = user.AvatarUrl;
+
+        user.AvatarUrl = null;
+        user.UpdatedAt = now;
+
+        var penaltyApplied = false;
+        var autoBanned = false;
+        if (dto?.ApplyPenalty == true)
+        {
+            var outcome = await AvatarViolationHelper.ApplyPenaltyAsync(
+                _dbContext,
+                user,
+                reason,
+                actorId: adminId,
+                now: now,
+                policyCode: AvatarViolationHelper.PolicyCode,
+                cancellationToken: cancellationToken);
+            penaltyApplied = true;
+            autoBanned = outcome.AutoBanned;
+        }
+
+        _dbContext.AddAuditLog(
+            action: AuditAction.UserUpdate,
+            entityName: "User",
+            entityId: targetUserId.ToString(),
+            oldValues: new Dictionary<string, object?> { ["AvatarUrl"] = oldAvatarUrl },
+            newValues: new Dictionary<string, object?> { ["AvatarUrl"] = null, ["Reason"] = reason, ["PenaltyApplied"] = penaltyApplied },
+            userId: adminId?.ToString(),
+            changedColumns: new[] { "AvatarUrl" });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        if (autoBanned && _redisOtpService != null)
+        {
+            try
+            {
+                await _redisOtpService.RevokeUserTokensAsync(targetUserId, TimeSpan.FromDays(30));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ADMIN AVATAR REMOVE] Failed to revoke Redis tokens for auto-banned user '{UserId}'.", targetUserId);
+            }
+        }
+
+        _logger.LogInformation(
+            "[ADMIN AVATAR REMOVE] Removed avatar for UserId '{UserId}' by Admin '{AdminId}'. PenaltyApplied={PenaltyApplied}.",
+            targetUserId, adminId, penaltyApplied);
+
+        return new AdminUserAvatarRemovedResponseDto(
+            UserId: targetUserId.ToString(),
+            RemovedBy: adminId?.ToString() ?? string.Empty,
+            RemovedAt: now,
+            Reason: reason,
+            PenaltyApplied: penaltyApplied,
+            Message: "User avatar removed successfully."
+        );
+    }
+
+    // =========================================================================================
+    // SECTION 5: HÀM PHỤ TRỢ BẢO MẬT VÀ PHIÊN LÀM VIỆC (PRIVATE SECURITY HELPERS)
+    // =========================================================================================
+
+    private async Task<int> RevokeActiveRefreshTokensAsync(Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var activeTokens = await _dbContext.RefreshTokens
+            .Where(t => t.UserId == userId && !t.IsRevoked)
+            .ToListAsync(cancellationToken);
+
+        if (activeTokens.Count > 0)
+        {
+            foreach (var token in activeTokens)
+            {
+                token.IsRevoked = true;
+                token.RevokedAt = now;
+                token.UpdatedAt = now;
+            }
+        }
+
+        return activeTokens.Count;
     }
 }

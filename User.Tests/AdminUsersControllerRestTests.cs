@@ -16,6 +16,9 @@ using User.Domain.Enums;
 using User.Application.Common.Models;
 using User.Infrastructure.Persistence;
 using Xunit;
+using Microsoft.AspNetCore.Mvc.Filters;
+using User.Api.Filters;
+using User.Application.Services.Reputation;
 
 public sealed class AdminUsersControllerRestTests
 {
@@ -140,6 +143,15 @@ public sealed class AdminUsersControllerRestTests
             LastName = "Le",
             Status = UserStatus.Active
         });
+        dbContext.ReputationScores.Add(new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 65,
+            TrustLevel = TrustLevel.Good,
+            SellerScore = 70,
+            SellerTrustLevel = TrustLevel.Good
+        });
         await dbContext.SaveChangesAsync();
 
         var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
@@ -158,6 +170,10 @@ public sealed class AdminUsersControllerRestTests
         Assert.Equal(userId.ToString(), detail.Id);
         Assert.Equal("detail.user@nexus.local", detail.Email);
         Assert.Equal("Hoang Le", detail.DisplayName);
+        Assert.Equal(65, detail.ReputationScore);
+        Assert.Equal("Good", detail.TrustLevel);
+        Assert.Equal(70, detail.SellerReputationScore);
+        Assert.Equal("Good", detail.SellerTrustLevel);
     }
 
     [Fact]
@@ -205,7 +221,7 @@ public sealed class AdminUsersControllerRestTests
         Assert.Equal("Van Updated", response.FirstName);
         Assert.Equal("Nguyen Updated", response.LastName);
         Assert.Equal("0909999888", response.PhoneNumber);
-        Assert.Equal("ACTIVE", response.Status);
+        Assert.Equal("Active", response.Status);
         Assert.Equal(adminId.ToString(), response.UpdatedBy);
     }
 
@@ -246,5 +262,255 @@ public sealed class AdminUsersControllerRestTests
         var deletedDbUser = await dbContext.Users.IgnoreQueryFilters().FirstAsync(u => u.Id == userId);
         Assert.True(deletedDbUser.IsDeleted);
         Assert.Equal(UserStatus.Deleted, deletedDbUser.Status);
+    }
+
+    [Fact]
+    public async Task BanUser_ValidRequest_Returns200Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "ban.target@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new BanAdminUserDto
+        {
+            Reason = "Fraudulent bidding activity"
+        };
+
+        var result = await controller.BanUser(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdminUserBannedResponseDto>(okResult.Value);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Banned", response.Status);
+        Assert.Equal("Fraudulent bidding activity", response.BanReason);
+    }
+
+    [Fact]
+    public async Task BanUser_MissingAuth_ReturnsUnauthorized()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var request = new BanAdminUserDto { Reason = "Some reason" };
+
+        var result = await controller.BanUser(Guid.NewGuid(), request, CancellationToken.None);
+
+        var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnbanUser_ValidRequest_Returns200Ok()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var userId = Guid.NewGuid();
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Email = "unban.target@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Target",
+            LastName = "User",
+            Status = UserStatus.Banned,
+            EmailVerifiedAt = DateTimeOffset.UtcNow,
+            BannedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            BanReason = "Previous ban",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new UnbanAdminUserDto
+        {
+            Reason = "Appeal approved"
+        };
+
+        var result = await controller.UnbanUser(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdminUserUnbannedResponseDto>(okResult.Value);
+        Assert.Equal(userId.ToString(), response.UserId);
+        Assert.Equal("Active", response.Status);
+    }
+
+    [Fact]
+    public async Task UnbanUser_MissingAuth_ReturnsUnauthorized()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance);
+
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = await controller.UnbanUser(Guid.NewGuid(), null, CancellationToken.None);
+
+        var unauthorizedResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
+    }
+    [Fact]
+    public void AdminControllers_HaveStrictAdminRoleAttribute()
+    {
+        var usersAttr = Attribute.GetCustomAttribute(typeof(AdminUsersController), typeof(RequireRoleAttribute)) as RequireRoleAttribute;
+        Assert.NotNull(usersAttr);
+
+        var rolesAttr = Attribute.GetCustomAttribute(typeof(AdminRolesController), typeof(RequireRoleAttribute)) as RequireRoleAttribute;
+        Assert.NotNull(rolesAttr);
+    }
+
+    [Fact]
+    public void RequireRoleAttribute_WhenRoleIsStaffAndAdminRequired_ReturnsForbidden()
+    {
+        var filter = new RequireRoleAttribute("admin");
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "staff";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.NotNull(filterContext.Result);
+        var objResult = Assert.IsType<ObjectResult>(filterContext.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, objResult.StatusCode);
+    }
+
+    [Fact]
+    public void RequireRoleAttribute_WhenRoleIsAdminAndAdminRequired_AllowsAccess()
+    {
+        var filter = new RequireRoleAttribute("admin");
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = Guid.NewGuid().ToString();
+        httpContext.Request.Headers["x-user-roles"] = "admin";
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        var filterContext = new AuthorizationFilterContext(actionContext, new List<IFilterMetadata>());
+
+        filter.OnAuthorization(filterContext);
+
+        Assert.Null(filterContext.Result);
+    }
+
+    [Fact]
+    public async Task AdjustUserReputation_ValidSellerRequest_Returns200OkWithAdjustReputationResponse()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var sellerRole = new Role { Id = Guid.NewGuid(), RoleCode = RoleType.Seller, RoleName = "Seller" };
+        dbContext.Roles.Add(sellerRole);
+
+        var userId = Guid.NewGuid();
+        var user = new User
+        {
+            Id = userId,
+            Email = "adjust.rep@nexus.local",
+            PasswordHash = "hash",
+            FirstName = "Van",
+            LastName = "Nguyen",
+            Status = UserStatus.Active,
+            RoleId = sellerRole.Id,
+            Role = sellerRole,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Users.Add(user);
+
+        var repScore = new ReputationScore
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CurrentScore = 50,
+            TrustLevel = TrustLevel.Standard,
+            SellerScore = 60,
+            SellerTrustLevel = TrustLevel.Standard
+        };
+        dbContext.ReputationScores.Add(repScore);
+        await dbContext.SaveChangesAsync();
+
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var reputationService = new ReputationService(dbContext, NullLogger<ReputationService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance, reputationService);
+
+        var adminId = Guid.NewGuid();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["x-user-id"] = adminId.ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new AdjustReputationRequest
+        {
+            TargetRole = TargetRole.Seller,
+            ScoreDelta = 15,
+            Reason = "Admin adjustment: Excellent auction fulfillment record"
+        };
+
+        var result = await controller.AdjustUserReputation(userId, request, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, okResult.StatusCode);
+
+        var response = Assert.IsType<AdjustReputationResponse>(okResult.Value);
+        Assert.Equal(userId, response.UserId);
+        Assert.Equal("Seller", response.TargetRole);
+        Assert.Equal(60, response.PreviousScore);
+        Assert.Equal(75, response.NewScore);
+        Assert.Equal(15, response.AppliedDelta);
+        Assert.Equal("Good", response.NewTrustLevel);
+    }
+
+    [Fact]
+    public async Task AdjustUserReputation_MissingCallerIdentity_Returns401Unauthorized()
+    {
+        using var dbContext = CreateInMemoryDbContext();
+        var adminService = new AdminUserService(dbContext, NullLogger<AdminUserService>.Instance);
+        var reputationService = new ReputationService(dbContext, NullLogger<ReputationService>.Instance);
+        var controller = new AdminUsersController(adminService, NullLogger<AdminUsersController>.Instance, reputationService);
+
+        var httpContext = new DefaultHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var request = new AdjustReputationRequest
+        {
+            TargetRole = TargetRole.Buyer,
+            ScoreDelta = 5,
+            Reason = "Some valid adjustment reason"
+        };
+
+        var result = await controller.AdjustUserReputation(Guid.NewGuid(), request, CancellationToken.None);
+
+        var unauthorizedResult = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, unauthorizedResult.StatusCode);
     }
 }

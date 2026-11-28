@@ -34,10 +34,10 @@ description: Add or change a REST endpoint in UserService (port 8001). Use when 
 - [ ] Read the files above.
 - [ ] Run GitNexus impact for every symbol to change and record the risk.
 - [ ] Confirm the contract: method, route, RBAC, ownership, pagination, idempotency, database change.
-- [ ] Create `.agents/plan/PLAN-YYYYMMDD-HHMM-<NAME>.md`.
+- [ ] Create `.agents/plans/YYYY-MM-DD_HHmm-plan-<slug>.md`.
 - [ ] Stop and ask if the contract is ambiguous.
 
-### 1. Contract
+### 1. Contract & Pre-Code Documentation
 
 - [ ] Route is `/api/v1/<plural>`; only `/api/v1/me` and `/api/v1/auth` may be singular.
 - [ ] One route attribute per action; no alias.
@@ -48,6 +48,7 @@ description: Add or change a REST endpoint in UserService (port 8001). Use when 
 - [ ] Enums are documented with integer database value and PascalCase API value.
 - [ ] List endpoints use `page` and `pageSize` and return `PagedData<T>`.
 - [ ] Internal API stays off: no `/api/v1/internal`, no `X-Internal-Service-Key`.
+- [ ] **MANDATORY PRE-CODE DOC:** Run skill `service-api-doc` to draft the technical doc at `docs/api/{Feature}/{METHOD}_{ENDPOINT}.md` using `docs/api/SERVICE_API_DOC_TEMPLATE.md` before writing code.
 
 ### 2. Persistence
 
@@ -74,7 +75,11 @@ description: Add or change a REST endpoint in UserService (port 8001). Use when 
 - [ ] Controller lives in `User.Api/Controllers/Public/` and is named `{Feature}Controller`.
 - [ ] `[ApiController]`, one `[Route]`, one route attribute per action, one-line XML `<summary>`.
 - [ ] Only `I{Feature}Service` is injected.
-- [ ] Identity comes from `this.TryGetUserId(...)`, ownership from `this.EnsureOwnership(...)`.
+- [ ] Caller identity and roles: `UserContextMiddleware` automatically decodes gateway headers into `HttpContext.User`.
+  - Extract caller ID via `this.TryGetUserId(out var userId, out var authError)` (returns HTTP 401 ProblemDetails if unauthenticated).
+  - Enforce role restrictions via `[RequireRole("seller", "admin")]` or `this.HasRole(...)` (returns HTTP 403 ProblemDetails if unauthorized).
+  - Enforce resource ownership via `this.EnsureOwnership(...)` or pass `userId` to the service. Never accept client-supplied `userId`/`sellerId`/`buyerId`.
+  - Outbound cross-service HTTP calls automatically propagate identity headers via `IdentityPropagationHandler` configured on typed clients in `Infrastructure/DependencyInjection.cs`.
 - [ ] DTOs are returned directly; delete returns `NoContent()`.
 - [ ] No `ResultFilter`, no manual envelope, no business branching in the controller.
 
